@@ -40,6 +40,9 @@ func TestRemoteSync(t *testing.T) {
 			t.Errorf("%s without a server: %v", cmd, err)
 		}
 	}
+	if _, err := runWithInput(t, token+"\n", "remote", "http://wong.example.com"); err == nil || !strings.Contains(err.Error(), "unencrypted") {
+		t.Errorf("remote over plain http to a public host: %v", err)
+	}
 	if out, err := runWithInput(t, token+"\n", "remote", srv.URL); err != nil {
 		t.Fatalf("remote: %v\n%s", err, out)
 	}
@@ -98,5 +101,27 @@ projects/acme/b.md
 `
 	if out.String() != want {
 		t.Errorf("printTasks =\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
+func TestServeTokens(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "wong.db")
+	for _, name := range []string{"desktop", "laptop"} {
+		if out, err := run(t, "serve", "--db", db, "--new-token", name); err != nil || !strings.HasPrefix(out, "wong_") {
+			t.Fatalf("new token: %v\n%s", err, out)
+		}
+	}
+	if out, err := run(t, "serve", "--db", db, "--revoke-token", "laptop"); err != nil || out != "revoked the token of laptop\n" {
+		t.Errorf("revoke: %v\n%s", err, out)
+	}
+	if _, err := run(t, "serve", "--db", db, "--revoke-token", "laptop"); err == nil {
+		t.Error("revoking a token twice did not fail")
+	}
+	out, err := run(t, "serve", "--db", db, "--tokens")
+	if err != nil || !strings.Contains(out, "NAME") || !strings.Contains(out, "desktop") || !strings.Contains(out, "never") || strings.Contains(out, "laptop") {
+		t.Errorf("tokens: %v\n%s", err, out)
+	}
+	if _, err := run(t, "serve", "--db", db, "--tls-cert", "cert.pem"); err == nil || !strings.Contains(err.Error(), "go together") {
+		t.Errorf("--tls-cert without --tls-key: %v", err)
 	}
 }

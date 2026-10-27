@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,44 +22,81 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, addr, newToken string
+	var db, addr, newToken, revoke, certFile, keyFile string
+	var list bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the wong server that keeps the brain for every machine",
 		Long: "Run the wong server that keeps the brain for every machine.\n\n" +
 			"Every file of the brain is stored with its history in a SQLite database. Each\n" +
-			"machine uses its own token: create one with --new-token <name>.\n\n" +
+			"machine uses its own token: create one with --new-token <name>, see them with\n" +
+			"--tokens and revoke a lost machine's with --revoke-token <name>.\n\n" +
 			"Webhooks leave tasks on the notes they make outdated: POST /hooks/github (push\n" +
 			"events) with WONG_GITHUB_SECRET set, and POST /hooks/linear (issue events) with\n" +
-			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.",
+			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.\n" +
+			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
+			"a proxy with a certificate, or with --tls-cert and --tls-key.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (certFile == "") != (keyFile == "") {
+				return errors.New("--tls-cert and --tls-key go together")
+			}
 			store, err := remote.Open(db)
 			if err != nil {
 				return err
 			}
 			defer store.Close()
-			if newToken != "" {
+			out := cmd.OutOrStdout()
+			switch {
+			case newToken != "":
 				token, err := store.NewToken(newToken)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), token)
+				fmt.Fprintln(out, token)
 				return nil
+			case revoke != "":
+				found, err := store.RevokeToken(revoke)
+				if err != nil {
+					return err
+				}
+				if !found {
+					return fmt.Errorf("no token named %q", revoke)
+				}
+				fmt.Fprintf(out, "revoked the token of %s\n", revoke)
+				return nil
+			case list:
+				tokens, err := store.Tokens()
+				if err != nil {
+					return err
+				}
+				return printTokens(out, tokens)
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
-			srv := &http.Server{Addr: addr, Handler: remote.Handler(store, log, hooks), ReadHeaderTimeout: 10 * time.Second}
+			srv := &http.Server{
+				Addr:              addr,
+				Handler:           remote.Handler(store, log, hooks),
+				ReadHeaderTimeout: 10 * time.Second,
+				ReadTimeout:       2 * time.Minute,
+				WriteTimeout:      2 * time.Minute,
+				IdleTimeout:       2 * time.Minute,
+			}
 			go func() {
 				<-ctx.Done()
 				shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
 			}()
-			log.Info("serving", "addr", addr, "db", db, "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != "")
-			if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Info("serving", "addr", addr, "db", db, "tls", certFile != "", "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != "")
+			if certFile != "" {
+				err = srv.ListenAndServeTLS(certFile, keyFile)
+			} else {
+				err = srv.ListenAndServe()
+			}
+			if !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
 			return nil
@@ -67,7 +105,25 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&db, "db", "wong.db", "SQLite database file")
 	cmd.Flags().StringVar(&addr, "addr", ":8787", "address to listen on")
 	cmd.Flags().StringVar(&newToken, "new-token", "", "create a token for this machine name, print it and exit")
+	cmd.Flags().BoolVar(&list, "tokens", false, "list who has a token and when they last used it, and exit")
+	cmd.Flags().StringVar(&revoke, "revoke-token", "", "revoke this machine name's token and exit")
+	cmd.Flags().StringVar(&certFile, "tls-cert", "", "serve https with this certificate file")
+	cmd.Flags().StringVar(&keyFile, "tls-key", "", "and this key file")
+	cmd.MarkFlagsMutuallyExclusive("new-token", "tokens", "revoke-token")
 	return cmd
+}
+
+func printTokens(out io.Writer, tokens []remote.TokenInfo) error {
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tCREATED\tLAST USED")
+	for _, t := range tokens {
+		last := t.LastUsed
+		if last == "" {
+			last = "never"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.Created, last)
+	}
+	return w.Flush()
 }
 
 func newRemoteCmd() *cobra.Command {

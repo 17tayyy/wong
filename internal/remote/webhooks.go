@@ -16,7 +16,10 @@ import (
 	"github.com/17tayyy/wong/internal/linear"
 )
 
-const linearTolerance = time.Minute
+const (
+	linearTolerance = time.Minute
+	maxHookBody     = 25 << 20
+)
 
 // Webhooks holds the secrets that sign GitHub's and Linear's webhooks; an empty one leaves its endpoint off.
 type Webhooks struct {
@@ -174,7 +177,7 @@ func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 
 // signedBody reads the request body and checks its hex HMAC-SHA256 against the secret, answering the request when it fails.
 func signedBody(w http.ResponseWriter, r *http.Request, log *slog.Logger, secret, header, prefix string) ([]byte, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxHookBody))
 	if err != nil {
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return nil, false

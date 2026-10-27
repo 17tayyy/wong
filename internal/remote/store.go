@@ -39,7 +39,8 @@ CREATE INDEX IF NOT EXISTS files_seq ON files(seq);
 CREATE TABLE IF NOT EXISTS tokens (
 	name       TEXT PRIMARY KEY,
 	hash       TEXT NOT NULL,
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	last_used  TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS tasks (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,11 +89,24 @@ func Open(file string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	return &Store{db: db}, nil
+}
+
+// migrate creates the schema and adds the columns that databases made by older versions lack.
+func migrate(db *sql.DB) error {
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tokens') WHERE name = 'last_used'`).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := db.Exec(`ALTER TABLE tokens ADD COLUMN last_used TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 func (s *Store) Close() error {
@@ -190,19 +204,58 @@ func (s *Store) NewToken(name string) (string, error) {
 	}
 	token := "wong_" + hex.EncodeToString(raw)
 	_, err := s.db.Exec(`INSERT INTO tokens (name, hash, created_at) VALUES (?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at`,
+		ON CONFLICT(name) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at, last_used = ''`,
 		name, Sha([]byte(token)), time.Now().UTC().Format(time.RFC3339))
 	return token, err
 }
 
-// Machine returns the name of the token's owner, or "" when the token is unknown.
+// Machine returns the name of the token's owner, or "" when the token is unknown, and notes when it was used.
 func (s *Store) Machine(token string) (string, error) {
 	var name string
 	err := s.db.QueryRow(`SELECT name FROM tokens WHERE hash = ?`, Sha([]byte(token))).Scan(&name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC().Truncate(time.Minute).Format(time.RFC3339)
+	_, err = s.db.Exec(`UPDATE tokens SET last_used = ? WHERE name = ? AND last_used <> ?`, now, name, now)
 	return name, err
+}
+
+// TokenInfo is who holds a token and when it was created and last used; the token itself is never stored.
+type TokenInfo struct {
+	Name     string
+	Created  string
+	LastUsed string
+}
+
+func (s *Store) Tokens() ([]TokenInfo, error) {
+	rows, err := s.db.Query(`SELECT name, created_at, last_used FROM tokens ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tokens []TokenInfo
+	for rows.Next() {
+		var t TokenInfo
+		if err := rows.Scan(&t.Name, &t.Created, &t.LastUsed); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, t)
+	}
+	return tokens, rows.Err()
+}
+
+// RevokeToken deletes a token, and reports whether there was one with that name.
+func (s *Store) RevokeToken(name string) (bool, error) {
+	res, err := s.db.Exec(`DELETE FROM tokens WHERE name = ?`, name)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 func Sha(data []byte) string {
