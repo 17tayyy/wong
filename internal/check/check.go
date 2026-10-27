@@ -177,26 +177,30 @@ func (c *checker) load(brain, project, only string) ([]loaded, error) {
 			if project != "" && dir != filepath.Join("projects", project) || only != "" && rel != only {
 				continue
 			}
-			var verified time.Time
-			if !n.Verified.IsZero() {
-				verified = n.Verified.AddDate(0, 0, 1)
-			}
-			r := extract(n.Description + "\n" + n.Body)
-			r.addSources(n.Sources)
-			notes = append(notes, loaded{
-				rel:      rel,
-				dir:      dir,
-				kind:     n.Kind,
-				verified: verified,
-				asOf:     asOf(verified, n.Modified(), info.ModTime()),
-				refs:     r,
-			})
+			notes = append(notes, newLoaded(rel, n, info.ModTime()))
 		}
 	}
 	if only != "" && len(notes) == 0 {
 		return nil, fmt.Errorf("no note %s in %s", only, brain)
 	}
 	return notes, nil
+}
+
+func newLoaded(rel string, n *note.Note, written time.Time) loaded {
+	var verified time.Time
+	if !n.Verified.IsZero() {
+		verified = n.Verified.AddDate(0, 0, 1)
+	}
+	r := extract(n.Description + "\n" + n.Body)
+	r.addSources(n.Sources)
+	return loaded{
+		rel:      rel,
+		dir:      filepath.Dir(rel),
+		kind:     n.Kind,
+		verified: verified,
+		asOf:     asOf(verified, n.Modified(), written),
+		refs:     r,
+	}
 }
 
 func (c *checker) fetchIssues(ctx context.Context, t Tracker, notes []loaded) error {
@@ -258,17 +262,32 @@ func (c *checker) check(l loaded) []Finding {
 			continue
 		}
 		issue, ok := c.issues[id]
-		switch {
-		case !ok:
+		if !ok {
 			add(Review, id, "not found in Linear")
-		case !issue.Closed(), issue.ClosedAt.Before(l.verified):
-		case openWord(l.refs.clauses[id]) != "":
-			add(Stale, id, fmt.Sprintf("%s since %s, but the note says %q", issue.State, day(issue.ClosedAt), openWord(l.refs.clauses[id])))
-		case issue.ClosedAt.After(l.asOf):
-			add(Review, id, fmt.Sprintf("%s on %s, after the note was last updated on %s", issue.State, day(issue.ClosedAt), day(l.asOf)))
+			continue
+		}
+		if f, found := l.issueFinding(issue); found {
+			out = append(out, f)
 		}
 	}
 	return out
+}
+
+// issueFinding applies the rules for a closed issue that the note cites.
+func (l loaded) issueFinding(issue linear.Issue) (Finding, bool) {
+	id := issue.Identifier
+	switch {
+	case !issue.Closed(), issue.ClosedAt.Before(l.verified):
+	case openWord(l.refs.clauses[id]) != "":
+		return Finding{l.rel, Stale, id, fmt.Sprintf("%s since %s, but the note says %q", issue.State, day(issue.ClosedAt), openWord(l.refs.clauses[id]))}, true
+	case issue.ClosedAt.After(l.asOf):
+		return Finding{l.rel, Review, id, fmt.Sprintf("%s on %s, after the note was last updated on %s", issue.State, day(issue.ClosedAt), day(l.asOf))}, true
+	}
+	return Finding{}, false
+}
+
+func deletedMessage(commit string, when, asOf time.Time) string {
+	return fmt.Sprintf("deleted or moved in %s on %s, after the note was last updated on %s", commit, day(when), day(asOf))
 }
 
 func (c *checker) file(path string, own []*repo, asOf time.Time) (Severity, string, bool) {
@@ -286,7 +305,7 @@ func (c *checker) file(path string, own []*repo, asOf time.Time) (Severity, stri
 			if !d.when.After(asOf) {
 				return "", "", false
 			}
-			return Stale, fmt.Sprintf("deleted or moved in %s on %s, after the note was last updated on %s", d.commit, day(d.when), day(asOf)), true
+			return Stale, deletedMessage(d.commit, d.when, asOf), true
 		}
 	}
 	if !strings.Contains(path, "/") {
