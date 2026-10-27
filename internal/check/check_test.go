@@ -238,6 +238,23 @@ func TestRunTrustsVerificationAfterTheIssueClosed(t *testing.T) {
 	}
 }
 
+func TestRunSkipsLinkedFoldersThatAreNotRepos(t *testing.T) {
+	f := newFixture(t)
+	f.note(t, "projects/acme/a.md", "Fine.\n", "")
+	folder := filepath.Dir(f.repo)
+
+	opts := f.options(nil)
+	opts.Repos["acme"] = append(opts.Repos["acme"], folder, filepath.Join(folder, "deleted"))
+	rep, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skipped := strings.Join(rep.Skipped, "\n")
+	if strings.Contains(skipped, "repo "+folder+":") || !strings.Contains(skipped, "repo "+filepath.Join(folder, "deleted")+":") {
+		t.Errorf("skipped = %v", rep.Skipped)
+	}
+}
+
 func TestRunReportsTrackerErrorsAsSkipped(t *testing.T) {
 	f := newFixture(t)
 	f.note(t, "projects/acme/a.md", "ENG-1 en pausa.\n", "")

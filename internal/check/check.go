@@ -79,6 +79,13 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 
 	for _, id := range slices.Sorted(maps.Keys(opts.Repos)) {
 		for _, dir := range opts.Repos[id] {
+			if _, err := os.Stat(dir); err != nil {
+				rep.Skipped = append(rep.Skipped, fmt.Sprintf("repo %s: %v", dir, err))
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+				continue
+			}
 			r, err := openRepo(dir)
 			if err != nil {
 				rep.Skipped = append(rep.Skipped, fmt.Sprintf("repo %s: %v", dir, err))
