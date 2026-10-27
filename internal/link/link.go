@@ -1,4 +1,4 @@
-// Package link points a repo's Claude Code memory at the brain.
+// Package link points Claude Code's memory at the brain by editing autoMemoryDirectory in its settings.
 package link
 
 import (
@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -17,105 +18,155 @@ const (
 	memoryKey    = "autoMemoryDirectory"
 )
 
-// MemoryDir is the setting's value for a project, written with ~/ when the brain lives under home.
-func MemoryDir(brain, home, project string) string {
-	dir := filepath.Join(brain, "projects", project)
-	if rel, err := filepath.Rel(home, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-		return "~/" + filepath.ToSlash(rel)
+var (
+	keyRE           = regexp.MustCompile(`"` + memoryKey + `"[ \t]*:[ \t]*"(?:[^"\\]|\\.)*"`)
+	keyLineRE       = regexp.MustCompile(`\n?[ \t]*"` + memoryKey + `"[ \t]*:[ \t]*"(?:[^"\\]|\\.)*"[ \t]*,?`)
+	trailingCommaRE = regexp.MustCompile(`,(\s*})`)
+)
+
+// MemoryDir is the setting's value for a folder of the brain, written with ~/ when the brain lives under home.
+func MemoryDir(brain, home, rel string) string {
+	dir := filepath.Join(brain, rel)
+	if r, err := filepath.Rel(home, dir); err == nil && r != ".." && !strings.HasPrefix(r, "../") {
+		return "~/" + filepath.ToSlash(r)
 	}
 	return dir
 }
 
-// Current returns the memory directory a repo is linked to, or "" when it is not linked.
-func Current(repo string) (string, error) {
-	settings, err := read(repo)
+// Current returns the memory directory a settings file sets, or "" when it sets none.
+func Current(settings string) (string, error) {
+	data, err := os.ReadFile(settings)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(data, &values); err != nil {
+		return "", fmt.Errorf("%s: %w", settings, err)
+	}
 	var dir string
-	if raw, ok := settings[memoryKey]; ok {
+	if raw, ok := values[memoryKey]; ok {
 		if err := json.Unmarshal(raw, &dir); err != nil {
-			return "", fmt.Errorf("%s: %s: %w", filepath.Join(repo, settingsPath), memoryKey, err)
+			return "", fmt.Errorf("%s: %s: %w", settings, memoryKey, err)
 		}
 	}
 	return dir, nil
 }
 
-func Link(repo, memoryDir string) error {
-	settings, err := read(repo)
-	if err != nil {
+// Settings is the local settings file of a repo or folder.
+func Settings(dir string) string {
+	return filepath.Join(dir, settingsPath)
+}
+
+// Link points a repo or folder at memoryDir, keeping its other local settings and making git ignore them.
+func Link(dir, memoryDir string) error {
+	if err := Set(Settings(dir), memoryDir); err != nil {
 		return err
 	}
+	return ignore(dir)
+}
+
+func Unlink(dir string) error {
+	return Unset(Settings(dir), true)
+}
+
+// Set writes the memory directory into a settings file, touching nothing else in it.
+func Set(settings, memoryDir string) error {
 	value, err := json.Marshal(memoryDir)
 	if err != nil {
 		return err
 	}
-	settings[memoryKey] = value
-	if err := write(repo, settings); err != nil {
+	pair := fmt.Sprintf("%q: %s", memoryKey, value)
+	data, err := os.ReadFile(settings)
+	var out string
+	switch {
+	case errors.Is(err, fs.ErrNotExist) || strings.TrimSpace(string(data)) == "" || isEmptyObject(data):
+		out = "{\n  " + pair + "\n}\n"
+	case err != nil:
+		return err
+	case keyRE.Match(data):
+		out = keyRE.ReplaceAllLiteralString(string(data), pair)
+	default:
+		i := strings.Index(string(data), "{")
+		if i < 0 {
+			return fmt.Errorf("%s: not a JSON object", settings)
+		}
+		out = string(data[:i+1]) + "\n  " + pair + "," + string(data[i+1:])
+	}
+	if got, err := currentOf([]byte(out)); err != nil || got != memoryDir {
+		return fmt.Errorf("%s: could not set %s without breaking the file", settings, memoryKey)
+	}
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
 		return err
 	}
-	return ignore(repo)
+	return os.WriteFile(settings, []byte(out), 0o644)
 }
 
-func Unlink(repo string) error {
-	settings, err := read(repo)
-	if err != nil {
-		return err
-	}
-	if _, ok := settings[memoryKey]; !ok {
+// Unset removes the memory directory from a settings file; removeEmpty deletes a file left with nothing else.
+func Unset(settings string, removeEmpty bool) error {
+	data, err := os.ReadFile(settings)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	delete(settings, memoryKey)
-	if len(settings) == 0 {
-		return os.Remove(filepath.Join(repo, settingsPath))
-	}
-	return write(repo, settings)
-}
-
-func read(repo string) (map[string]json.RawMessage, error) {
-	path := filepath.Join(repo, settingsPath)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return map[string]json.RawMessage{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	settings := map[string]json.RawMessage{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return settings, nil
-}
-
-func write(repo string, settings map[string]json.RawMessage) error {
-	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(repo, settingsPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	if !keyRE.Match(data) {
+		return nil
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	out := keyLineRE.ReplaceAllString(string(data), "")
+	if !json.Valid([]byte(out)) {
+		out = trailingCommaRE.ReplaceAllString(out, "$1")
+	}
+	if got, err := currentOf([]byte(out)); err != nil || got != "" {
+		return fmt.Errorf("%s: could not remove %s without breaking the file", settings, memoryKey)
+	}
+	if removeEmpty && isEmptyObject([]byte(out)) {
+		return os.Remove(settings)
+	}
+	return os.WriteFile(settings, []byte(out), 0o644)
 }
 
-func ignore(repo string) error {
-	err := exec.Command("git", "-C", repo, "check-ignore", "-q", settingsPath).Run()
+func currentOf(data []byte) (string, error) {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(data, &values); err != nil {
+		return "", err
+	}
+	var dir string
+	if raw, ok := values[memoryKey]; ok {
+		if err := json.Unmarshal(raw, &dir); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+func isEmptyObject(data []byte) bool {
+	var values map[string]json.RawMessage
+	return json.Unmarshal(data, &values) == nil && len(values) == 0
+}
+
+func ignore(dir string) error {
+	if exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree").Run() != nil {
+		return nil
+	}
+	err := exec.Command("git", "-C", dir, "check-ignore", "-q", settingsPath).Run()
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
 		return nil
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
-		return fmt.Errorf("git check-ignore in %s: %w", repo, err)
+		return fmt.Errorf("git check-ignore in %s: %w", dir, err)
 	}
-	out, err := exec.Command("git", "-C", repo, "rev-parse", "--git-path", "info/exclude").Output()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--git-path", "info/exclude").Output()
 	if err != nil {
-		return fmt.Errorf("git rev-parse in %s: %w", repo, err)
+		return fmt.Errorf("git rev-parse in %s: %w", dir, err)
 	}
 	exclude := strings.TrimSpace(string(out))
 	if !filepath.IsAbs(exclude) {
-		exclude = filepath.Join(repo, exclude)
+		exclude = filepath.Join(dir, exclude)
 	}
 	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
 		return err
