@@ -108,6 +108,8 @@ verified: 2026-10-27
 - `scope`: `global` (lives in `me/`) or `project:<id>` (lives in `projects/<id>/`).
 - `sources`: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>`,
   or a URL.
-- `verified`: the date you last checked the note against its sources.
+- `verified`: the date you last checked the note against its sources. `wong check` reads
+  `sources` and measures from `verified`: when a source changes after that date (an issue
+  closes, a file is deleted), the note comes back for review.
 - Keep Claude Code's own fields (`metadata`, `originSessionId`) as they are.
 - Update the project's `MEMORY.md` line if the note's name or description changes.

@@ -136,7 +136,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 			}
 			return 1
 		}
-		return cmp.Or(cmp.Compare(a.Note, b.Note), cmp.Compare(a.Severity, b.Severity))
+		return cmp.Or(cmp.Compare(a.Note, b.Note), cmp.Compare(rank(a.Severity), rank(b.Severity)))
 	})
 	return rep, nil
 }
@@ -179,13 +179,15 @@ func (c *checker) load(brain, project string) ([]loaded, error) {
 			if !n.Verified.IsZero() {
 				verified = n.Verified.AddDate(0, 0, 1)
 			}
+			r := extract(n.Description + "\n" + n.Body)
+			r.addSources(n.Sources)
 			notes = append(notes, loaded{
 				rel:      filepath.Join(dir, filepath.Base(path)),
 				dir:      dir,
 				kind:     n.Kind,
 				verified: verified,
-				asOf:     latest(verified, n.Modified(), info.ModTime()),
-				refs:     extract(n.Description + "\n" + n.Body),
+				asOf:     asOf(verified, n.Modified(), info.ModTime()),
+				refs:     r,
 			})
 		}
 	}
@@ -225,6 +227,9 @@ func (c *checker) check(l loaded) []Finding {
 	var out []Finding
 	add := func(sev Severity, ref, msg string) {
 		out = append(out, Finding{Note: l.rel, Severity: sev, Ref: ref, Message: msg})
+	}
+	for _, s := range l.refs.unknown {
+		add(Review, s, "source not understood: use linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL")
 	}
 	for _, link := range l.refs.links {
 		if !c.names[l.dir][link] && !c.names["me"][link] {
@@ -306,14 +311,22 @@ func uniqueDirs(notes []loaded) []string {
 	return dirs
 }
 
-func latest(times ...time.Time) time.Time {
-	var t time.Time
-	for _, x := range times {
-		if x.After(t) {
-			t = x
-		}
+// asOf is when a note's claims were last confirmed: its verified date if it has one, else its last write.
+func asOf(verified, modified, mtime time.Time) time.Time {
+	if !verified.IsZero() {
+		return verified
 	}
-	return t
+	if modified.After(mtime) {
+		return modified
+	}
+	return mtime
+}
+
+func rank(s Severity) int {
+	if s == Stale {
+		return 0
+	}
+	return 1
 }
 
 func day(t time.Time) string {

@@ -19,6 +19,7 @@ var (
 )
 
 type refs struct {
+	unknown []string
 	files   []string
 	commits []string
 	issues  []string
@@ -62,6 +63,43 @@ func extract(body string) refs {
 		}
 	}
 	return r
+}
+
+// addSources adds what a note declares in sources: linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.
+func (r *refs) addSources(sources []string) {
+	for _, s := range sources {
+		kind, value, _ := strings.Cut(s, ":")
+		switch {
+		case kind == "linear" && issueRE.FindString(value) == value:
+			if _, seen := r.clauses[value]; !seen {
+				r.issues = append(r.issues, value)
+				r.clauses[value] = nil
+			}
+		case kind == "file" && strings.Contains(value, "/"):
+			if !slices.Contains(r.files, value) {
+				r.files = append(r.files, value)
+			}
+		case kind == "commit" && sourceCommit(value) != "":
+			if sha := sourceCommit(value); !slices.Contains(r.commits, sha) {
+				r.commits = append(r.commits, sha)
+			}
+		case kind == "note" && value != "":
+			if !slices.Contains(r.links, value) {
+				r.links = append(r.links, value)
+			}
+		case kind == "http" || kind == "https":
+		default:
+			r.unknown = append(r.unknown, s)
+		}
+	}
+}
+
+func sourceCommit(value string) string {
+	_, sha, ok := strings.Cut(value, "@")
+	if !ok || commitRE.FindString(sha) != sha || !isCommit(sha, []int{0, len(sha)}) {
+		return ""
+	}
+	return sha
 }
 
 func fileRef(token string) (string, bool) {

@@ -222,6 +222,30 @@ func TestRunReadsTheDescription(t *testing.T) {
 	}
 }
 
+func TestRunChecksDeclaredSources(t *testing.T) {
+	f := newFixture(t)
+	write(t, filepath.Join(f.brain, "projects/acme/declared.md"), "---\nname: declared\ndescription: d\nsources:\n"+
+		"  - linear:ENG-2\n  - linear:ENG-3\n  - file:acme-api/app/models.py\n  - file:acme-api/app/never.py\n"+
+		"  - commit:acme-api@"+f.unpushed+"\n  - note:gone\n  - https://example.com/spec\n  - jira:ENG-2\n"+
+		"verified: 2026-10-10\n---\nNo references in the text.\n")
+
+	rep, err := Run(context.Background(), f.options(tracker))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"stale projects/acme/declared.md [[gone]]",
+		"review projects/acme/declared.md jira:ENG-2",
+		"review projects/acme/declared.md acme-api/app/never.py",
+		"review projects/acme/declared.md " + f.unpushed,
+		"review projects/acme/declared.md ENG-2",
+	}
+	if got := found(rep); !slices.Equal(got, want) {
+		t.Errorf("findings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestRunTrustsVerificationAfterTheIssueClosed(t *testing.T) {
 	f := newFixture(t)
 	for name, verified := range map[string]string{"same-day": "2026-10-02", "later": "2026-10-05", "before": "2026-10-01"} {
