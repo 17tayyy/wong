@@ -99,12 +99,9 @@ func newRemoteCmd() *cobra.Command {
 func newSyncCmds(brain *string) []*cobra.Command {
 	run := func(pull, push bool) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, _ []string) error {
-			client, err := remoteClient(30 * time.Second)
+			client, err := requireRemote(30 * time.Second)
 			if err != nil {
 				return err
-			}
-			if client == nil {
-				return errors.New("no server set: run wong remote <url>")
 			}
 			out := cmd.OutOrStdout()
 			if pull {
@@ -171,4 +168,13 @@ func remoteClient(timeout time.Duration) (*remote.Client, error) {
 		return nil, err
 	}
 	return remote.NewClient(cfg.URL, cfg.Token, timeout), nil
+}
+
+// requireRemote is remoteClient for the commands that need a server.
+func requireRemote(timeout time.Duration) (*remote.Client, error) {
+	client, err := remoteClient(timeout)
+	if err == nil && client == nil {
+		err = errors.New("no server set: run wong remote <url>")
+	}
+	return client, err
 }

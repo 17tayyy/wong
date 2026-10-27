@@ -14,7 +14,10 @@ other notes) and reports where the world moved since:
 
 ## Workflow
 
-1. Run `wong check --project <id>` (or start from the tasks you were given).
+1. Run `wong check --project <id>` and, when the machine has a wong server, `wong tasks
+   --project <id>` (or start from the tasks you were given). Tasks come from the server's
+   webhooks: a file removed on GitHub or an issue closed in Linear. They close by
+   themselves once the fixed note reaches the server: `wong push`, or the session-end hook.
 2. Take one note at a time and handle all of its findings, stale and review, in one go:
    editing a note refreshes its date, so whatever you leave behind stops being reported.
 3. `wong note show <note>` prints the note, its path and its findings. Read it whole,

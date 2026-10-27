@@ -1,9 +1,15 @@
 package hook
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -12,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
 )
@@ -181,5 +188,62 @@ func TestSessionsSyncThroughTheServer(t *testing.T) {
 	}
 	if got := SessionStart(context.Background(), Input{Cwd: repo}, laptop); !strings.Contains(got, "1 notes of the brain changed both here and on another machine") {
 		t.Errorf("context = %q", got)
+	}
+}
+
+type closedIssues map[string]linear.Issue
+
+func (c closedIssues) TeamKeys(context.Context) ([]string, error) { return []string{"ENG"}, nil }
+
+func (c closedIssues) Issues(context.Context, []string) (map[string]linear.Issue, error) {
+	return c, nil
+}
+
+func TestSessionStartShowsTheServersTasks(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(env.Brain, "projects", "acme", "b.md"), "---\nname: b\ndescription: d\n---\nENG-15 en pausa.\n")
+	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(env.Brain, "projects", "acme", "b.md"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{LinearSecret: "secret"}))
+	defer srv.Close()
+	token, err := store.NewToken("desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.Remote = remote.NewClient(srv.URL, token, 5*time.Second)
+	if err := SessionEnd(context.Background(), Input{SessionID: "s", Cwd: repo}, env); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"action": "update", "type": "Issue", "createdAt": "2026-10-20T10:00:00Z", "webhookTimestamp": %d,
+		"data": {"identifier": "ENG-15", "completedAt": "2026-10-20T10:00:00Z", "state": {"name": "Done", "type": "completed"}}}`, time.Now().UnixMilli())
+	mac := hmac.New(sha256.New, []byte("secret"))
+	mac.Write([]byte(body))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/linear", bytes.NewReader([]byte(body)))
+	req.Header.Set("Linear-Signature", hex.EncodeToString(mac.Sum(nil)))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("linear webhook: %v, %v", resp, err)
+	}
+	resp.Body.Close()
+	task := `- projects/acme/b.md: ENG-15 Done since 2026-10-20, but the note says "en pausa"`
+
+	got := SessionStart(context.Background(), Input{Cwd: repo}, env)
+	for _, want := range []string{"2 findings say", task, "`wong tasks --project acme`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("context lacks %q:\n%s", want, got)
+		}
+	}
+
+	env.Tracker = closedIssues{"ENG-15": {Identifier: "ENG-15", State: "Done", Type: "completed", ClosedAt: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)}}
+	got = SessionStart(context.Background(), Input{Cwd: repo}, env)
+	if !strings.Contains(got, "2 findings say") || strings.Count(got, task) != 1 {
+		t.Errorf("a task that check also found is listed twice:\n%s", got)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/17tayyy/wong/internal/check"
@@ -66,13 +67,26 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))
 	}
 
-	rep, err := check.Run(ctx, check.Options{Brain: env.Brain, Repos: env.Repos, Tracker: env.Tracker, Project: project})
-	if err != nil {
-		return b.String()
+	var findings []check.Finding
+	if rep, err := check.Run(ctx, check.Options{Brain: env.Brain, Repos: env.Repos, Tracker: env.Tracker, Project: project}); err == nil {
+		findings = rep.Findings
+	}
+	list := fmt.Sprintf("`wong check --project %s` lists everything", project)
+	if env.Remote != nil {
+		tasks, err := env.Remote.Tasks(ctx, project)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wong: tasks:", err)
+		}
+		for _, t := range tasks {
+			if !slices.ContainsFunc(findings, func(f check.Finding) bool { return f.Note == t.Note && f.Ref == t.Ref }) {
+				findings = append(findings, check.Finding{Note: t.Note, Severity: check.Severity(t.Severity), Ref: t.Ref, Message: t.Message})
+			}
+		}
+		list = fmt.Sprintf("`wong check --project %s` and `wong tasks --project %s` list everything", project, project)
 	}
 	var stale []check.Finding
 	review := map[string]bool{}
-	for _, f := range rep.Findings {
+	for _, f := range findings {
 		if f.Severity == check.Stale {
 			stale = append(stale, f)
 		} else {
@@ -82,7 +96,7 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	if len(stale) > 0 {
 		fmt.Fprintf(&b, "\nwong check: %d findings say notes of this project's memory contradict their sources. "+
 			"When you have finished what the user asked, fix them with the wong:maintain-brain skill, one note at a time "+
-			"(`wong check --project %s` lists everything):\n", len(stale), project)
+			"(%s):\n", len(stale), list)
 		for i, f := range stale {
 			if i == maxFindings {
 				fmt.Fprintf(&b, "- and %d more\n", len(stale)-maxFindings)

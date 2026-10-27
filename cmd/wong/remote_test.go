@@ -35,8 +35,10 @@ func TestRemoteSync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := run(t, "--brain", desktop, "sync"); err == nil || !strings.Contains(err.Error(), "no server set") {
-		t.Errorf("sync without a server: %v", err)
+	for _, cmd := range []string{"sync", "tasks"} {
+		if _, err := run(t, "--brain", desktop, cmd); err == nil || !strings.Contains(err.Error(), "no server set") {
+			t.Errorf("%s without a server: %v", cmd, err)
+		}
 	}
 	if out, err := runWithInput(t, token+"\n", "remote", srv.URL); err != nil {
 		t.Fatalf("remote: %v\n%s", err, out)
@@ -45,6 +47,9 @@ func TestRemoteSync(t *testing.T) {
 		t.Errorf("remote.yaml: %v, %v", info, err)
 	}
 
+	if out, err := run(t, "tasks", "--project", "acme"); err != nil || out != "0 open tasks\n" {
+		t.Errorf("tasks: %v\n%s", err, out)
+	}
 	if out, err := run(t, "--brain", desktop, "push"); err != nil || !strings.Contains(out, "pushed: 1") {
 		t.Fatalf("push: %v\n%s", err, out)
 	}
@@ -69,5 +74,29 @@ func TestRemoteSync(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(laptop, "me", "a.md")); string(data) != "desktop\n" {
 		t.Errorf("laptop a.md = %q", data)
+	}
+}
+
+func TestPrintTasks(t *testing.T) {
+	var out strings.Builder
+	tasks := []remote.Task{
+		{Note: "projects/acme/a.md", Severity: "stale", Ref: "ENG-15", Message: "Done since 2026-10-20", Source: "linear ENG-15"},
+		{Note: "projects/acme/a.md", Severity: "stale", Ref: "src/app.go", Message: "deleted", Source: "github acme/api@a1b2c3d"},
+		{Note: "projects/acme/b.md", Severity: "review", Ref: "ENG-16", Message: "Done on 2026-10-21", Source: "linear ENG-16"},
+	}
+	if err := printTasks(&out, tasks); err != nil {
+		t.Fatal(err)
+	}
+	want := `projects/acme/a.md
+  stale  ENG-15      Done since 2026-10-20 (linear ENG-15)
+  stale  src/app.go  deleted (github acme/api@a1b2c3d)
+
+projects/acme/b.md
+  review  ENG-16  Done on 2026-10-21 (linear ENG-16)
+
+3 open tasks
+`
+	if out.String() != want {
+		t.Errorf("printTasks =\n%s\nwant\n%s", out.String(), want)
 	}
 }
