@@ -3,6 +3,9 @@ package importer
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,6 +22,8 @@ import (
 const (
 	indexName     = "MEMORY.md"
 	indexMaxLines = 200
+	indexMaxBytes = 25 << 10
+	importedPath  = ".wong/imported.json"
 )
 
 var (
@@ -55,7 +60,10 @@ func (s Source) Label() string {
 
 type Result struct {
 	Written   int
+	Updated   int
 	Unchanged int
+	Kept      int
+	Conflicts []string
 	Warnings  []string
 }
 
@@ -99,7 +107,7 @@ func Plan(projectsDir, home string, overrides map[string]string) ([]Source, erro
 	return sources, nil
 }
 
-// Apply writes notes, keeping their modification times, and merged indexes into brain, never overwriting changes.
+// Apply writes notes and merged indexes into brain, updating only what the brain has not changed since the last import.
 func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 	var res Result
 	files := map[string][]byte{}
@@ -145,37 +153,51 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 		rel := filepath.Join(target, indexName)
 		files[rel] = index
 		order = append(order, rel)
-		if lines := bytes.Count(index, []byte("\n")); lines > indexMaxLines {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("%s has %d lines; Claude Code only loads the first %d", rel, lines, indexMaxLines))
+		if lines := bytes.Count(index, []byte("\n")); lines > indexMaxLines || len(index) > indexMaxBytes {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("%s has %d lines and %d KB; Claude Code only loads the first %d lines or %d KB",
+				rel, lines, len(index)>>10, indexMaxLines, indexMaxBytes>>10))
 		}
 	}
 
-	var pending []string
-	for _, rel := range order {
-		existing, err := os.ReadFile(filepath.Join(brain, rel))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			pending = append(pending, rel)
-		case err != nil:
-			return res, err
-		case bytes.Equal(existing, files[rel]):
-			if filepath.Base(rel) != indexName {
-				res.Unchanged++
-			}
-		default:
-			problems = append(problems, rel+": already in the brain with different content")
-		}
-	}
 	if len(problems) > 0 {
 		return res, fmt.Errorf("nothing imported:\n  %s", strings.Join(problems, "\n  "))
 	}
-	for _, rel := range pending {
-		if filepath.Base(rel) != indexName {
-			res.Written++
+
+	imported, err := loadImported(brain)
+	if err != nil {
+		return res, err
+	}
+	var writes, synced []string
+	for _, rel := range order {
+		want := files[rel]
+		count := func(n *int) {
+			if filepath.Base(rel) != indexName {
+				*n++
+			}
 		}
-		if dryRun {
-			continue
+		existing, err := os.ReadFile(filepath.Join(brain, rel))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			writes = append(writes, rel)
+			count(&res.Written)
+		case err != nil:
+			return res, err
+		case bytes.Equal(existing, want):
+			synced = append(synced, rel)
+			count(&res.Unchanged)
+		case imported[rel] == digest(existing):
+			writes = append(writes, rel)
+			count(&res.Updated)
+		case imported[rel] == digest(want):
+			count(&res.Kept)
+		default:
+			res.Conflicts = append(res.Conflicts, rel)
 		}
+	}
+	if dryRun {
+		return res, nil
+	}
+	for _, rel := range writes {
 		path := filepath.Join(brain, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return res, err
@@ -184,10 +206,12 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 			return res, err
 		}
 	}
-	if dryRun {
-		return res, nil
-	}
-	for rel, src := range origin {
+	for _, rel := range append(writes, synced...) {
+		imported[rel] = digest(files[rel])
+		src, ok := origin[rel]
+		if !ok {
+			continue
+		}
 		info, err := os.Stat(src)
 		if err != nil {
 			return res, err
@@ -196,7 +220,39 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 			return res, err
 		}
 	}
-	return res, nil
+	return res, saveImported(brain, imported)
+}
+
+func loadImported(brain string) (map[string]string, error) {
+	data, err := os.ReadFile(filepath.Join(brain, importedPath))
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	imported := map[string]string{}
+	if err := json.Unmarshal(data, &imported); err != nil {
+		return nil, fmt.Errorf("%s: %w", importedPath, err)
+	}
+	return imported, nil
+}
+
+func saveImported(brain string, imported map[string]string) error {
+	data, err := json.MarshalIndent(imported, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(brain, importedPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
+}
+
+func digest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 type entry struct {

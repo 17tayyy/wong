@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -344,21 +345,91 @@ func TestApplyDeduplicatesIdenticalNotes(t *testing.T) {
 	}
 }
 
-func TestApplyRefusesConflictsAndWritesNothing(t *testing.T) {
+func TestApplyRefusesTwoFoldersWithDifferentNotesOfTheSameName(t *testing.T) {
 	f := newFixture(t)
 	f.memory(t, filepath.Join(f.home, "Acme", "acme-api"), map[string]string{"use-uv.md": noteText("use-uv", "feedback")}, "")
 	f.memory(t, filepath.Join(f.home, "Acme", "acme-web"), map[string]string{"use-uv.md": noteText("use-uv", "project")}, "")
 	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"a.md": noteText("a", "project")}, "")
-	write(t, filepath.Join(f.brain, "projects/side_project/a.md"), "edited in the brain\n")
 
 	_, err := Apply(f.brain, plan(t, f, nil), false)
 
-	if err == nil || !strings.Contains(err.Error(), "projects/acme/use-uv.md: two memory folders") ||
-		!strings.Contains(err.Error(), "projects/side_project/a.md: already in the brain") {
+	if err == nil || !strings.Contains(err.Error(), "projects/acme/use-uv.md: two memory folders") {
 		t.Fatalf("Apply() error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(f.brain, "projects/acme")); !os.IsNotExist(err) {
-		t.Errorf("projects/acme was written despite conflicts")
+	if _, err := os.Stat(f.brain); !os.IsNotExist(err) {
+		t.Errorf("the brain was written despite the conflict")
+	}
+}
+
+// reimport imports the fixture, lets change alter brain and sources, and imports again.
+func reimport(t *testing.T, change func(f fixture, src, dst string)) (Result, fixture, string) {
+	t.Helper()
+	f := newFixture(t)
+	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"a.md": noteText("a", "project")}, "")
+	sources := plan(t, f, nil)
+	if _, err := Apply(f.brain, sources, false); err != nil {
+		t.Fatalf("first Apply: %v", err)
+	}
+	dst := filepath.Join(f.brain, "projects/side_project/a.md")
+	change(f, sources[0].Notes[0], dst)
+	res, err := Apply(f.brain, plan(t, f, nil), false)
+	if err != nil {
+		t.Fatalf("second Apply: %v", err)
+	}
+	return res, f, dst
+}
+
+func TestApplyUpdatesNotesTheBrainHasNotChanged(t *testing.T) {
+	res, _, dst := reimport(t, func(_ fixture, src, _ string) {
+		write(t, src, noteText("a", "project")+"Added later in Claude Code.\n")
+	})
+
+	if res.Updated != 1 || res.Written != 0 || len(res.Conflicts) != 0 {
+		t.Errorf("result = %+v", res)
+	}
+	if got := read(t, dst); !strings.Contains(got, "Added later in Claude Code.") {
+		t.Errorf("brain note = %q", got)
+	}
+}
+
+func TestApplyKeepsNotesChangedInTheBrain(t *testing.T) {
+	res, _, dst := reimport(t, func(_ fixture, _, dst string) {
+		write(t, dst, read(t, dst)+"Fixed in the brain.\n")
+	})
+
+	if res.Kept != 1 || res.Updated != 0 || len(res.Conflicts) != 0 {
+		t.Errorf("result = %+v", res)
+	}
+	if got := read(t, dst); !strings.Contains(got, "Fixed in the brain.") {
+		t.Errorf("brain note = %q", got)
+	}
+}
+
+func TestApplyReportsNotesChangedOnBothSides(t *testing.T) {
+	res, _, dst := reimport(t, func(_ fixture, src, dst string) {
+		write(t, src, noteText("a", "project")+"Added later in Claude Code.\n")
+		write(t, dst, read(t, dst)+"Fixed in the brain.\n")
+	})
+
+	if !slices.Equal(res.Conflicts, []string{"projects/side_project/a.md"}) || res.Updated != 0 {
+		t.Errorf("result = %+v", res)
+	}
+	if got := read(t, dst); !strings.Contains(got, "Fixed in the brain.") || strings.Contains(got, "Added later") {
+		t.Errorf("brain note = %q", got)
+	}
+}
+
+func TestApplyReportsBrainNotesItNeverImported(t *testing.T) {
+	f := newFixture(t)
+	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"a.md": noteText("a", "project"), "b.md": noteText("b", "project")}, "")
+	write(t, filepath.Join(f.brain, "projects/side_project/a.md"), "written by hand\n")
+
+	res, err := Apply(f.brain, plan(t, f, nil), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Conflicts, []string{"projects/side_project/a.md"}) || res.Written != 1 {
+		t.Errorf("result = %+v", res)
 	}
 }
 

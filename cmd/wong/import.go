@@ -22,7 +22,9 @@ func newImportCmd(home string, brain *string) *cobra.Command {
 		Long: "Import Claude Code's memory folders into the brain.\n\n" +
 			"Repos that share a parent directory become one project (~/acme/* -> acme),\n" +
 			"a repo directly under home is its own project, and home itself goes to me/.\n" +
-			"Nothing in ~/.claude is changed, and nothing in the brain is overwritten.",
+			"Run it again to bring what changed in Claude Code since: notes the brain has not\n" +
+			"touched are updated, notes changed in the brain are kept, and notes changed on both\n" +
+			"sides are reported. Nothing in ~/.claude is changed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			overrides, err := parseMaps(maps)
@@ -59,7 +61,11 @@ func newImportCmd(home string, brain *string) *cobra.Command {
 					return err
 				}
 			}
-			fmt.Fprintf(out, "%s %s into %s (%d already there)\n", verb, notes(res.Written), *brain, res.Unchanged)
+			fmt.Fprintf(out, "%s %s into %s: %d updated, %d unchanged, %d changed in the brain and kept\n",
+				verb, notes(res.Written), *brain, res.Updated, res.Unchanged, res.Kept)
+			for _, rel := range res.Conflicts {
+				fmt.Fprintf(cmd.ErrOrStderr(), "conflict: %s changed both in the brain and in Claude Code; left as it is\n", rel)
+			}
 			return nil
 		},
 	}
