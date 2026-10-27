@@ -62,17 +62,17 @@ type hookResponse struct {
 // githubHook turns a push to a repo's default branch into tasks for the notes of its project that cite a removed file.
 func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, ok := signedBody(w, r, secret, "X-Hub-Signature-256", "sha256=")
+		body, ok := signedBody(w, r, log, secret, "X-Hub-Signature-256", "sha256=")
 		if !ok {
 			return
 		}
 		switch r.Header.Get("X-GitHub-Event") {
 		case "push":
 		case "ping":
-			writeJSON(w, hookResponse{Ignored: "ping"})
+			ignore(w, log, "github", "ping")
 			return
 		default:
-			writeJSON(w, hookResponse{Ignored: "event " + r.Header.Get("X-GitHub-Event")})
+			ignore(w, log, "github", "event "+r.Header.Get("X-GitHub-Event"))
 			return
 		}
 		var push githubPush
@@ -81,7 +81,7 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 			return
 		}
 		if push.Ref != "refs/heads/"+push.Repository.DefaultBranch {
-			writeJSON(w, hookResponse{Ignored: "not the default branch"})
+			ignore(w, log, "github", "not the default branch of "+push.Repository.FullName)
 			return
 		}
 		remotes, err := store.remotes()
@@ -92,7 +92,7 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 		}
 		remote, ok := remotes.Lookup(push.Repository.FullName)
 		if !ok {
-			writeJSON(w, hookResponse{Ignored: "repo in no project"})
+			ignore(w, log, "github", push.Repository.FullName+" is in no project")
 			return
 		}
 		removed := map[string]event{}
@@ -129,7 +129,7 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 // linearHook turns an issue that is now closed into tasks for the notes that cite it.
 func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, ok := signedBody(w, r, secret, "Linear-Signature", "")
+		body, ok := signedBody(w, r, log, secret, "Linear-Signature", "")
 		if !ok {
 			return
 		}
@@ -139,11 +139,12 @@ func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 			return
 		}
 		if sent := time.UnixMilli(ev.WebhookTimestamp); time.Since(sent).Abs() > linearTolerance {
+			log.Warn("linear refused", "reason", "webhookTimestamp too far from now", "sent", sent)
 			http.Error(w, "webhookTimestamp too far from now", http.StatusUnauthorized)
 			return
 		}
 		if ev.Type != "Issue" || ev.Action == "remove" || ev.Data.Identifier == "" {
-			writeJSON(w, hookResponse{Ignored: strings.TrimSpace(ev.Type + " " + ev.Action)})
+			ignore(w, log, "linear", strings.TrimSpace(ev.Type+" "+ev.Action))
 			return
 		}
 		issue := linear.Issue{Identifier: ev.Data.Identifier, State: ev.Data.State.Name, Type: ev.Data.State.Type, ClosedAt: ev.CreatedAt}
@@ -153,7 +154,7 @@ func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 			}
 		}
 		if !issue.Closed() {
-			writeJSON(w, hookResponse{Ignored: "issue not closed"})
+			ignore(w, log, "linear", ev.Data.Identifier+" is not closed")
 			return
 		}
 		notes, err := store.notes("")
@@ -172,7 +173,7 @@ func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 }
 
 // signedBody reads the request body and checks its hex HMAC-SHA256 against the secret, answering the request when it fails.
-func signedBody(w http.ResponseWriter, r *http.Request, secret, header, prefix string) ([]byte, bool) {
+func signedBody(w http.ResponseWriter, r *http.Request, log *slog.Logger, secret, header, prefix string) ([]byte, bool) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if err != nil {
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
@@ -182,8 +183,14 @@ func signedBody(w http.ResponseWriter, r *http.Request, secret, header, prefix s
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	if err != nil || !hmac.Equal(got, mac.Sum(nil)) {
+		log.Warn("webhook refused", "path", r.URL.Path, "reason", "invalid signature")
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return nil, false
 	}
 	return body, true
+}
+
+func ignore(w http.ResponseWriter, log *slog.Logger, hook, reason string) {
+	log.Info(hook+" ignored", "reason", reason)
+	writeJSON(w, hookResponse{Ignored: reason})
 }
