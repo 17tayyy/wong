@@ -46,6 +46,15 @@ func (r Registry) Add(project, dir string) {
 	}
 }
 
+func (r Registry) ProjectOf(dir string) string {
+	for id, dirs := range r {
+		if slices.Contains(dirs, dir) {
+			return id
+		}
+	}
+	return ""
+}
+
 func (r Registry) Save(path string) error {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

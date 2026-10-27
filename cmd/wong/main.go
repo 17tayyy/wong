@@ -23,7 +23,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 	brain := root.PersistentFlags().String("brain", filepath.Join(home, ".wong"), "brain directory")
-	root.AddCommand(newImportCmd(home, brain), newCheckCmd(brain))
+	root.AddCommand(newImportCmd(home, brain), newCheckCmd(brain), newLinkCmd(home, brain))
 	return root
 }
 
