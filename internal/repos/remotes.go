@@ -41,6 +41,16 @@ func ParseRemotes(data []byte) (Remotes, error) {
 	return r, nil
 }
 
+// Lookup finds a repo by its owner/name, which GitHub compares without case.
+func (r Remotes) Lookup(repo string) (Remote, bool) {
+	for name, remote := range r {
+		if strings.EqualFold(name, repo) {
+			return remote, true
+		}
+	}
+	return Remote{}, false
+}
+
 // GitHubRepo returns the owner/name of a GitHub remote URL.
 func GitHubRepo(url string) (string, bool) {
 	m := githubRE.FindStringSubmatch(strings.TrimSpace(url))

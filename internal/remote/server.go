@@ -25,8 +25,12 @@ type pushResponse struct {
 	Conflicts []Change `json:"conflicts"`
 }
 
-// Handler serves the brain's API: GET /api/changes and POST /api/push, behind a bearer token.
-func Handler(store *Store, log *slog.Logger) http.Handler {
+type tasksResponse struct {
+	Tasks []Task `json:"tasks"`
+}
+
+// Handler serves the brain's API behind a bearer token, and the webhooks whose secret is set.
+func Handler(store *Store, log *slog.Logger, hooks Webhooks) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
@@ -64,6 +68,21 @@ func Handler(store *Store, log *slog.Logger) http.Handler {
 		log.Info("push", "machine", machine, "accepted", len(accepted), "conflicts", len(conflicts))
 		writeJSON(w, pushResponse{Accepted: accepted, Conflicts: conflicts})
 	}))
+	mux.HandleFunc("GET /api/tasks", authorized(store, func(w http.ResponseWriter, r *http.Request, _ string) {
+		tasks, err := store.Tasks(r.URL.Query().Get("project"))
+		if err != nil {
+			log.Error("tasks", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, tasksResponse{Tasks: tasks})
+	}))
+	if hooks.GitHubSecret != "" {
+		mux.HandleFunc("POST /hooks/github", githubHook(store, log, hooks.GitHubSecret))
+	}
+	if hooks.LinearSecret != "" {
+		mux.HandleFunc("POST /hooks/linear", linearHook(store, log, hooks.LinearSecret))
+	}
 	return mux
 }
 

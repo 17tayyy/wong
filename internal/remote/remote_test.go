@@ -27,7 +27,7 @@ func setup(t *testing.T) (*Store, string, machine, machine) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	srv := httptest.NewServer(Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	srv := httptest.NewServer(Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Webhooks{}))
 	t.Cleanup(srv.Close)
 	newMachine := func(name string) machine {
 		token, err := store.NewToken(name)

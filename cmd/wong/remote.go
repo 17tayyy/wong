@@ -26,7 +26,10 @@ func newServeCmd() *cobra.Command {
 		Short: "Run the wong server that keeps the brain for every machine",
 		Long: "Run the wong server that keeps the brain for every machine.\n\n" +
 			"Every file of the brain is stored with its history in a SQLite database. Each\n" +
-			"machine uses its own token: create one with --new-token <name>.",
+			"machine uses its own token: create one with --new-token <name>.\n\n" +
+			"Webhooks leave tasks on the notes they make outdated: POST /hooks/github (push\n" +
+			"events) with WONG_GITHUB_SECRET set, and POST /hooks/linear (issue events) with\n" +
+			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			store, err := remote.Open(db)
@@ -45,14 +48,15 @@ func newServeCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
-			srv := &http.Server{Addr: addr, Handler: remote.Handler(store, log), ReadHeaderTimeout: 10 * time.Second}
+			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
+			srv := &http.Server{Addr: addr, Handler: remote.Handler(store, log, hooks), ReadHeaderTimeout: 10 * time.Second}
 			go func() {
 				<-ctx.Done()
 				shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
 			}()
-			log.Info("serving", "addr", addr, "db", db)
+			log.Info("serving", "addr", addr, "db", db, "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != "")
 			if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}

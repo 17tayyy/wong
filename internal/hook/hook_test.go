@@ -145,7 +145,7 @@ func TestSessionsSyncThroughTheServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}))
 	defer srv.Close()
 	client := func(name string) *remote.Client {
 		token, err := store.NewToken(name)

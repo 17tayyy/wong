@@ -40,7 +40,21 @@ CREATE TABLE IF NOT EXISTS tokens (
 	name       TEXT PRIMARY KEY,
 	hash       TEXT NOT NULL,
 	created_at TEXT NOT NULL
-);`
+);
+CREATE TABLE IF NOT EXISTS tasks (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	note       TEXT NOT NULL,
+	project    TEXT NOT NULL,
+	severity   TEXT NOT NULL,
+	ref        TEXT NOT NULL,
+	message    TEXT NOT NULL,
+	source     TEXT NOT NULL,
+	event      TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	closed_at  TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_open ON tasks(note, ref) WHERE closed_at IS NULL;
+CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project) WHERE closed_at IS NULL;`
 
 // Change is the current state of one file of the brain on the server.
 type Change struct {
@@ -158,6 +172,9 @@ func (s *Store) Apply(machine string, pushes []Upload) (accepted []string, confl
 			ON CONFLICT(path) DO UPDATE SET sha = excluded.sha, content = excluded.content, deleted = excluded.deleted,
 				modified = excluded.modified, seq = excluded.seq`,
 			p.Path, p.Sha, p.Content, p.Sha == "", p.Modified, seq); err != nil {
+			return nil, nil, err
+		}
+		if err := recheck(tx, p.Path, p.Content, p.Modified, p.Sha == "", now); err != nil {
 			return nil, nil, err
 		}
 		accepted = append(accepted, p.Path)

@@ -35,6 +35,13 @@ func (c *Client) Push(ctx context.Context, pushes []Upload) ([]string, []Change,
 	return out.Accepted, out.Conflicts, err
 }
 
+// Tasks returns the open tasks of a project, "me" for the global notes.
+func (c *Client) Tasks(ctx context.Context, project string) ([]Task, error) {
+	var out tasksResponse
+	err := c.do(ctx, http.MethodGet, "/api/tasks?project="+url.QueryEscape(project), nil, &out)
+	return out.Tasks, err
+}
+
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
