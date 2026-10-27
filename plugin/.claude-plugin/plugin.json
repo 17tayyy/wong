@@ -1,0 +1,9 @@
+{
+  "name": "wong",
+  "description": "Keeps Claude Code's memory in the wong brain and true to its sources: brings your global preferences and the project's stale notes into each session, and records every session's changes to the brain.",
+  "version": "0.1.0",
+  "author": {
+    "name": "17tayyy"
+  },
+  "repository": "https://github.com/17tayyy/wong"
+}

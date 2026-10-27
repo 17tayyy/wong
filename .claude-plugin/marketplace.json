@@ -1,0 +1,14 @@
+{
+  "name": "wong",
+  "owner": {
+    "name": "17tayyy"
+  },
+  "description": "wong: an external brain for coding agents.",
+  "plugins": [
+    {
+      "name": "wong",
+      "source": "./plugin",
+      "description": "Keeps Claude Code's memory in the wong brain and true to its sources."
+    }
+  ]
+}
