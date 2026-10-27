@@ -99,6 +99,23 @@ func TestModified(t *testing.T) {
 	}
 }
 
+func TestNew(t *testing.T) {
+	n := New("move-billing", "Decided to move billing to Stripe", Decision, "project:acme", "\nBody.\n")
+	got := mustMarshal(t, n)
+
+	want := "---\nname: move-billing\ndescription: Decided to move billing to Stripe\nmetadata:\n  type: project\n" +
+		"kind: decision\nscope: project:acme\n---\n\nBody.\n"
+	if got != want {
+		t.Errorf("Marshal() =\n%s\nwant\n%s", got, want)
+	}
+	if again := mustParse(t, got); again.ClaudeType() != "project" || again.Kind != Decision {
+		t.Errorf("round trip = %+v", again)
+	}
+	if _, err := ParseKind("feedback"); err == nil {
+		t.Error("ParseKind accepted Claude Code's type instead of a kind")
+	}
+}
+
 func TestParseLegacyTopLevelType(t *testing.T) {
 	n := mustParse(t, legacyNote)
 

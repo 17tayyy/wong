@@ -294,19 +294,62 @@ func TestRunReportsTrackerErrorsAsSkipped(t *testing.T) {
 
 func TestRunOneProject(t *testing.T) {
 	f := newFixture(t)
-	f.note(t, "projects/acme/a.md", "See [[b]].\n", "")
+	f.note(t, "projects/acme/a.md", "See [[b]] and [[gone]].\n", "")
 	f.note(t, "projects/other/b.md", "See [[nothing]].\n", "")
 
 	rep, err := Run(context.Background(), Options{Brain: f.brain, Project: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Notes != 1 || len(rep.Findings) != 1 || rep.Findings[0].Ref != "[[b]]" {
+	if rep.Notes != 1 || len(rep.Findings) != 1 || rep.Findings[0].Ref != "[[gone]]" {
 		t.Errorf("notes = %d, findings = %v", rep.Notes, found(rep))
 	}
 
 	if _, err := Run(context.Background(), Options{Brain: f.brain, Project: "missing"}); err == nil {
 		t.Error("Run() accepted an unknown project")
+	}
+}
+
+func TestRunOneNote(t *testing.T) {
+	f := newFixture(t)
+	f.note(t, "projects/acme/a.md", "See [[gone]].\n", "")
+	f.note(t, "projects/acme/b.md", "See [[nothing]].\n", "")
+
+	rep, err := Run(context.Background(), Options{Brain: f.brain, Note: "projects/acme/a.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := found(rep); rep.Notes != 1 || !slices.Equal(got, []string{"stale projects/acme/a.md [[gone]]"}) {
+		t.Errorf("notes = %d, findings = %v", rep.Notes, got)
+	}
+	if _, err := Run(context.Background(), Options{Brain: f.brain, Note: "projects/acme/zzz.md"}); err == nil {
+		t.Error("Run() accepted an unknown note")
+	}
+}
+
+func TestLinksResolveAcrossTheBrain(t *testing.T) {
+	f := newFixture(t)
+	f.note(t, "projects/acme/a.md", "See [[b]].\n", "")
+	f.note(t, "projects/other/b.md", "Fine.\n", "")
+
+	rep, err := Run(context.Background(), Options{Brain: f.brain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 {
+		t.Errorf("findings = %v", found(rep))
+	}
+}
+
+func TestValidSource(t *testing.T) {
+	for s, want := range map[string]bool{
+		"linear:ENG-15": true, "file:acme-api/app/x.py": true, "commit:acme-api@1a2b3c4": true,
+		"note:other": true, "https://example.com": true,
+		"linear:eng-15": false, "file:x.py": false, "commit:1a2b3c4": false, "jira:ENG-1": false, "note:": false,
+	} {
+		if got := ValidSource(s); got != want {
+			t.Errorf("ValidSource(%q) = %v, want %v", s, got, want)
+		}
 	}
 }
 

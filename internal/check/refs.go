@@ -94,6 +94,13 @@ func (r *refs) addSources(sources []string) {
 	}
 }
 
+// ValidSource reports whether check understands a source.
+func ValidSource(s string) bool {
+	r := refs{clauses: map[string][]string{}}
+	r.addSources([]string{s})
+	return len(r.unknown) == 0
+}
+
 func sourceCommit(value string) string {
 	_, sha, ok := strings.Cut(value, "@")
 	if !ok || commitRE.FindString(sha) != sha || !isCommit(sha, []int{0, len(sha)}) {

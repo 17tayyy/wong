@@ -3,14 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/17tayyy/wong/internal/check"
-	"github.com/17tayyy/wong/internal/linear"
-	"github.com/17tayyy/wong/internal/repos"
 )
 
 func newCheckCmd(brain *string) *cobra.Command {
@@ -27,18 +24,11 @@ func newCheckCmd(brain *string) *cobra.Command {
 			"project. Linear issues are checked when LINEAR_API_KEY holds a personal API key.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := repos.DefaultPath()
+			opts, err := checkOptions(*brain)
 			if err != nil {
 				return err
 			}
-			reg, err := repos.Load(path)
-			if err != nil {
-				return err
-			}
-			opts := check.Options{Brain: *brain, Repos: reg, Project: project}
-			if key := os.Getenv("LINEAR_API_KEY"); key != "" {
-				opts.Tracker = linear.New(key)
-			}
+			opts.Project = project
 			rep, err := check.Run(cmd.Context(), opts)
 			if err != nil {
 				return err

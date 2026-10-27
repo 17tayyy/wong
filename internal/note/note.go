@@ -27,6 +27,23 @@ const (
 
 var kinds = []Kind{Preference, Project, Person, Client, Decision, Reference}
 
+var claudeTypes = map[Kind]string{
+	Preference: "feedback",
+	Project:    "project",
+	Decision:   "project",
+	Reference:  "reference",
+	Person:     "reference",
+	Client:     "reference",
+}
+
+// ParseKind returns the kind named s.
+func ParseKind(s string) (Kind, error) {
+	if k := Kind(s); slices.Contains(kinds, k) {
+		return k, nil
+	}
+	return "", fmt.Errorf("unknown kind %q: use preference, project, person, client, decision or reference", s)
+}
+
 var (
 	frontmatterRE   = regexp.MustCompile(`(?s)\A---\n(.*?)\n---\n?`)
 	scopeRE         = regexp.MustCompile(`\A(global|project:[a-z0-9][a-z0-9._-]*)\z`)
@@ -44,6 +61,19 @@ type Note struct {
 	Verified    time.Time
 	// Extra holds the other frontmatter entries as alternating key and value nodes, in file order.
 	Extra []*yaml.Node
+}
+
+// New returns a note with the metadata.type that Claude Code's memory expects for its kind.
+func New(name, description string, kind Kind, scope, body string) *Note {
+	meta := &yaml.Node{Kind: yaml.MappingNode, Content: []*yaml.Node{str("type"), str(claudeTypes[kind])}}
+	return &Note{
+		Name:        name,
+		Description: description,
+		Body:        body,
+		Kind:        kind,
+		Scope:       scope,
+		Extra:       []*yaml.Node{str("metadata"), meta},
+	}
 }
 
 func Parse(data []byte) (*Note, error) {

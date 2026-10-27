@@ -40,6 +40,8 @@ type Options struct {
 	Repos   map[string][]string
 	Tracker Tracker
 	Project string
+	// Note limits the check to one note, given by its path in the brain.
+	Note string
 }
 
 type Report struct {
@@ -59,7 +61,7 @@ type loaded struct {
 
 type checker struct {
 	home    string
-	names   map[string]map[string]bool
+	names   map[string]bool
 	own     map[string][]*repo
 	all     []*repo
 	commits map[*repo]map[string]string
@@ -69,9 +71,9 @@ type checker struct {
 
 func Run(ctx context.Context, opts Options) (Report, error) {
 	var rep Report
-	c := &checker{names: map[string]map[string]bool{}, own: map[string][]*repo{}, commits: map[*repo]map[string]string{}}
+	c := &checker{names: map[string]bool{}, own: map[string][]*repo{}, commits: map[*repo]map[string]string{}}
 	c.home, _ = os.UserHomeDir()
-	notes, err := c.load(opts.Brain, opts.Project)
+	notes, err := c.load(opts.Brain, opts.Project, opts.Note)
 	if err != nil {
 		return rep, err
 	}
@@ -141,7 +143,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	return rep, nil
 }
 
-func (c *checker) load(brain, project string) ([]loaded, error) {
+func (c *checker) load(brain, project, only string) ([]loaded, error) {
 	dirs, err := filepath.Glob(filepath.Join(brain, "projects", "*"))
 	if err != nil {
 		return nil, err
@@ -157,7 +159,6 @@ func (c *checker) load(brain, project string) ([]loaded, error) {
 		if err != nil {
 			return nil, err
 		}
-		c.names[dir] = map[string]bool{}
 		for _, path := range paths {
 			if filepath.Base(path) == "MEMORY.md" {
 				continue
@@ -170,9 +171,10 @@ func (c *checker) load(brain, project string) ([]loaded, error) {
 			if err != nil {
 				return nil, err
 			}
-			c.names[dir][n.Name] = true
-			c.names[dir][strings.TrimSuffix(filepath.Base(path), ".md")] = true
-			if project != "" && dir != filepath.Join("projects", project) {
+			rel := filepath.Join(dir, filepath.Base(path))
+			c.names[n.Name] = true
+			c.names[strings.TrimSuffix(filepath.Base(path), ".md")] = true
+			if project != "" && dir != filepath.Join("projects", project) || only != "" && rel != only {
 				continue
 			}
 			var verified time.Time
@@ -182,7 +184,7 @@ func (c *checker) load(brain, project string) ([]loaded, error) {
 			r := extract(n.Description + "\n" + n.Body)
 			r.addSources(n.Sources)
 			notes = append(notes, loaded{
-				rel:      filepath.Join(dir, filepath.Base(path)),
+				rel:      rel,
 				dir:      dir,
 				kind:     n.Kind,
 				verified: verified,
@@ -190,6 +192,9 @@ func (c *checker) load(brain, project string) ([]loaded, error) {
 				refs:     r,
 			})
 		}
+	}
+	if only != "" && len(notes) == 0 {
+		return nil, fmt.Errorf("no note %s in %s", only, brain)
 	}
 	return notes, nil
 }
@@ -232,7 +237,7 @@ func (c *checker) check(l loaded) []Finding {
 		add(Review, s, "source not understood: use linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL")
 	}
 	for _, link := range l.refs.links {
-		if !c.names[l.dir][link] && !c.names["me"][link] {
+		if !c.names[link] {
 			add(Stale, "[["+link+"]]", "links to a note that does not exist")
 		}
 	}
