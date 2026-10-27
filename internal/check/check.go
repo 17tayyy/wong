@@ -24,10 +24,10 @@ const (
 )
 
 type Finding struct {
-	Note     string
-	Severity Severity
-	Ref      string
-	Message  string
+	Note     string   `json:"note"`
+	Severity Severity `json:"severity"`
+	Ref      string   `json:"ref"`
+	Message  string   `json:"message"`
 }
 
 type Tracker interface {

@@ -55,7 +55,18 @@ CREATE TABLE IF NOT EXISTS tasks (
 	closed_at  TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_open ON tasks(note, ref) WHERE closed_at IS NULL;
-CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project) WHERE closed_at IS NULL;`
+CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project) WHERE closed_at IS NULL;
+CREATE TABLE IF NOT EXISTS findings (
+	project     TEXT NOT NULL,
+	machine     TEXT NOT NULL,
+	note        TEXT NOT NULL,
+	severity    TEXT NOT NULL,
+	ref         TEXT NOT NULL,
+	message     TEXT NOT NULL,
+	reported_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS findings_project ON findings(project, machine);
+CREATE INDEX IF NOT EXISTS findings_note ON findings(note);`
 
 // Change is the current state of one file of the brain on the server.
 type Change struct {
@@ -189,6 +200,9 @@ func (s *Store) Apply(machine string, pushes []Upload) (accepted []string, confl
 			return nil, nil, err
 		}
 		if err := recheck(tx, p.Path, p.Content, p.Modified, p.Sha == "", now); err != nil {
+			return nil, nil, err
+		}
+		if _, err := tx.Exec(`DELETE FROM findings WHERE note = ?`, p.Path); err != nil {
 			return nil, nil, err
 		}
 		accepted = append(accepted, p.Path)

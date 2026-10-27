@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/17tayyy/wong/internal/check"
 )
 
 const maxBody = 64 << 20
@@ -27,6 +29,11 @@ type pushResponse struct {
 
 type tasksResponse struct {
 	Tasks []Task `json:"tasks"`
+}
+
+type findingsRequest struct {
+	Project  string          `json:"project"`
+	Findings []check.Finding `json:"findings"`
 }
 
 // Handler serves the brain's API behind a bearer token, and the webhooks whose secret is set.
@@ -76,6 +83,19 @@ func Handler(store *Store, log *slog.Logger, hooks Webhooks) http.Handler {
 			return
 		}
 		writeJSON(w, tasksResponse{Tasks: tasks})
+	}))
+	mux.HandleFunc("POST /api/findings", authorized(store, func(w http.ResponseWriter, r *http.Request, machine string) {
+		var req findingsRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&req); err != nil || req.Project == "" {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := store.ReportFindings(machine, req.Project, req.Findings); err != nil {
+			log.Error("findings", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, struct{}{})
 	}))
 	if hooks.GitHubSecret != "" {
 		mux.HandleFunc("POST /hooks/github", githubHook(store, log, hooks.GitHubSecret))

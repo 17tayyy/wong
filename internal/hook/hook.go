@@ -70,6 +70,11 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	var findings []check.Finding
 	if rep, err := check.Run(ctx, check.Options{Brain: env.Brain, Repos: env.Repos, Tracker: env.Tracker, Project: project}); err == nil {
 		findings = rep.Findings
+		if env.Remote != nil {
+			if err := env.Remote.ReportFindings(ctx, project, rep.Findings); err != nil {
+				fmt.Fprintln(os.Stderr, "wong: findings:", err)
+			}
+		}
 	}
 	list := fmt.Sprintf("`wong check --project %s` lists everything", project)
 	if env.Remote != nil {

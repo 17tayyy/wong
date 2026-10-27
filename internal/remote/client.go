@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/17tayyy/wong/internal/check"
 )
 
 type Client struct {
@@ -40,6 +42,11 @@ func (c *Client) Tasks(ctx context.Context, project string) ([]Task, error) {
 	var out tasksResponse
 	err := c.do(ctx, http.MethodGet, "/api/tasks?project="+url.QueryEscape(project), nil, &out)
 	return out.Tasks, err
+}
+
+// ReportFindings sends what this machine's check found in a project, replacing its previous report.
+func (c *Client) ReportFindings(ctx context.Context, project string, findings []check.Finding) error {
+	return c.do(ctx, http.MethodPost, "/api/findings", findingsRequest{Project: project, Findings: findings}, &struct{}{})
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
