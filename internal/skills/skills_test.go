@@ -88,4 +88,18 @@ func TestSave(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brain, "skills", "own", "references", "a.md")); !os.IsNotExist(err) {
 		t.Errorf("a file removed from the skill stayed in the brain: %v", err)
 	}
+
+	other := t.TempDir()
+	if _, err := Save(Env{Brain: brain, Home: other}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(other, ".agents", ".skill-lock.json"), `{"version": 3, "skills": {"seo": {"source": "acme/seo", "sourceType": "github"}}}`)
+	if _, err := Save(Env{Brain: brain, Home: other}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(filepath.Join(brain, "skills", "skills-lock.json"))
+	lock = Lock{}
+	if err := json.Unmarshal(data, &lock); err != nil || lock.Skills["orca-cli"].Source != "acme/orca" || lock.Skills["seo"].Source != "acme/seo" {
+		t.Errorf("a machine with other skills changed what the brain records: %s, %v", data, err)
+	}
 }

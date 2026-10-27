@@ -42,14 +42,20 @@ type Result struct {
 	Copied  []string
 }
 
-// Save records the global skills' sources and copies every skill that has none and does not travel with its repo.
+// Save adds the global skills' sources to the ones the brain records from every machine, and copies every skill that has none and does not travel with its repo.
 func Save(env Env) (Result, error) {
 	var res Result
-	global, err := readLock(filepath.Join(env.Home, ".agents", ".skill-lock.json"))
+	local, err := readLock(filepath.Join(env.Home, ".agents", ".skill-lock.json"))
 	if err != nil {
 		return res, err
 	}
-	if err := writeLock(filepath.Join(env.Brain, "skills", lockName), global); err != nil {
+	path := filepath.Join(env.Brain, "skills", lockName)
+	global, err := readLock(path)
+	if err != nil {
+		return res, err
+	}
+	maps.Copy(global.Skills, local.Skills)
+	if err := writeLock(path, global); err != nil {
 		return res, err
 	}
 	for _, name := range slices.Sorted(maps.Keys(global.Skills)) {
