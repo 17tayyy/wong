@@ -170,6 +170,46 @@ func Move(brain, rel, target string) (string, error) {
 	return dest, addToIndex(filepath.Join(brain, folder), file, n)
 }
 
+// Remove deletes a note and its link in MEMORY.md, and returns the notes that link to it.
+func Remove(brain, rel string) ([]string, error) {
+	path := filepath.Join(brain, rel)
+	n, err := note.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil {
+		return nil, err
+	}
+	if err := removeFromIndex(filepath.Dir(path), filepath.Base(rel)); err != nil {
+		return nil, err
+	}
+	return linkersOf(brain, n.Name, strings.TrimSuffix(filepath.Base(rel), ".md"))
+}
+
+func linkersOf(brain string, names ...string) ([]string, error) {
+	folders, err := Folders(brain)
+	if err != nil {
+		return nil, err
+	}
+	var linkers []string
+	for _, folder := range folders {
+		paths, err := notesIn(filepath.Join(brain, folder))
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			if slices.ContainsFunc(names, func(name string) bool { return strings.Contains(string(data), "[["+name+"]]") }) {
+				linkers = append(linkers, filepath.Join(folder, filepath.Base(path)))
+			}
+		}
+	}
+	return linkers, nil
+}
+
 func addToIndex(dir, file string, n *note.Note) error {
 	path := filepath.Join(dir, indexName)
 	data, err := os.ReadFile(path)

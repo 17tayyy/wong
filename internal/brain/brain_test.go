@@ -136,3 +136,23 @@ func TestWrite(t *testing.T) {
 		t.Errorf("Write() with a free-form name = %q, %v", rel, err)
 	}
 }
+
+func TestRemove(t *testing.T) {
+	brain := newBrain(t)
+	write(t, filepath.Join(brain, "projects", "other", "b.md"), noteText("b", "project:other")+"See [[orca]].\n")
+
+	linkers, err := Remove(brain, "projects/acme/orca.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(brain, "projects", "acme", "orca.md")); !os.IsNotExist(err) {
+		t.Errorf("note still there: %v", err)
+	}
+	if got := read(t, filepath.Join(brain, "projects", "acme", "MEMORY.md")); strings.Contains(got, "orca.md") {
+		t.Errorf("index = %q", got)
+	}
+	if len(linkers) != 1 || linkers[0] != "projects/other/b.md" {
+		t.Errorf("linkers = %v", linkers)
+	}
+}

@@ -88,6 +88,19 @@ abandoned, say so.
 Decide whether it was a plan, a scratch file outside the repo, or a move. Update the note
 for a move or a finished plan; leave scratch files and mark the note verified.
 
+## Tidying the brain
+
+`wong tidy` lists preferences that repeat each other (often the same rule saved once per
+project) and notes that seem to live in the wrong folder. It is a list of candidates, not
+a verdict: lexical matching misses duplicates written in another language and flags
+notes that merely mention another project. Show the user what you would do with each and
+act only on what they approve:
+
+- **Duplicates:** write one note with everything still true from the group, usually in
+  `me/` (`wong note write --to me ...`), then `wong note remove` each of the others. Fix
+  the links that `remove` reports.
+- **Wrong folder:** `wong note move <note> --to <project|me>`.
+
 ## Writing a note
 
 `wong note write --to <project|me> --name <name> --description <text> --kind <kind>

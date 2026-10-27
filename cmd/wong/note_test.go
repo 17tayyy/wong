@@ -129,3 +129,23 @@ func TestNoteWriteAndMove(t *testing.T) {
 		t.Errorf("the moved note broke a link: %v\n%s", err, out)
 	}
 }
+
+func TestNoteRemoveAndTidy(t *testing.T) {
+	brain := noteEnv(t)
+
+	out, err := run(t, "--brain", brain, "tidy")
+	if err != nil || !strings.Contains(out, "Preferences that may say the same thing (0 groups)") || !strings.Contains(out, "Notes that may be in the wrong folder (0)") {
+		t.Errorf("tidy: %v\n%s", err, out)
+	}
+
+	if err := os.WriteFile(filepath.Join(brain, "projects/acme/broken.md"), []byte("---\nname: broken\ndescription: d\n---\nSee [[orca]].\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, "--brain", brain, "note", "remove", "orca")
+	if err != nil || !strings.Contains(out, "removed projects/acme/orca.md") || !strings.Contains(out, "projects/acme/broken.md links to it") {
+		t.Errorf("remove: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(brain, "projects/acme/orca.md")); !os.IsNotExist(err) {
+		t.Errorf("note still there: %v", err)
+	}
+}

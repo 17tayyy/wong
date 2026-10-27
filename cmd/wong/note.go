@@ -27,7 +27,8 @@ func newNoteCmd(home string, brainDir *string) *cobra.Command {
 		Long: "Read, write, verify and move notes in the brain.\n\n" +
 			"A note is given by its path in the brain, its name or its file name without .md.",
 	}
-	cmd.AddCommand(newNoteShowCmd(home, brainDir), newNoteWriteCmd(brainDir), newNoteVerifyCmd(brainDir), newNoteMoveCmd(brainDir))
+	cmd.AddCommand(newNoteShowCmd(home, brainDir), newNoteWriteCmd(brainDir), newNoteVerifyCmd(brainDir),
+		newNoteMoveCmd(brainDir), newNoteRemoveCmd(brainDir))
 	return cmd
 }
 
@@ -206,6 +207,29 @@ func newNoteMoveCmd(brainDir *string) *cobra.Command {
 	cmd.Flags().StringVar(&to, "to", "", "project id, or me for a global note")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
+}
+
+func newNoteRemoveCmd(brainDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <note>",
+		Short: "Delete a note and its line in MEMORY.md (the brain's git history keeps it)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rel, err := brain.Resolve(*brainDir, args[0])
+			if err != nil {
+				return err
+			}
+			linkers, err := brain.Remove(*brainDir, rel)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "removed", rel)
+			for _, l := range linkers {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s links to it: fix or drop the link\n", l)
+			}
+			return nil
+		},
+	}
 }
 
 func checkNote(cmd *cobra.Command, brainDir, rel string) (check.Report, error) {
