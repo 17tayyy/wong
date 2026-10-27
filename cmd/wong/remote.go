@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -123,7 +124,7 @@ func newSyncCmds(brain *string) []*cobra.Command {
 				return err
 			}
 			if len(st.Conflicts) > 0 {
-				fmt.Fprintf(out, "%d files changed both here and on the server; compare with %s/.wong/conflicts and run wong resolve:\n", len(st.Conflicts), *brain)
+				fmt.Fprintf(out, "%d files changed both here and on the server; compare with %s and run wong resolve:\n", len(st.Conflicts), filepath.Join(*brain, ".wong", "conflicts"))
 				for path := range st.Conflicts {
 					fmt.Fprintln(out, "  ", path)
 				}

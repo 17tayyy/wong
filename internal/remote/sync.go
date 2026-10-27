@@ -231,6 +231,10 @@ func apply(brain string, ch Change) error {
 		if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
+		dir := filepath.Dir(target)
+		for dir != filepath.Clean(brain) && os.Remove(dir) == nil {
+			dir = filepath.Dir(dir)
+		}
 		return nil
 	}
 	return writeFile(target, ch.Content, ch.Modified)

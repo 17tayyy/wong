@@ -126,6 +126,12 @@ func TestSyncBetweenTwoMachines(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(desktop.brain, "me/use-uv.md")); !os.IsNotExist(err) {
 		t.Error("the deletion did not reach the desktop")
 	}
+	if _, err := os.Stat(filepath.Join(desktop.brain, "me")); !os.IsNotExist(err) {
+		t.Error("the deletion left an empty folder")
+	}
+	if _, err := os.Stat(desktop.brain); err != nil {
+		t.Errorf("the brain itself went: %v", err)
+	}
 }
 
 func TestPullAfterOwnPushKeepsLocalEdits(t *testing.T) {
