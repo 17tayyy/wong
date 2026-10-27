@@ -2,12 +2,17 @@ package hook
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
 )
 
@@ -93,7 +98,7 @@ func TestSessionEndCommitsTheBrain(t *testing.T) {
 	run(t, env.Brain, "add", "-A")
 	run(t, env.Brain, "commit", "-q", "-m", "start")
 
-	if err := SessionEnd(Input{SessionID: "0123456789ab", Cwd: repo}, env); err != nil {
+	if err := SessionEnd(context.Background(), Input{SessionID: "0123456789ab", Cwd: repo}, env); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, env.Brain, "log", "--format=%s"); got != "start" {
@@ -101,7 +106,7 @@ func TestSessionEndCommitsTheBrain(t *testing.T) {
 	}
 
 	write(t, filepath.Join(env.Brain, "projects", "acme", "b.md"), "---\nname: b\ndescription: d\n---\nNew.\n")
-	if err := SessionEnd(Input{SessionID: "0123456789ab", Cwd: repo}, env); err != nil {
+	if err := SessionEnd(context.Background(), Input{SessionID: "0123456789ab", Cwd: repo}, env); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, env.Brain, "log", "-1", "--format=%s"); got != "session 01234567 in acme" {
@@ -112,7 +117,53 @@ func TestSessionEndCommitsTheBrain(t *testing.T) {
 func TestSessionEndIgnoresABrainWithoutGit(t *testing.T) {
 	env, repo := newEnv(t)
 
-	if err := SessionEnd(Input{SessionID: "s", Cwd: repo}, env); err != nil {
+	if err := SessionEnd(context.Background(), Input{SessionID: "s", Cwd: repo}, env); err != nil {
 		t.Errorf("SessionEnd() = %v", err)
+	}
+}
+
+func TestSessionsSyncThroughTheServer(t *testing.T) {
+	env, repo := newEnv(t)
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer srv.Close()
+	client := func(name string) *remote.Client {
+		token, err := store.NewToken(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return remote.NewClient(srv.URL, token, 5*time.Second)
+	}
+	env.Remote = client("desktop")
+	if err := SessionEnd(context.Background(), Input{SessionID: "s1", Cwd: repo}, env); err != nil {
+		t.Fatal(err)
+	}
+
+	laptop := env
+	laptop.Brain = filepath.Join(t.TempDir(), "brain")
+	laptop.Remote = client("laptop")
+	got := SessionStart(context.Background(), Input{Cwd: repo}, laptop)
+
+	if data, err := os.ReadFile(filepath.Join(laptop.Brain, "projects", "acme", "a.md")); err != nil || !strings.Contains(string(data), "See [[gone]].") {
+		t.Errorf("the laptop did not get the note: %v", err)
+	}
+	if !strings.Contains(got, `the brain's project "acme"`) {
+		t.Errorf("context = %q", got)
+	}
+
+	write(t, filepath.Join(env.Brain, "me", "MEMORY.md"), "- desktop\n")
+	write(t, filepath.Join(laptop.Brain, "me", "MEMORY.md"), "- laptop\n")
+	if err := SessionEnd(context.Background(), Input{SessionID: "s2", Cwd: repo}, env); err != nil {
+		t.Fatal(err)
+	}
+	if err := SessionEnd(context.Background(), Input{SessionID: "s3", Cwd: repo}, laptop); err != nil {
+		t.Fatal(err)
+	}
+	if got := SessionStart(context.Background(), Input{Cwd: repo}, laptop); !strings.Contains(got, "1 notes of the brain changed both here and on another machine") {
+		t.Errorf("context = %q", got)
 	}
 }

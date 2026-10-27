@@ -12,6 +12,7 @@ import (
 
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/link"
+	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
 	"github.com/17tayyy/wong/internal/skills"
 )
@@ -30,13 +31,25 @@ type Env struct {
 	Home    string
 	Repos   repos.Registry
 	Tracker check.Tracker
+	// Remote is this machine's wong server, or nil when it has none.
+	Remote *remote.Client
 }
 
-// SessionStart returns the context to add to a new session.
+// SessionStart pulls the brain from the server, if there is one, and returns the context to add to a new session.
 func SessionStart(ctx context.Context, in Input, env Env) string {
+	var b strings.Builder
+	if env.Remote != nil {
+		if _, err := remote.Pull(ctx, env.Remote, env.Brain); err != nil {
+			fmt.Fprintln(os.Stderr, "wong: pull:", err)
+		}
+		if st, err := remote.LoadState(env.Brain); err == nil && len(st.Conflicts) > 0 {
+			fmt.Fprintf(&b, "wong: %d notes of the brain changed both here and on another machine; the server's versions are in %s. "+
+				"Compare them, keep or merge, then run `wong resolve <path> --keep local|server` (ask the user if unsure).\n\n",
+				len(st.Conflicts), link.MemoryDir(env.Brain, env.Home, ".wong/conflicts"))
+		}
+	}
 	dir, isRepo := toplevel(in.Cwd)
 	project := env.Repos.ProjectOf(dir)
-	var b strings.Builder
 	if project == "" {
 		if isRepo {
 			fmt.Fprintf(&b, "wong: this repo is not linked to the brain, so Claude Code keeps its memory outside it. "+
@@ -84,10 +97,16 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	return b.String()
 }
 
-// SessionEnd records the user's skills and commits whatever changed in the brain, so every session's edits can be undone.
-func SessionEnd(in Input, env Env) error {
+// SessionEnd records the user's skills, commits whatever changed in the brain and pushes it to the server.
+func SessionEnd(ctx context.Context, in Input, env Env) error {
 	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
-	return errors.Join(saveErr, commit(in, env))
+	err := errors.Join(saveErr, commit(in, env))
+	if env.Remote != nil {
+		if _, pushErr := remote.Push(ctx, env.Remote, env.Brain); pushErr != nil {
+			err = errors.Join(err, pushErr)
+		}
+	}
+	return err
 }
 
 func commit(in Input, env Env) error {

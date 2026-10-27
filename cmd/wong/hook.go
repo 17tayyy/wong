@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -39,11 +40,14 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 			if key := os.Getenv("LINEAR_API_KEY"); key != "" {
 				env.Tracker = linear.New(key)
 			}
+			if env.Remote, err = remoteClient(5 * time.Second); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook:", err)
+			}
 			if args[0] == "session-start" {
 				fmt.Fprint(cmd.OutOrStdout(), hook.SessionStart(cmd.Context(), in, env))
 				return nil
 			}
-			if err := hook.SessionEnd(in, env); err != nil {
+			if err := hook.SessionEnd(cmd.Context(), in, env); err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook:", err)
 			}
 			return nil
