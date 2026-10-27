@@ -1,0 +1,21 @@
+{{define "crumbs"}}<a href="/">{{icon "book-open"}}Library</a><span class="sep">/</span><span class="here">New note</span>{{end}}
+{{define "main"}}
+<form class="page editor newnote" method="post" action="/new">
+  <label class="sr" for="name">Name</label>
+  <input class="title-input" id="name" name="name" value="{{.Form.Name}}" required placeholder="Untitled" autofocus>
+  <input class="desc-input" name="description" value="{{.Form.Description}}" required placeholder="One line on what this note is about" aria-label="Description">
+  {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+  <div class="props">
+    <label class="prop"><span class="k">{{icon "folder"}}Shelf</span><span class="v"><select name="folder">{{range .Folders}}<option value="{{.}}"{{if eq . $.Form.Folder}} selected{{end}}>{{.}}</option>{{end}}</select></span></label>
+    <label class="prop"><span class="k">{{icon "tag"}}Kind</span><span class="v"><select name="kind">{{range .Kinds}}<option value="{{.}}"{{if eq (print .) $.Form.Kind}} selected{{end}}>{{.}}</option>{{end}}</select></span></label>
+  </div>
+  <hr class="divider">
+  <label class="sr" for="body">Note</label>
+  <textarea id="body" name="body" rows="14" spellcheck="true" placeholder="Point to the source instead of copying its state: “tracked in ENG-15”, not “ENG-15 is in progress”.">{{.Form.Body}}</textarea>
+  <div class="formbar">
+    <button class="btn primary" type="submit">Create note</button>
+    <a class="btn" href="/">Cancel</a>
+    <span class="muted">It is added to its shelf's MEMORY.md, where agents find it.</span>
+  </div>
+</form>
+{{end}}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}} · wong</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+{{if .Machine}}
+<div class="app">
+  <nav class="side" aria-label="Workspace">
+    <div class="workspace">
+      <span class="logo" aria-hidden="true">w</span>
+      <span class="ws-name">wong <span class="ws-host">{{.Server}}</span></span>
+    </div>
+    <form class="search" action="/" method="get" role="search">
+      <label class="sr" for="q">Search notes</label>
+      {{icon "search"}}<input id="q" type="search" name="q" value="{{.Query}}" placeholder="Search">
+    </form>
+    <div class="nav">
+      <a href="/"{{if eq .Nav "library"}} aria-current="page"{{end}}>{{icon "book-open"}}<span>Library</span><span class="count">{{.Masthead.Notes}}</span></a>
+      <a href="/corrections"{{if eq .Nav "corrections"}} aria-current="page"{{end}}>{{icon "triangle-alert"}}<span>Corrections</span>{{with .Masthead.Corrections}}<span class="badge">{{.}}</span>{{end}}</a>
+      <a href="/history"{{if eq .Nav "history"}} aria-current="page"{{end}}>{{icon "history"}}<span>History</span></a>
+      <a href="/skills"{{if eq .Nav "skills"}} aria-current="page"{{end}}>{{icon "puzzle"}}<span>Skills</span></a>
+    </div>
+    <p class="side-h">Shelves</p>
+    <div class="tree">
+      {{range .Shelves}}
+      <details{{if eq .ID $.Open}} open{{end}}>
+        <summary>{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></summary>
+        <ul>
+          {{range .Entries}}<li><a href="{{notePath .Path}}"{{if eq .Path $.Path}} aria-current="page"{{end}}>{{icon "file-text"}}<span>{{.Name}}</span>{{if .Issues}}<span class="dot {{if .Stale}}red{{else}}yellow{{end}}" title="{{if .Stale}}Stale{{else}}To review{{end}}"></span>{{end}}</a></li>{{end}}
+        </ul>
+      </details>
+      {{end}}
+    </div>
+    <div class="side-foot">
+      <ul class="machines" aria-label="Machines">
+        {{range .Masthead.Machines}}<li>{{icon "laptop"}}<span>{{.Name}}</span><span class="seen">{{if .Seen.IsZero}}not seen{{else}}{{ago .Seen}}{{end}}</span></li>{{end}}
+      </ul>
+      <form method="post" action="/logout"><button class="btn ghost small">{{icon "log-out"}}Sign out</button></form>
+    </div>
+  </nav>
+  <div class="frame">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Breadcrumb">{{block "crumbs" .}}<span>{{.Title}}</span>{{end}}</nav>
+      <div class="actions">{{block "actions" .}}{{end}}</div>
+    </header>
+    <div class="body">
+      <main id="main">{{template "main" .}}</main>
+      {{block "aside" .}}{{end}}
+    </div>
+  </div>
+</div>
+{{else}}
+<main id="main" class="bare">{{template "main" .}}</main>
+{{end}}
+</body>
+</html>
+
+{{define "pill"}}{{if eq .Severity "stale"}}<span class="pill red">Stale</span>{{else}}<span class="pill yellow">Review</span>{{end}}{{end}}
+
+{{define "status"}}{{range .Issues}}{{template "pill" .}}{{else}}{{if not .Verified.IsZero}}<span class="pill green">Verified</span>{{end}}{{end}}{{end}}
+
+{{define "undo"}}{{if .Latest}}{{if eq .Action "created"}}<a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "undo-2"}}Undo…</a>{{else}}<form method="post" action="/changes/{{.Seq}}/undo"><button class="btn small ghost" aria-label="Undo this change to {{.Name}}">{{icon "undo-2"}}Undo</button></form>{{end}}{{else}}<a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "git-compare"}}Restore…</a>{{end}}{{end}}
+
+{{define "delta"}}{{if or .Plus .Minus}} <span class="delta">{{if .Plus}}<span class="plus">+{{.Plus}}</span>{{end}}{{if .Minus}} <span class="minus">−{{.Minus}}</span>{{end}}</span>{{end}}{{end}}
+
+{{define "action"}}<span class="pill {{if eq .Action "created"}}green{{else if eq .Action "deleted"}}red{{else}}blue{{end}}">{{.Action}}</span>{{end}}

@@ -1,0 +1,68 @@
+{{define "crumbs"}}<a href="/">{{icon "book-open"}}Library</a><span class="sep">/</span><a href="/#{{folder .Path}}">{{folder .Path}}</a><span class="sep">/</span><span class="here">{{.Title}}</span>{{end}}
+{{define "actions"}}
+{{if .Entry}}
+<nav class="seg" aria-label="View">
+  <a href="{{notePath .Path}}"{{if not .Raw}} aria-current="true"{{end}}>{{icon "eye"}}Page</a>
+  <a href="{{notePath .Path}}?view=markdown"{{if .Raw}} aria-current="true"{{end}}>{{icon "code"}}Markdown</a>
+</nav>
+<a class="btn small" href="/edit/{{.Path}}">{{icon "pencil"}}Edit</a>
+{{end}}
+{{end}}
+{{define "main"}}
+<article class="page">
+  <h1>{{.Title}}</h1>
+  {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
+  {{with .Entry}}
+  {{if .ShowDescription}}<p class="desc">{{.Description}}</p>{{end}}
+  <div class="props">
+    <div class="prop"><span class="k">{{icon "tag"}}Kind</span><span class="v">{{with .Kind}}<span class="pill gray">{{.}}</span>{{else}}<span class="muted">Empty</span>{{end}}</span></div>
+    <div class="prop"><span class="k">{{icon "info"}}Status</span><span class="v">{{if or .Issues (not .Verified.IsZero)}}{{template "status" .}}{{else}}<span class="muted">Not verified yet</span>{{end}}</span></div>
+    <div class="prop"><span class="k">{{icon "circle-check"}}Verified</span><span class="v">{{if .Verified.IsZero}}<span class="muted">Never · last written {{day .Written}}</span>{{else}}{{day .Verified}} <span class="muted">· {{days .Verified}} days ago</span>{{end}}</span></div>
+    <div class="prop"><span class="k">{{icon "link-2"}}Sources</span><span class="v chips">{{range .Note.Sources}}<code class="chip">{{.}}</code>{{else}}<span class="muted">None declared</span>{{end}}</span></div>
+    <div class="prop"><span class="k">{{icon "globe"}}Scope</span><span class="v">{{with .Note.Scope}}{{.}}{{else}}<span class="muted">Empty</span>{{end}}</span></div>
+    <div class="prop"><span class="k">{{icon "folder"}}File</span><span class="v"><code class="chip">{{.Path}}</code></span></div>
+  </div>
+  {{range .Issues}}
+  <div class="callout {{if eq .Severity "stale"}}red{{else}}yellow{{end}}" role="note">
+    {{icon "triangle-alert"}}
+    <div>
+      <p><b>{{if eq .Severity "stale"}}This note contradicts its source.{{else}}This note may be out of date.{{end}}</b> {{.Message}}.</p>
+      <p class="muted">{{.Ref}} · found by {{.Source}}. The agent working on this project fixes it with the maintain-brain skill, or you can edit the note.</p>
+    </div>
+  </div>
+  {{end}}
+  {{end}}
+  <hr class="divider">
+  {{if .Raw}}
+  {{if .Content}}<pre class="raw">{{.Content}}</pre>{{else}}<p class="empty">This file was deleted. Its versions are in the panel.</p>{{end}}
+  {{else}}
+  <div class="prose">{{.Body}}</div>
+  {{end}}
+</article>
+{{end}}
+{{define "aside"}}
+<aside class="panel" aria-label="Links and history">
+  {{if .Entry}}
+  <section>
+    <h2>{{icon "arrow-up-right"}}Links<span class="count">{{len .Links}}</span></h2>
+    <ul class="refs">{{range .Links}}<li><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a></li>{{else}}<li class="muted">Links to no other note.</li>{{end}}</ul>
+  </section>
+  <section>
+    <h2>{{icon "link-2"}}Linked mentions<span class="count">{{len .Mentions}}</span></h2>
+    <ul class="refs">{{range .Mentions}}<li><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a></li>{{else}}<li class="muted">No note links here.</li>{{end}}</ul>
+  </section>
+  {{end}}
+  <section>
+    <h2>{{icon "history"}}History<span class="count">{{len .Versions}}</span></h2>
+    <ol class="timeline">
+      {{range .Versions}}
+      <li>
+        <p>{{template "action" .}}{{template "delta" .}}</p>
+        <p class="muted">{{signer .Machine}} · {{stamp .When}}</p>
+        <p class="row"><a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "git-compare"}}Compare</a>{{if .Latest}}{{template "undo" .}}{{end}}</p>
+      </li>
+      {{end}}
+    </ol>
+  </section>
+</aside>
+{{end}}

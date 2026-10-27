@@ -1,0 +1,26 @@
+{{define "crumbs"}}{{icon "triangle-alert"}}<span>Corrections</span>{{end}}
+{{define "main"}}
+<div class="page wide">
+  <h1>Corrections</h1>
+  <p class="desc">Notes that contradict their sources (stale) or may be out of date (review), from each machine's last check and the GitHub and Linear webhooks. A correction goes away when a new version of its note reaches the server and no longer breaks the rule.</p>
+  {{if .Slips}}
+  <div class="table-wrap">
+  <table class="db">
+    <thead><tr><th scope="col">Note</th><th scope="col">Status</th><th scope="col">What changed</th><th scope="col">Source</th></tr></thead>
+    <tbody>
+      {{range .Slips}}
+      <tr>
+        <td class="name"><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a> <span class="pill gray">{{.Folder}}</span></td>
+        <td>{{template "pill" .}}</td>
+        <td class="msg">{{.Message}} <code class="chip">{{.Ref}}</code></td>
+        <td class="muted">{{.Source}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <div class="callout green">{{icon "circle-check"}}<p>No open corrections: every note agrees with its sources as far as the last checks and webhooks could tell.</p></div>
+  {{end}}
+</div>
+{{end}}

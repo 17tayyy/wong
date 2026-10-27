@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/spf13/cobra v1.10.2
+	github.com/yuin/goldmark v1.8.6
 	go.yaml.in/yaml/v3 v3.0.5
 	modernc.org/sqlite v1.61.0
 )

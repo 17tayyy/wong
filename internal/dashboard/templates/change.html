@@ -1,0 +1,42 @@
+{{define "crumbs"}}<a href="/history">{{icon "history"}}History</a><span class="sep">/</span><span class="here">{{.Title}}</span>{{end}}
+{{define "actions"}}
+{{with .Change}}
+{{if not .Deleted}}<a class="btn small ghost" href="{{notePath .Path}}">{{icon "file-text"}}Open</a>{{end}}
+{{if .Latest}}
+<form method="post" action="/changes/{{.Seq}}/undo"><button class="btn small{{if eq .Action "created"}} danger{{else}} primary{{end}}">{{icon "undo-2"}}{{if eq .Action "created"}}Delete the note{{else}}Undo this change{{end}}</button></form>
+{{else if not .Deleted}}
+<form method="post" action="/changes/{{.Seq}}/restore"><input type="hidden" name="base" value="{{$.Base}}"><button class="btn small primary">{{icon "undo-2"}}Restore this version</button></form>
+{{end}}
+{{end}}
+{{end}}
+{{define "main"}}
+<article class="page wide">
+{{with .Change}}
+  <h1>{{.Name}}</h1>
+  <p class="desc">{{template "action" .}} by {{signer .Machine}} on {{stamp .When}}{{template "delta" .}} · <code class="chip">{{.Path}}</code></p>
+  {{if and .Latest (eq .Action "created")}}<div class="callout yellow" role="note">{{icon "info"}}<p>Undoing this change deletes the note. It stays in the history and can be restored from there.</p></div>{{end}}
+  {{if not .Latest}}{{if not .Deleted}}<div class="callout gray" role="note">{{icon "info"}}<p>A later change to this file exists. Restoring this version makes it the current one, as a new change that can be undone too.</p></div>{{end}}{{end}}
+{{end}}
+{{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+{{with .Change}}
+  <div class="table-wrap">
+  <table class="diff split">
+    <caption class="sr">The version before this change, line by line against this change</caption>
+    <colgroup><col class="numc"><col><col class="numc"><col></colgroup>
+    <thead><tr><th colspan="2">{{if .Previous}}Before{{else}}Before: no file{{end}}</th><th colspan="2">{{if .Deleted}}After: deleted{{else}}After{{end}}</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="num {{.LeftOp}}">{{if .LeftNum}}{{.LeftNum}}{{end}}</td><td class="line {{.LeftOp}}">{{if eq .LeftOp "removed"}}<del><span class="sign">−</span>{{.Left}}</del>{{else}}{{.Left}}{{end}}</td>
+        <td class="num {{.RightOp}}">{{if .RightNum}}{{.RightNum}}{{end}}</td><td class="line {{.RightOp}}">{{if eq .RightOp "added"}}<ins><span class="sign">+</span>{{.Right}}</ins>{{else}}{{.Right}}{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  <ol class="diff unified" aria-label="Changes, line by line">
+    {{range .Lines}}<li class="{{lineOp .Op}}">{{if eq (lineOp .Op) "added"}}<ins><span class="sign">+</span>{{.Text}}</ins>{{else if eq (lineOp .Op) "removed"}}<del><span class="sign">−</span>{{.Text}}</del>{{else}}<span class="sign"> </span>{{.Text}}{{end}}</li>{{end}}
+  </ol>
+{{end}}
+</article>
+{{end}}

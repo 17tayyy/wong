@@ -1,0 +1,19 @@
+{{define "crumbs"}}{{icon "puzzle"}}<span>Skills</span>{{end}}
+{{define "main"}}
+<div class="page wide">
+  <h1>Skills</h1>
+  <p class="desc">The skills the machines have installed, by where they come from, and the ones without a source that the brain keeps a copy of.</p>
+  <div class="table-wrap">
+  <table class="db">
+    <thead><tr><th scope="col">Skill</th><th scope="col">Source</th></tr></thead>
+    <tbody>
+      {{range .Skills}}
+      <tr><td class="name">{{if .Path}}<a href="{{notePath .Path}}">{{icon "puzzle"}}<span>{{.Name}}</span></a>{{else}}<span class="plain">{{icon "puzzle"}}<span>{{.Name}}</span></span>{{end}}</td><td class="muted">{{.Source}}</td></tr>
+      {{else}}
+      <tr><td colspan="2" class="empty">No skills recorded yet. The session-end hook records them with wong skills save.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+</div>
+{{end}}

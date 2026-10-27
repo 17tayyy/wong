@@ -94,8 +94,8 @@ func (s *Store) Version(seq int64) (Version, []byte, error) {
 	return v, content, err
 }
 
-// previous returns the version a change replaced, or ok false when the change created the file.
-func (s *Store) previous(v Version) (Version, []byte, bool, error) {
+// Previous returns the version a change replaced, or ok false when the change created the file.
+func (s *Store) Previous(v Version) (Version, []byte, bool, error) {
 	var seq int64
 	err := s.db.QueryRow(`SELECT seq FROM history WHERE path = ? AND seq < ? ORDER BY seq DESC LIMIT 1`, v.Path, v.Seq).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -121,7 +121,7 @@ func (s *Store) Undo(seq int64, machine string) error {
 	if current != seq {
 		return fmt.Errorf("%s: %w", v.Path, ErrNotLatest)
 	}
-	prev, content, ok, err := s.previous(v)
+	prev, content, ok, err := s.Previous(v)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func (s *Store) ReportFindings(machine, project string, findings []check.Finding
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	for _, f := range findings {
-		if p, ok := noteProject(f.Note); !ok || p != project {
+		if p, ok := NoteProject(f.Note); !ok || p != project {
 			continue
 		}
 		if _, err := tx.Exec(`INSERT INTO findings (project, machine, note, severity, ref, message, reported_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,

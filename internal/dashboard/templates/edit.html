@@ -1,0 +1,15 @@
+{{define "crumbs"}}<a href="/">{{icon "book-open"}}Library</a><span class="sep">/</span><a href="{{notePath .Path}}">{{with .Entry}}{{.Name}}{{else}}{{title .Path}}{{end}}</a><span class="sep">/</span><span class="here">Edit</span>{{end}}
+{{define "main"}}
+<form class="page editor" method="post" action="{{notePath .Path}}">
+  <h1>{{.Title}}</h1>
+  <p class="desc">The whole file, frontmatter and body. Saving makes a new version signed as you in the dashboard; the machines get it on their next pull, and it can be undone.</p>
+  {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+  <input type="hidden" name="base" value="{{.Base}}">
+  <label class="sr" for="content">Note file</label>
+  <textarea id="content" name="content" spellcheck="true" rows="26">{{.Content}}</textarea>
+  <div class="formbar">
+    <button class="btn primary" type="submit">Save</button>
+    <a class="btn" href="{{notePath .Path}}">Cancel</a>
+  </div>
+</form>
+{{end}}

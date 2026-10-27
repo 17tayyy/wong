@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/17tayyy/wong/internal/dashboard"
 	"github.com/17tayyy/wong/internal/remote"
 )
 
@@ -35,7 +36,9 @@ func newServeCmd() *cobra.Command {
 			"events) with WONG_GITHUB_SECRET set, and POST /hooks/linear (issue events) with\n" +
 			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
-			"a proxy with a certificate, or with --tls-cert and --tls-key.",
+			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
+			"The same address serves the dashboard: open it in a browser and sign in with a\n" +
+			"token, for example one made with --new-token browser.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if (certFile == "") != (keyFile == "") {
@@ -76,9 +79,18 @@ func newServeCmd() *cobra.Command {
 			defer stop()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
+			api := remote.Handler(store, log, hooks)
+			web, err := dashboard.Handler(store, log)
+			if err != nil {
+				return err
+			}
+			root := http.NewServeMux()
+			root.Handle("/api/", api)
+			root.Handle("/hooks/", api)
+			root.Handle("/", web)
 			srv := &http.Server{
 				Addr:              addr,
-				Handler:           remote.Handler(store, log, hooks),
+				Handler:           root,
 				ReadHeaderTimeout: 10 * time.Second,
 				ReadTimeout:       2 * time.Minute,
 				WriteTimeout:      2 * time.Minute,

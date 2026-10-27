@@ -1,0 +1,27 @@
+{{define "crumbs"}}{{icon "history"}}<span>History</span>{{end}}
+{{define "main"}}
+<div class="page wide">
+  <h1>History</h1>
+  <p class="desc">Every change to the brain, newest first, signed by the machine that pushed it. Undoing a change is a change too, and can be undone.</p>
+  {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
+  <div class="table-wrap">
+  <table class="db">
+    <thead><tr><th scope="col">Note</th><th scope="col">Change</th><th scope="col">By</th><th scope="col" class="c-date">When</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+    <tbody>
+      {{range .Changes}}
+      <tr>
+        <td class="name"><a href="/changes/{{.Seq}}">{{icon "file-text"}}<span>{{.Name}}</span></a> <span class="pill gray">{{.Folder}}</span></td>
+        <td>{{template "action" .}}{{template "delta" .}}</td>
+        <td class="by">{{icon "laptop"}}{{signer .Machine}}</td>
+        <td class="c-date">{{stamp .When}}</td>
+        <td class="act">{{template "undo" .}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="empty">No changes yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{if .Older}}<p class="more"><a class="btn small" href="/history?before={{.Older}}">Older changes</a></p>{{end}}
+</div>
+{{end}}

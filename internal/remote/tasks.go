@@ -41,8 +41,8 @@ func (e event) apply(n check.Note) (check.Finding, bool, error) {
 	return check.FileRemoved(n, e.Repo, e.Path, e.Commit, e.When)
 }
 
-// noteProject returns the folder of a note of the brain: "me" or a project id.
-func noteProject(p string) (string, bool) {
+// NoteProject returns the folder of a note of the brain: "me" or a project id.
+func NoteProject(p string) (string, bool) {
 	dir, file := path.Split(p)
 	if path.Ext(file) != ".md" || file == "MEMORY.md" {
 		return "", false
@@ -71,7 +71,7 @@ func (s *Store) notes(project string) ([]check.Note, error) {
 		if err := rows.Scan(&n.Path, &n.Data, &modified); err != nil {
 			return nil, err
 		}
-		if id, ok := noteProject(n.Path); ok && (project == "" || id == project) {
+		if id, ok := NoteProject(n.Path); ok && (project == "" || id == project) {
 			n.Written, _ = time.Parse(time.RFC3339Nano, modified)
 			notes = append(notes, n)
 		}
@@ -110,7 +110,7 @@ func (s *Store) addTasks(ev event, source string, notes []check.Note) (int, erro
 		if err != nil || !found {
 			continue
 		}
-		project, _ := noteProject(n.Path)
+		project, _ := NoteProject(n.Path)
 		if _, err := tx.Exec(`INSERT INTO tasks (note, project, severity, ref, message, source, event, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(note, ref) WHERE closed_at IS NULL DO UPDATE SET severity = excluded.severity, message = excluded.message,
 				source = excluded.source, event = excluded.event`,

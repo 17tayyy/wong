@@ -98,12 +98,9 @@ func Folders(brain string) ([]string, error) {
 
 // Write creates a note in a folder and adds it to the folder's MEMORY.md.
 func Write(brain, folder string, n *note.Note) (string, error) {
-	stem := n.Name
-	if !fileStemRE.MatchString(stem) {
-		stem = strings.Trim(slugRE.ReplaceAllString(strings.ToLower(stem), "-"), "-._")
-	}
-	if stem == "" {
-		return "", fmt.Errorf("cannot make a file name from %q", n.Name)
+	stem, err := Stem(n.Name)
+	if err != nil {
+		return "", err
 	}
 	rel := filepath.Join(folder, stem+".md")
 	path := filepath.Join(brain, rel)
@@ -121,6 +118,18 @@ func Write(brain, folder string, n *note.Note) (string, error) {
 		return "", err
 	}
 	return rel, addToIndex(filepath.Join(brain, folder), filepath.Base(rel), n)
+}
+
+// Stem returns the file name, without .md, for a note with this name.
+func Stem(name string) (string, error) {
+	stem := name
+	if !fileStemRE.MatchString(stem) {
+		stem = strings.Trim(slugRE.ReplaceAllString(strings.ToLower(stem), "-"), "-._")
+	}
+	if stem == "" {
+		return "", fmt.Errorf("cannot make a file name from %q", name)
+	}
+	return stem, nil
 }
 
 // Move puts a note in another folder, updating its scope and both folders' MEMORY.md.
@@ -216,15 +225,22 @@ func addToIndex(dir, file string, n *note.Note) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	text := string(data)
-	if strings.Contains(text, "("+file+")") {
+	text := WithIndexEntry(string(data), file, n)
+	if text == string(data) {
 		return nil
 	}
-	if text != "" && !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	text += fmt.Sprintf("- [%s](%s) — %s\n", n.Name, file, strings.Join(strings.Fields(n.Description), " "))
 	return os.WriteFile(path, []byte(text), 0o644)
+}
+
+// WithIndexEntry returns a MEMORY.md with a line for the note's file, unless it already links to it.
+func WithIndexEntry(index, file string, n *note.Note) string {
+	if strings.Contains(index, "("+file+")") {
+		return index
+	}
+	if index != "" && !strings.HasSuffix(index, "\n") {
+		index += "\n"
+	}
+	return index + fmt.Sprintf("- [%s](%s) — %s\n", n.Name, file, strings.Join(strings.Fields(n.Description), " "))
 }
 
 // removeFromIndex drops a note's link from MEMORY.md, and the whole line when no other link is left on it.
