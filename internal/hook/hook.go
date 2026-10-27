@@ -3,6 +3,7 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/repos"
+	"github.com/17tayyy/wong/internal/skills"
 )
 
 const maxFindings = 5
@@ -82,8 +84,13 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	return b.String()
 }
 
-// SessionEnd commits whatever changed in the brain, so every session's edits can be undone.
+// SessionEnd records the user's skills and commits whatever changed in the brain, so every session's edits can be undone.
 func SessionEnd(in Input, env Env) error {
+	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
+	return errors.Join(saveErr, commit(in, env))
+}
+
+func commit(in Input, env Env) error {
 	if top, ok := toplevel(env.Brain); !ok || top != filepath.Clean(env.Brain) {
 		return nil
 	}

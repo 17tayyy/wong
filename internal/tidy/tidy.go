@@ -136,8 +136,7 @@ func Duplicates(notes []Note) [][]string {
 	return out
 }
 
-// Misplaced suggests moving notes that name another project far more than their own folder; preferences in me/ stay.
-// names maps each project id to the words that identify it, such as its repos' directory names.
+// Misplaced suggests moving notes that name another project (by its words in names) far more than their own folder.
 func Misplaced(notes []Note, names map[string][]string) []Move {
 	patterns := map[string][]*regexp.Regexp{}
 	for id, words := range names {
