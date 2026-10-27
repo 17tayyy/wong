@@ -1,0 +1,15 @@
+[Unit]
+Description=wong server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wong
+Group=wong
+ExecStart=/usr/local/bin/wong serve --db /var/lib/wong/wong.db --addr :8787
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
