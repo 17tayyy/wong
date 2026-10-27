@@ -48,6 +48,8 @@ func TestMisplaced(t *testing.T) {
 		"The personal blog lives in side-project", "side-project is Astro; posts for side.project go in English. side-project deploys alone.")
 	write(t, brain, "projects/acme/billing.md", "project", "billing",
 		"Billing in acme-api", "acme-api bills through Stripe; the side-project has nothing to do with it.")
+	write(t, brain, "me/queue.md", "preference", "queue",
+		"Use side-project as the task queue", "side-project everywhere; side-project is the queue for acme too.")
 	write(t, brain, "me/orca.md", "reference", "orca",
 		"How acme runs on Orca", "acme-api and acme-web each run in an Orca worktree for acme.")
 	names := map[string][]string{"acme": {"acme", "acme-api", "acme-web"}, "side-project": {"side-project", "side.project"}}
