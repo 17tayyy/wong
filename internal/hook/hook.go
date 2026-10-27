@@ -97,10 +97,10 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	return b.String()
 }
 
-// SessionEnd records the user's skills, commits whatever changed in the brain and pushes it to the server.
+// SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server.
 func SessionEnd(ctx context.Context, in Input, env Env) error {
 	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
-	err := errors.Join(saveErr, commit(in, env))
+	err := errors.Join(saveErr, repos.WriteRemotes(env.Brain, env.Repos), commit(in, env))
 	if env.Remote != nil {
 		if _, pushErr := remote.Push(ctx, env.Remote, env.Brain); pushErr != nil {
 			err = errors.Join(err, pushErr)

@@ -114,6 +114,22 @@ func TestSessionEndCommitsTheBrain(t *testing.T) {
 	}
 }
 
+func TestSessionEndRecordsTheGitHubRepos(t *testing.T) {
+	env, repo := newEnv(t)
+	run(t, repo, "remote", "add", "origin", "git@github.com:acme/acme-api.git")
+
+	if err := SessionEnd(context.Background(), Input{SessionID: "s", Cwd: repo}, env); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(env.Brain, repos.RemotesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "acme/acme-api:\n  project: acme\n  dir: acme-api\n"; string(data) != want {
+		t.Errorf("remotes.yaml = %q, want %q", data, want)
+	}
+}
+
 func TestSessionEndIgnoresABrainWithoutGit(t *testing.T) {
 	env, repo := newEnv(t)
 
