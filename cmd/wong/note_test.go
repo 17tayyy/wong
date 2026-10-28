@@ -180,3 +180,14 @@ func TestNoteWriteKeepsTagsLinksAndNotesTidy(t *testing.T) {
 		t.Errorf("wong tags = %q, %v", out, err)
 	}
 }
+
+func TestNoteSearch(t *testing.T) {
+	brain := noteEnv(t)
+	out, err := run(t, "--brain", brain, "note", "search", "ORCA")
+	if err != nil || !strings.Contains(out, "1 notes match:") || !strings.Contains(out, "projects/acme/orca.md — the orca cli") || !strings.Contains(out, "> Use orca.exe.") {
+		t.Errorf("search: %v\n%s", err, out)
+	}
+	if out, _ := run(t, "--brain", brain, "note", "search", "nowhere"); !strings.Contains(out, "no note holds all of: nowhere") {
+		t.Errorf("search with no match:\n%s", out)
+	}
+}

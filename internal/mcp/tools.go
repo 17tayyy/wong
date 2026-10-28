@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,7 +75,7 @@ var tools = []tool{
 	{
 		Name:        "search_notes",
 		Title:       "Search notes",
-		Description: "Find notes whose name, description or text contain every word of the query, in one project or the whole brain.",
+		Description: "Find the notes that hold every word of the query in their name, description, tags or text, with or without accents, in one project (and me) or the whole brain; matches in the name, description or tags come first.",
 		InputSchema: object([]string{"query"}, map[string]any{
 			"query":   str("Words to look for; a note matches when it contains all of them."),
 			"project": str("Search only this project's notes, plus me."),
@@ -296,46 +295,17 @@ func searchNotes(s *Server, _ string, args json.RawMessage) (string, error) {
 	if err := decode(args, &a); err != nil {
 		return "", err
 	}
-	words := strings.Fields(strings.ToLower(a.Query))
-	if len(words) == 0 {
+	if strings.TrimSpace(a.Query) == "" {
 		return "", argErr("query is empty")
 	}
 	b, err := s.store.Brain()
 	if err != nil {
 		return "", err
 	}
-	type hit struct {
-		path, name, desc, line string
-		inName                 bool
-	}
-	var hits []hit
-	for _, p := range slices.Sorted(maps.Keys(b.Files)) {
-		id, isNote := remote.NoteProject(p)
-		if !isNote || (a.Project != "" && id != a.Project && id != "me") {
-			continue
-		}
-		text := string(b.Files[p].Content)
-		lower := strings.ToLower(text)
-		if slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(lower, w) }) {
-			continue
-		}
-		h := hit{path: p, name: strings.TrimSuffix(path.Base(p), ".md")}
-		if n, err := note.Parse(b.Files[p].Content); err == nil {
-			h.name, h.desc = n.Name, n.Description
-			for _, l := range strings.Split(n.Body, "\n") {
-				if strings.Contains(strings.ToLower(l), words[0]) {
-					h.line = strings.TrimSpace(l)
-					break
-				}
-			}
-		}
-		h.inName = strings.Contains(strings.ToLower(h.name+" "+h.desc), words[0])
-		hits = append(hits, h)
-	}
+	hits := b.Graph().Search(a.Query, a.Project)
 	if len(hits) == 0 {
-		return fmt.Sprintf("No note contains all of: %s.", strings.Join(words, ", ")), nil
+		return fmt.Sprintf("No note holds all of: %s.", strings.Join(strings.Fields(a.Query), ", ")), nil
 	}
-	slices.SortStableFunc(hits, func(x, y hit) int { return cmp.Compare(boolRank(y.inName), boolRank(x.inName)) })
 	var out strings.Builder
 	fmt.Fprintf(&out, "%d notes match", len(hits))
 	if len(hits) > 20 {
@@ -344,22 +314,15 @@ func searchNotes(s *Server, _ string, args json.RawMessage) (string, error) {
 	}
 	out.WriteString(":\n")
 	for _, h := range hits {
-		fmt.Fprintf(&out, "\n- %s: %s", h.path, h.name)
-		if h.desc != "" && h.desc != h.name {
-			fmt.Fprintf(&out, " — %s", h.desc)
+		fmt.Fprintf(&out, "\n- %s: %s", h.Path, h.Name)
+		if h.Description != "" && h.Description != h.Name {
+			fmt.Fprintf(&out, " — %s", h.Description)
 		}
-		if h.line != "" {
-			fmt.Fprintf(&out, "\n  > %s", truncate(h.line, 200))
+		if h.Line != "" {
+			fmt.Fprintf(&out, "\n  > %s", truncate(h.Line, 200))
 		}
 	}
 	return out.String() + "\n", nil
-}
-
-func boolRank(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func truncate(s string, n int) string {

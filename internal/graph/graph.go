@@ -303,3 +303,59 @@ func Load(dir string) (*Graph, error) {
 	}
 	return New(notes), nil
 }
+
+// Hit is a note a search found, with the first line of its text that matched.
+type Hit struct {
+	Note
+	Line  string
+	score int
+}
+
+var folder = strings.NewReplacer("á", "a", "à", "a", "ä", "a", "â", "a", "é", "e", "è", "e", "ë", "e", "ê", "e",
+	"í", "i", "ì", "i", "ï", "i", "î", "i", "ó", "o", "ò", "o", "ö", "o", "ô", "o", "ú", "u", "ù", "u", "ü", "u", "û", "u", "ñ", "n", "ç", "c")
+
+// fold lowers a text and drops its accents, so a search matches however the words were written.
+func fold(s string) string { return folder.Replace(strings.ToLower(s)) }
+
+// Search finds the notes of a project and me, or of the whole brain, that hold every word of the query, best first.
+func (g *Graph) Search(query, project string) []Hit {
+	words := strings.Fields(fold(query))
+	if len(words) == 0 {
+		return nil
+	}
+	var hits []Hit
+	for _, n := range g.Notes {
+		if project != "" && n.Shelf() != project && n.Shelf() != "me" {
+			continue
+		}
+		head := fold(n.Name + " " + n.Description + " " + strings.Join(n.Tags, " ") + " " + n.stem())
+		body := fold(n.Body)
+		h := Hit{Note: n}
+		for _, w := range words {
+			switch {
+			case strings.Contains(head, w):
+				h.score += 3
+			case strings.Contains(body, w):
+				h.score++
+			default:
+				h.score = -1
+			}
+			if h.score < 0 {
+				break
+			}
+		}
+		if h.score < 0 {
+			continue
+		}
+		for _, line := range strings.Split(n.Body, "\n") {
+			folded := fold(line)
+			if slices.ContainsFunc(words, func(w string) bool { return strings.Contains(folded, w) }) {
+				h.Line = strings.TrimSpace(line)
+				break
+			}
+		}
+		hits = append(hits, h)
+	}
+	slices.SortFunc(hits, func(a, b Hit) int { return cmp.Or(cmp.Compare(b.score, a.score), strings.Compare(a.Path, b.Path)) })
+	return hits
+}

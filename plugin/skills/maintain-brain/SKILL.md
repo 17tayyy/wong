@@ -131,8 +131,10 @@ act only on what they approve:
 
 ## Writing a note
 
-Before writing, look for a note that already covers the subject (`wong note show`, the
-`MEMORY.md` indexes, `grep` in the brain): update it instead of writing a second one.
+Before writing, look for a note that already covers the subject with `wong note search
+<words>` (it matches names, descriptions, tags and text, with or without accents) and
+update it instead of writing a second one. Search the same way when you need what the
+brain knows about a topic, rather than reading a long `MEMORY.md` index line by line.
 
 `wong note write --to <project|me> --name <name> --description <text> --kind <kind>
 --source <source>... --tag <tag>... < body.md` creates a note with the right frontmatter

@@ -28,7 +28,7 @@ func newNoteCmd(home string, brainDir *string) *cobra.Command {
 		Long: "Read, write, verify and move notes in the brain.\n\n" +
 			"A note is given by its path in the brain, its name or its file name without .md.",
 	}
-	cmd.AddCommand(newNoteShowCmd(home, brainDir), newNoteWriteCmd(brainDir), newNoteVerifyCmd(brainDir),
+	cmd.AddCommand(newNoteShowCmd(home, brainDir), newNoteSearchCmd(brainDir), newNoteWriteCmd(brainDir), newNoteVerifyCmd(brainDir),
 		newNoteMoveCmd(brainDir), newNoteRemoveCmd(brainDir))
 	return cmd
 }
@@ -65,6 +65,47 @@ func newNoteShowCmd(home string, brainDir *string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newNoteSearchCmd(brainDir *string) *cobra.Command {
+	var project string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "search <words>...",
+		Short: "Find the notes that hold every word, in their name, description, tags or text",
+		Long: "Find the notes that hold every word, in their name, description, tags or text, with or\n" +
+			"without accents. Notes that hold the words in their name, description or tags come\n" +
+			"first. --project searches one project and me.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			g, err := graph.Load(*brainDir)
+			if err != nil {
+				return err
+			}
+			hits := g.Search(strings.Join(args, " "), project)
+			out := cmd.OutOrStdout()
+			if len(hits) == 0 {
+				fmt.Fprintf(out, "no note holds all of: %s\n", strings.Join(args, ", "))
+				return nil
+			}
+			fmt.Fprintf(out, "%d notes match", len(hits))
+			if limit > 0 && len(hits) > limit {
+				fmt.Fprintf(out, ", the first %d", limit)
+				hits = hits[:limit]
+			}
+			fmt.Fprintln(out, ":")
+			for _, h := range hits {
+				fmt.Fprintf(out, "  %s — %s\n", h.Path, shorten(h.Description, 100))
+				if h.Line != "" {
+					fmt.Fprintf(out, "      > %s\n", shorten(h.Line, 120))
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "search only this project's notes and me")
+	cmd.Flags().IntVar(&limit, "limit", 20, "show at most this many notes (0 for all)")
+	return cmd
 }
 
 func newNoteWriteCmd(brainDir *string) *cobra.Command {

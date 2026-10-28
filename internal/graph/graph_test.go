@@ -63,3 +63,27 @@ func TestSimilarAndRelated(t *testing.T) {
 		t.Errorf("Related = %q", related)
 	}
 }
+
+func TestSearch(t *testing.T) {
+	g := New([]Note{
+		mk("projects/acme/migracion.md", "migracion", "La migración de la base de datos", "Se hizo con Alembic.\nCorre antes del despliegue.\n"),
+		mk("projects/acme/deploy.md", "deploy", "How Acme ships", "The migración runs first.\n", "database"),
+		mk("projects/acme/other.md", "other", "Unrelated", "Nothing here.\n"),
+		mk("projects/side/migrate.md", "migrate", "Side project migration", "migracion too.\n"),
+		mk("me/style.md", "style", "Migraciones con nombre claro", "Always name them.\n"),
+	})
+	var got []string
+	for _, h := range g.Search("MIGRACION", "acme") {
+		got = append(got, h.Path)
+	}
+	if strings.Join(got, ",") != "me/style.md,projects/acme/migracion.md,projects/acme/deploy.md" {
+		t.Errorf("Search = %v", got)
+	}
+	hits := g.Search("database migración", "")
+	if len(hits) != 1 || hits[0].Path != "projects/acme/deploy.md" || hits[0].Line != "The migración runs first." {
+		t.Errorf("Search across fields = %+v", hits)
+	}
+	if g.Search("   ", "") != nil || len(g.Search("migracion nothing", "")) != 0 {
+		t.Error("an empty query or one no note holds found notes")
+	}
+}
