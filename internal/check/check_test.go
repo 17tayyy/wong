@@ -343,9 +343,9 @@ func TestLinksResolveAcrossTheBrain(t *testing.T) {
 
 func TestValidSource(t *testing.T) {
 	for s, want := range map[string]bool{
-		"linear:ENG-15": true, "file:acme-api/app/x.py": true, "commit:acme-api@1a2b3c4": true,
+		"linear:ENG-15": true, "file:acme-api/app/x.py": true, "commit:acme-api@1a2b3c4": true, "commit:acme-api@0861684": true,
 		"note:other": true, "https://example.com": true,
-		"linear:eng-15": false, "file:x.py": false, "commit:1a2b3c4": false, "jira:ENG-1": false, "note:": false,
+		"linear:eng-15": false, "file:x.py": false, "commit:1a2b3c4": false, "commit:acme-api@1a2b3c4d5e6f7": false, "jira:ENG-1": false, "note:": false,
 	} {
 		if got := ValidSource(s); got != want {
 			t.Errorf("ValidSource(%q) = %v, want %v", s, got, want)
