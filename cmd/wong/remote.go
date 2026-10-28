@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/17tayyy/wong/internal/dashboard"
+	"github.com/17tayyy/wong/internal/mcp"
 	"github.com/17tayyy/wong/internal/remote"
 )
 
@@ -87,6 +88,7 @@ func newServeCmd() *cobra.Command {
 			root := http.NewServeMux()
 			root.Handle("/api/", api)
 			root.Handle("/hooks/", api)
+			root.Handle("/mcp", mcp.Handler(store, log, version()))
 			root.Handle("/", web)
 			srv := &http.Server{
 				Addr:              addr,
