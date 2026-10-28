@@ -596,33 +596,24 @@ func (d *Dashboard) save(w http.ResponseWriter, r *http.Request, machine string)
 		w.WriteHeader(http.StatusConflict)
 		d.render(w, "edit", p)
 	}
-	if _, ok := remote.NoteProject(target); ok {
-		if _, err := note.Parse([]byte(content)); err != nil {
-			retry("The note did not save: " + err.Error() + ". Fix the frontmatter and save again.")
-			return
-		}
-	}
-	up := remote.Upload{Path: target, Base: r.FormValue("base"), Sha: remote.Sha([]byte(content)), Content: []byte(content),
-		Modified: time.Now().UTC().Format(time.RFC3339Nano)}
-	_, conflicts, err := d.store.Apply(dashboardPrefix+machine, []remote.Upload{up})
-	if errors.Is(err, remote.ErrBadPush) {
-		retry("The note did not save: " + err.Error() + ".")
+	sha, err := d.store.EditNote(dashboardPrefix+machine, target, r.FormValue("base"), []byte(content))
+	var ne *remote.NoteError
+	switch {
+	case errors.As(err, &ne) && ne.Kind == remote.ErrChanged && wantsJSON(r):
+		jsonError(w, http.StatusConflict, changedMsg)
 		return
-	}
-	if err != nil {
+	case errors.As(err, &ne) && ne.Kind == remote.ErrChanged:
+		retry("This note changed since you opened it. Your text is below: copy what you need, open the note again and redo the edit there.")
+		return
+	case errors.As(err, &ne):
+		retry(ne.Msg)
+		return
+	case err != nil:
 		d.fail(w, err)
 		return
 	}
-	if len(conflicts) > 0 && wantsJSON(r) {
-		jsonError(w, http.StatusConflict, changedMsg)
-		return
-	}
-	if len(conflicts) > 0 {
-		retry("This note changed since you opened it. Your text is below: copy what you need, open the note again and redo the edit there.")
-		return
-	}
 	if wantsJSON(r) {
-		writeJSON(w, http.StatusOK, map[string]string{"sha": up.Sha})
+		writeJSON(w, http.StatusOK, map[string]string{"sha": sha})
 		return
 	}
 	http.Redirect(w, r, notePath(target)+"?view=markdown&done=saved", http.StatusSeeOther)
@@ -878,8 +869,7 @@ func (d *Dashboard) create(w http.ResponseWriter, r *http.Request, machine strin
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		d.newPage(w, &p, b)
 	}
-	folder, scope, err := brainFolder(form.Folder)
-	if err != nil {
+	if _, _, err := brainFolder(form.Folder); err != nil {
 		retry("Pick me or one of the projects for the note.")
 		return
 	}
@@ -888,50 +878,18 @@ func (d *Dashboard) create(w http.ResponseWriter, r *http.Request, machine strin
 		retry("A note needs a name, a one-line description and a kind.")
 		return
 	}
-	stem, err := brainfs.Stem(form.Name)
-	if err != nil {
-		retry("The name needs at least one letter or digit to make a file name from.")
-		return
-	}
 	body := form.Body
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	n := note.New(form.Name, form.Description, kind, scope, body)
-	data, err := n.Marshal()
+	target, _, err := d.store.CreateNote(dashboardPrefix+machine, form.Folder, note.New(form.Name, form.Description, kind, "", body))
+	var ne *remote.NoteError
+	if errors.As(err, &ne) {
+		retry(ne.Msg)
+		return
+	}
 	if err != nil {
 		d.fail(w, err)
-		return
-	}
-	target := folder + "/" + stem + ".md"
-	if _, exists := b.byPath[target]; exists {
-		retry("There is already a note at " + target + ": give this one another name, or edit that one.")
-		return
-	}
-	index, indexSha := "", ""
-	files, err := d.store.Files()
-	if err != nil {
-		d.fail(w, err)
-		return
-	}
-	for _, f := range files {
-		if f.Path == folder+"/MEMORY.md" {
-			index, indexSha = string(f.Content), f.Sha
-		}
-	}
-	newIndex := brainfs.WithIndexEntry(index, stem+".md", n)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	ups := []remote.Upload{
-		{Path: target, Sha: remote.Sha(data), Content: data, Modified: now},
-		{Path: folder + "/MEMORY.md", Base: indexSha, Sha: remote.Sha([]byte(newIndex)), Content: []byte(newIndex), Modified: now},
-	}
-	conflicts, err := d.store.ApplyOp(dashboardPrefix+machine, remote.NewOp("create"), ups)
-	if err != nil {
-		d.fail(w, err)
-		return
-	}
-	if len(conflicts) > 0 {
-		retry("The note was not created: " + target + " or its folder's MEMORY.md changed meanwhile. Check the library and try again.")
 		return
 	}
 	http.Redirect(w, r, notePath(target)+"?done=created", http.StatusSeeOther)

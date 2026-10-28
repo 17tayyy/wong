@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"html/template"
 	"net/url"
-	"regexp"
 	"strings"
 
+	"github.com/17tayyy/wong/internal/note"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 )
 
 var (
 	markdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
-	wikiRE   = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]`)
+	wikiRE   = note.WikiLinkRE
 )
 
 // renderMarkdown renders a note's body as HTML, turning [[links]] that resolve to a note into links to it; raw HTML in the note is dropped.

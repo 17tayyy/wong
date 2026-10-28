@@ -44,6 +44,9 @@ func ParseKind(s string) (Kind, error) {
 	return "", fmt.Errorf("unknown kind %q: use preference, project, person, client, decision or reference", s)
 }
 
+// WikiLinkRE matches a [[link]] to another note: the name, then an optional #heading and |label.
+var WikiLinkRE = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]`)
+
 var (
 	frontmatterRE   = regexp.MustCompile(`(?s)\A---\n(.*?)\n---\n?`)
 	scopeRE         = regexp.MustCompile(`\A(global|project:[a-z0-9][a-z0-9._-]*)\z`)

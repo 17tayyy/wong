@@ -80,7 +80,6 @@ type brain struct {
 	byName  map[string]string
 	Skills  []string
 	Other   []string
-	files   map[string]remote.Change
 }
 
 func loadBrain(store *remote.Store) (*brain, error) {
@@ -108,10 +107,9 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		f := check.Finding{Note: t.Note, Severity: check.Severity(t.Severity), Ref: t.Ref, Message: t.Message}
 		issues[t.Note] = append(issues[t.Note], issue{f, map[string]string{"github": "GitHub", "linear": "Linear"}[source] + " webhook"})
 	}
-	b := &brain{byPath: map[string]*entry{}, byName: map[string]string{}, files: map[string]remote.Change{}}
+	b := &brain{byPath: map[string]*entry{}, byName: map[string]string{}}
 	shelves := map[string]*shelf{}
 	for _, f := range files {
-		b.files[f.Path] = f
 		if strings.HasPrefix(f.Path, "skills/") {
 			if path.Base(f.Path) == "SKILL.md" {
 				b.Skills = append(b.Skills, path.Dir(f.Path))
