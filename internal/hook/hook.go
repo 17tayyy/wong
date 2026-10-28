@@ -26,6 +26,10 @@ type Input struct {
 	SessionID string `json:"session_id"`
 	Cwd       string `json:"cwd"`
 	Source    string `json:"source"`
+	ToolName  string `json:"tool_name"`
+	ToolInput struct {
+		FilePath string `json:"file_path"`
+	} `json:"tool_input"`
 }
 
 type Env struct {
@@ -124,6 +128,7 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 
 // SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server.
 func SessionEnd(ctx context.Context, in Input, env Env) error {
+	forget(env.Brain, in.SessionID)
 	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
 	err := errors.Join(saveErr, repos.WriteRemotes(env.Brain, env.Repos), commit(in, env))
 	if env.Remote != nil {

@@ -21,6 +21,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wong hook pre-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

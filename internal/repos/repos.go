@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -53,6 +54,18 @@ func (r Registry) ProjectOf(dir string) string {
 		}
 	}
 	return ""
+}
+
+// Containing returns the project and folder of the registered folder that holds path, the deepest when several do.
+func (r Registry) Containing(path string) (project, dir string) {
+	for id, dirs := range r {
+		for _, d := range dirs {
+			if strings.HasPrefix(path, d+string(filepath.Separator)) && len(d) > len(dir) {
+				project, dir = id, d
+			}
+		}
+	}
+	return project, dir
 }
 
 func (r Registry) Save(path string) error {

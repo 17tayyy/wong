@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,12 +16,12 @@ import (
 
 func newHookCmd(home string, brain *string) *cobra.Command {
 	return &cobra.Command{
-		Use:       "hook session-start|session-end",
-		Short:     "Answer Claude Code's session hooks (the wong plugin calls it)",
+		Use:       "hook session-start|session-end|pre-tool-use",
+		Short:     "Answer Claude Code's hooks (the wong plugin calls it)",
 		Args:      cobra.ExactArgs(1),
-		ValidArgs: []string{"session-start", "session-end"},
+		ValidArgs: []string{"session-start", "session-end", "pre-tool-use"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if args[0] != "session-start" && args[0] != "session-end" {
+			if !slices.Contains([]string{"session-start", "session-end", "pre-tool-use"}, args[0]) {
 				return fmt.Errorf("unknown hook %q", args[0])
 			}
 			var in hook.Input
@@ -35,6 +36,10 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 			}
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook:", err)
+				return nil
+			}
+			if args[0] == "pre-tool-use" {
+				fmt.Fprint(cmd.OutOrStdout(), hook.FileNotes(in, env))
 				return nil
 			}
 			if key := os.Getenv("LINEAR_API_KEY"); key != "" {
