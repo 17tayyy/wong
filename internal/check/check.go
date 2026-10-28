@@ -55,6 +55,7 @@ type loaded struct {
 	dir      string
 	tags     []string
 	pending  string
+	doubts   []Finding
 	kind     note.Kind
 	verified time.Time
 	asOf     time.Time
@@ -193,9 +194,20 @@ func (c *checker) load(brain, project, only string) ([]loaded, error) {
 }
 
 func newLoaded(rel string, n *note.Note, written time.Time) loaded {
+	var doubts []Finding
 	var verified time.Time
 	if !n.Verified.IsZero() {
-		verified = n.Verified.AddDate(0, 0, 1)
+		if !written.IsZero() && n.Verified.After(written.Add(24*time.Hour)) {
+			doubts = append(doubts, Finding{rel, Review, "verified", fmt.Sprintf("verified says %s, but the file was last written on %s: "+
+				"wong ignores it; set verified only with wong note verify", day(n.Verified), day(written))})
+		} else {
+			verified = n.Verified.AddDate(0, 0, 1)
+		}
+	}
+	last, ok := n.LastWrite(written)
+	if !ok {
+		doubts = append(doubts, Finding{rel, Review, "modified", fmt.Sprintf("metadata.modified says %s, but the file was last written on %s: "+
+			"wong goes by the file's date; leave modified to Claude Code and never write it by hand", n.Modified().UTC().Format("2006-01-02 15:04"), written.UTC().Format("2006-01-02 15:04"))})
 	}
 	r := extract(n.Description + "\n" + n.Body)
 	r.addSources(n.Sources)
@@ -204,9 +216,10 @@ func newLoaded(rel string, n *note.Note, written time.Time) loaded {
 		dir:      filepath.Dir(rel),
 		tags:     n.Tags,
 		pending:  n.Pending,
+		doubts:   doubts,
 		kind:     n.Kind,
 		verified: verified,
-		asOf:     asOf(verified, n.Modified(), written),
+		asOf:     asOf(verified, last),
 		refs:     r,
 	}
 }
@@ -241,7 +254,7 @@ func (c *checker) isIssue(id string) bool {
 }
 
 func (c *checker) check(l loaded) []Finding {
-	var out []Finding
+	out := slices.Clone(l.doubts)
 	add := func(sev Severity, ref, msg string) {
 		out = append(out, Finding{Note: l.rel, Severity: sev, Ref: ref, Message: msg})
 	}
@@ -391,14 +404,11 @@ func uniqueDirs(notes []loaded) []string {
 }
 
 // asOf is when a note's claims were last confirmed: its verified date if it has one, else its last write.
-func asOf(verified, modified, mtime time.Time) time.Time {
+func asOf(verified, written time.Time) time.Time {
 	if !verified.IsZero() {
 		return verified
 	}
-	if modified.After(mtime) {
-		return modified
-	}
-	return mtime
+	return written
 }
 
 func rank(s Severity) int {

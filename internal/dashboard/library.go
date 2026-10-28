@@ -127,9 +127,7 @@ func loadBrain(store *remote.Store) (*brain, error) {
 			n = &note.Note{Name: strings.TrimSuffix(path.Base(f.Path), ".md"), Body: string(f.Content)}
 		}
 		written, _ := time.Parse(time.RFC3339Nano, f.Modified)
-		if m := n.Modified(); m.After(written) {
-			written = m
-		}
+		written, _ = n.LastWrite(written)
 		e := entry{Path: f.Path, Name: n.Name, Description: n.Description, Kind: n.Kind, Verified: n.Verified,
 			Written: written, Issues: issues[f.Path], Note: n, Data: f.Content, Sha: f.Sha, Seq: f.Seq, Valid: valid}
 		if shelves[id] == nil {

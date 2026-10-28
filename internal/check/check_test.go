@@ -484,3 +484,37 @@ func TestUndeclaredNamesWhatTheTextCitesAsSources(t *testing.T) {
 		t.Errorf("Undeclared with everything declared = %v", got)
 	}
 }
+
+func TestRunDoesNotBelieveDatesLaterThanTheFile(t *testing.T) {
+	f := newFixture(t)
+	put := func(rel, frontmatter string) {
+		t.Helper()
+		path := filepath.Join(f.brain, rel)
+		name := strings.TrimSuffix(filepath.Base(rel), ".md")
+		write(t, path, "---\nname: "+name+"\ndescription: d\n"+frontmatter+"---\nSee `app/old.py`.\n")
+		if err := os.Chtimes(path, date("2026-09-01"), date("2026-09-01")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("projects/acme/claude.md", "metadata:\n  type: project\n  modified: 2026-09-01T00:00:30.000Z\n")
+	put("projects/acme/made-up.md", "metadata:\n  type: project\n  modified: 2026-10-01T00:00:00.000Z\n")
+	put("projects/acme/verified-ahead.md", "verified: 2026-10-01\n")
+	put("projects/acme/verified-same-day.md", "verified: 2026-09-02\n")
+	rep, err := Run(context.Background(), f.options(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := found(rep)
+	for _, want := range []string{
+		"stale projects/acme/claude.md app/old.py",
+		"review projects/acme/made-up.md modified", "stale projects/acme/made-up.md app/old.py",
+		"review projects/acme/verified-ahead.md verified", "stale projects/acme/verified-ahead.md app/old.py",
+	} {
+		if !slices.Contains(got, want) {
+			t.Errorf("findings lack %q: %v", want, got)
+		}
+	}
+	if slices.Contains(got, "review projects/acme/verified-same-day.md verified") || slices.Contains(got, "review projects/acme/claude.md modified") {
+		t.Errorf("dates within the slack were not believed: %v", got)
+	}
+}

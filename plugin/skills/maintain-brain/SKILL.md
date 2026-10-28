@@ -194,5 +194,8 @@ verified: 2026-10-27
   or file name of a note that exists. Never link a note you have not seen: `wong check`
   reports links that reach no note. `wong note show` lists related notes that share
   sources or tags and are not linked yet; link the ones a reader would want next.
-- Keep Claude Code's own fields (`metadata`, `originSessionId`) as they are.
+- Keep Claude Code's own fields (`metadata`, `originSessionId`) as they are, and never
+  write `metadata.modified` or `verified` by hand: Claude Code sets the first and `wong
+  note verify` the second. `check` goes from those dates, so a made-up later one would
+  hide what changed since; wong ignores a date later than the file's own and reports it.
 - Update the project's `MEMORY.md` line if the note's name or description changes.

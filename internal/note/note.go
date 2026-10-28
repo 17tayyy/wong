@@ -260,6 +260,24 @@ func (n *Note) Modified() time.Time {
 	return time.Time{}
 }
 
+// modifiedSlack is how far metadata.modified may run ahead of the file's own date.
+const modifiedSlack = time.Minute
+
+// LastWrite is when a note was last written: its file's date, or metadata.modified when it runs ahead of it by no more than a minute.
+// It reports false when metadata.modified claims a later write than the file had, which wong does not believe.
+func (n *Note) LastWrite(file time.Time) (time.Time, bool) {
+	m := n.Modified()
+	switch {
+	case file.IsZero():
+		return m, true
+	case !m.After(file):
+		return file, true
+	case m.Sub(file) <= modifiedSlack:
+		return m, true
+	}
+	return file, false
+}
+
 func (n *Note) meta(key string) *yaml.Node {
 	if meta := lookup(n.Extra, "metadata"); meta != nil && meta.Kind == yaml.MappingNode {
 		return lookup(meta.Content, key)
