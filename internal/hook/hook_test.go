@@ -247,3 +247,16 @@ func TestSessionStartShowsTheServersTasks(t *testing.T) {
 		t.Errorf("a task that check also found is listed twice:\n%s", got)
 	}
 }
+
+func TestSessionStartNamesTheNotesToReview(t *testing.T) {
+	env, repo := newEnv(t)
+	for i := range 17 {
+		name := fmt.Sprintf("n%02d", i)
+		write(t, filepath.Join(env.Brain, "projects", "acme", name+".md"), "---\nname: "+name+"\ndescription: d\n---\nSee `app/missing_"+name+".py`.\n")
+	}
+	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
+	if !strings.Contains(got, "these 17 notes of this project may be outdated, so trust them less") ||
+		!strings.Contains(got, ": n00.md, n01.md, ") || !strings.Contains(got, "n14.md and 2 more.") || strings.Contains(got, "n15.md") {
+		t.Errorf("session start:\n%s", got)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,10 @@ import (
 	"github.com/17tayyy/wong/internal/skills"
 )
 
-const maxFindings = 5
+const (
+	maxFindings = 5
+	maxReview   = 15
+)
 
 // Input is the part of a hook's JSON input that wong reads.
 type Input struct {
@@ -121,7 +125,16 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		}
 	}
 	if len(review) > 0 {
-		fmt.Fprintf(&b, "\nwong check: %d notes of this project may be outdated; look at them only if the user asks to maintain the brain.\n", len(review))
+		names := slices.Sorted(maps.Keys(review))
+		for i, n := range names {
+			names[i] = filepath.Base(n)
+		}
+		more := ""
+		if len(names) > maxReview {
+			names, more = names[:maxReview], fmt.Sprintf(" and %d more", len(names)-maxReview)
+		}
+		fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated, so trust them less; maintain them only if the user asks: %s%s.\n",
+			len(review), strings.Join(names, ", "), more)
 	}
 	return b.String()
 }
