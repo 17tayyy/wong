@@ -335,19 +335,20 @@ func (s *Store) RenameNote(machine, ref, name string) (string, string, error) {
 		return "", "", refuse(ErrTaken, "There is already a note at %s. Pick another name.", target)
 	}
 	oldName, oldStem := n.Name, strings.TrimSuffix(file, ".md")
+	rename := func(m string) string {
+		at := note.WikiLinkRE.FindStringSubmatchIndex(m)
+		linked := strings.TrimSpace(m[at[2]:at[3]])
+		if p, ok := b.Resolve(linked); !ok || p != f.Path {
+			return m
+		}
+		to := name
+		if linked == oldStem && linked != oldName {
+			to = stem
+		}
+		return m[:at[2]] + to + m[at[3]:]
+	}
 	relink := func(text string) string {
-		return note.WikiLinkRE.ReplaceAllStringFunc(text, func(m string) string {
-			at := note.WikiLinkRE.FindStringSubmatchIndex(m)
-			linked := strings.TrimSpace(m[at[2]:at[3]])
-			if p, ok := b.Resolve(linked); !ok || p != f.Path {
-				return m
-			}
-			to := name
-			if linked == oldStem && linked != oldName {
-				to = stem
-			}
-			return m[:at[2]] + to + m[at[3]:]
-		})
+		return note.OutsideCode(text, func(text string) string { return note.WikiLinkRE.ReplaceAllStringFunc(text, rename) })
 	}
 	n.Name, n.Description, n.Body = name, relink(n.Description), relink(n.Body)
 	n.Alias(stem)

@@ -42,7 +42,7 @@ func TestCheckTags(t *testing.T) {
 
 func TestMissingLinks(t *testing.T) {
 	g := sample()
-	missing := g.Missing("See [[deploy-runbok]], [[Rate limits]], [[staging|the stage]] and [[gone]].", "Was [[gone]] before.")
+	missing := g.Missing("See [[deploy-runbok]], [[Rate limits]], [[staging|the stage]] and [[gone]], written `[[name]]`.\n\n```\n[[example]]\n```\n", "Was [[gone]] before.")
 	if len(missing) != 1 || !strings.Contains(missing[0], "[[deploy-runbok]] reaches no note; did you mean [[deploy-runbook]]") {
 		t.Errorf("Missing = %q", missing)
 	}

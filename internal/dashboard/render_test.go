@@ -12,11 +12,11 @@ func TestRenderMarkdown(t *testing.T) {
 		}
 		return "", false
 	}
-	got, err := renderMarkdown("See [[deploy-runbook|the runbook]] and [[gone]].\n\n<script>alert(1)</script>\n", resolve)
+	got, err := renderMarkdown("See [[deploy-runbook|the runbook]] and [[gone]], written `[[deploy-runbook]]`.\n\n<script>alert(1)</script>\n", resolve)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`<a href="/notes/projects/acme/deploy-runbook.md">the runbook</a>`, "and gone."} {
+	for _, want := range []string{`<a href="/notes/projects/acme/deploy-runbook.md">the runbook</a>`, "and gone,", "<code>[[deploy-runbook]]</code>"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("render lacks %q:\n%s", want, got)
 		}

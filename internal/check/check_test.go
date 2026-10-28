@@ -330,7 +330,7 @@ func TestRunOneNote(t *testing.T) {
 
 func TestLinksResolveAcrossTheBrain(t *testing.T) {
 	f := newFixture(t)
-	f.note(t, "projects/acme/a.md", "See [[b]].\n", "")
+	f.note(t, "projects/acme/a.md", "See [[b]]; links are written `[[name]]`.\n", "")
 	f.note(t, "projects/other/b.md", "Fine.\n", "")
 
 	rep, err := Run(context.Background(), Options{Brain: f.brain})
@@ -516,5 +516,18 @@ func TestRunDoesNotBelieveDatesLaterThanTheFile(t *testing.T) {
 	}
 	if slices.Contains(got, "review projects/acme/verified-same-day.md verified") || slices.Contains(got, "review projects/acme/claude.md modified") {
 		t.Errorf("dates within the slack were not believed: %v", got)
+	}
+}
+
+func TestRunFindsFilesOfTheBrainItself(t *testing.T) {
+	f := newFixture(t)
+	write(t, filepath.Join(f.brain, "skills", "skills-lock.json"), "{}\n")
+	f.note(t, "projects/acme/a.md", "The record lives in `skills/skills-lock.json`, not `skills/gone.json`.\n", "")
+	rep, err := Run(context.Background(), f.options(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := found(rep); !slices.Equal(got, []string{"review projects/acme/a.md skills/gone.json"}) {
+		t.Errorf("findings = %v", got)
 	}
 }

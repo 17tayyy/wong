@@ -156,7 +156,7 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		}
 	}
 	for _, e := range b.byPath {
-		for _, m := range wikiRE.FindAllStringSubmatch(e.Note.Body, -1) {
+		for _, m := range wikiRE.FindAllStringSubmatch(note.WithoutCode(e.Note.Body), -1) {
 			target, ok := b.resolve(strings.TrimSpace(m[1]))
 			if !ok || target == e.Path || slices.Contains(e.Links, target) {
 				continue

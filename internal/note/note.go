@@ -68,6 +68,26 @@ func CheckPending(s string) error {
 // WikiLinkRE matches a [[link]] to another note: the name, then an optional #heading and |label.
 var WikiLinkRE = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]`)
 
+var codeRE = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|`[^`\n]*`")
+
+// WithoutCode blanks a markdown text's code blocks and inline code, where a [[link]] is text, as in Obsidian.
+func WithoutCode(text string) string {
+	return codeRE.ReplaceAllString(text, " ")
+}
+
+// OutsideCode applies f to the parts of a markdown text that are not code and keeps the code as it is.
+func OutsideCode(text string, f func(string) string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range codeRE.FindAllStringIndex(text, -1) {
+		b.WriteString(f(text[last:loc[0]]))
+		b.WriteString(text[loc[0]:loc[1]])
+		last = loc[1]
+	}
+	b.WriteString(f(text[last:]))
+	return b.String()
+}
+
 var (
 	frontmatterRE   = regexp.MustCompile(`(?s)\A---\n(.*?)\n---\n?`)
 	scopeRE         = regexp.MustCompile(`\A(global|project:[a-z0-9][a-z0-9._-]*)\z`)

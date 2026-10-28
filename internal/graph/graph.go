@@ -110,11 +110,11 @@ func (g *Graph) CheckTags(tags []string) ([]string, error) {
 // Missing lists the [[links]] in text that reach no note, each with the closest names, leaving out those in before.
 func (g *Graph) Missing(text, before string) []string {
 	known := map[string]bool{}
-	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(before, -1) {
+	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(note.WithoutCode(before), -1) {
 		known[strings.TrimSpace(m[1])] = true
 	}
 	var out []string
-	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(text, -1) {
+	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(note.WithoutCode(text), -1) {
 		name := strings.TrimSpace(m[1])
 		if _, ok := g.Resolve(name); ok || known[name] || note.IsAttachment(name) {
 			continue
@@ -237,7 +237,7 @@ func (g *Graph) Similar(n Note) []Note {
 // Related returns notes that share sources, issues, files or tags with n and that it does not link to yet, best first.
 func (g *Graph) Related(n Note, limit int) []string {
 	linked := map[string]bool{n.Path: true}
-	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(n.Body+n.Description, -1) {
+	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(note.WithoutCode(n.Body+"\n"+n.Description), -1) {
 		if p, ok := g.Resolve(m[1]); ok {
 			linked[p] = true
 		}

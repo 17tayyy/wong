@@ -64,6 +64,7 @@ type loaded struct {
 
 type checker struct {
 	home    string
+	brain   string
 	names   map[string]bool
 	tags    map[string]int
 	own     map[string][]*repo
@@ -77,6 +78,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	var rep Report
 	c := &checker{names: map[string]bool{}, tags: map[string]int{}, own: map[string][]*repo{}, commits: map[*repo]map[string]string{}}
 	c.home, _ = os.UserHomeDir()
+	c.brain = opts.Brain
 	notes, err := c.load(opts.Brain, opts.Project, opts.Note)
 	if err != nil {
 		return rep, err
@@ -366,6 +368,9 @@ func (c *checker) file(path string, own []*repo, asOf time.Time) (Severity, stri
 		return "", "", false
 	}
 	if slices.ContainsFunc(c.all, func(r *repo) bool { return r.has(path) }) {
+		return "", "", false
+	}
+	if _, err := os.Stat(filepath.Join(c.brain, path)); err == nil && !filepath.IsAbs(path) {
 		return "", "", false
 	}
 	for _, r := range own {

@@ -72,25 +72,27 @@ func Export(brainDir, dir string) (ExportReport, error) {
 // relink rewrites the [[links]] that reach a note by its name rather than its file name to [[file|text]].
 func relink(data []byte, g *graph.Graph) ([]byte, int) {
 	count := 0
-	out := note.WikiLinkRE.ReplaceAllFunc(data, func(m []byte) []byte {
-		sub := note.WikiLinkRE.FindSubmatchIndex(m)
-		name := strings.TrimSpace(string(m[sub[2]:sub[3]]))
-		p, ok := g.Resolve(name)
-		stem := strings.TrimSuffix(path.Base(p), ".md")
-		if !ok || stem == name {
-			return m
-		}
-		count++
-		label := name
-		if sub[4] >= 0 {
-			label = string(m[sub[4]:sub[5]])
-		}
-		rest := string(m[sub[3] : len(m)-2])
-		if i := strings.Index(rest, "|"); i >= 0 {
-			rest = rest[:i]
-		}
-		return []byte("[[" + stem + rest + "|" + label + "]]")
-	})
+	out := []byte(note.OutsideCode(string(data), func(text string) string {
+		return string(note.WikiLinkRE.ReplaceAllFunc([]byte(text), func(m []byte) []byte {
+			sub := note.WikiLinkRE.FindSubmatchIndex(m)
+			name := strings.TrimSpace(string(m[sub[2]:sub[3]]))
+			p, ok := g.Resolve(name)
+			stem := strings.TrimSuffix(path.Base(p), ".md")
+			if !ok || stem == name {
+				return m
+			}
+			count++
+			label := name
+			if sub[4] >= 0 {
+				label = string(m[sub[4]:sub[5]])
+			}
+			rest := string(m[sub[3] : len(m)-2])
+			if i := strings.Index(rest, "|"); i >= 0 {
+				rest = rest[:i]
+			}
+			return []byte("[[" + stem + rest + "|" + label + "]]")
+		}))
+	}))
 	return out, count
 }
 

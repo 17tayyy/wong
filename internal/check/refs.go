@@ -61,7 +61,7 @@ func extract(body string) refs {
 			r.clauses[id] = append(r.clauses[id], clause[start:end])
 		}
 	}
-	for _, m := range linkRE.FindAllStringSubmatch(body, -1) {
+	for _, m := range linkRE.FindAllStringSubmatch(note.WithoutCode(body), -1) {
 		if link := strings.TrimSpace(m[1]); !slices.Contains(r.links, link) && !note.IsAttachment(link) {
 			r.links = append(r.links, link)
 		}
