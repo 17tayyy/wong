@@ -29,6 +29,7 @@ type Note struct {
 	words       map[string]bool
 	text        string
 	head        string
+	body        string
 }
 
 // Move suggests a note that talks more about another folder than about its own.
@@ -74,6 +75,7 @@ func Load(dir string) ([]Note, error) {
 				words:       graph.Words(head + " " + body),
 				text:        strings.ToLower(n.Body),
 				head:        head,
+				body:        n.Body,
 			})
 		}
 	}
@@ -156,4 +158,47 @@ func mentions(n Note, patterns []*regexp.Regexp) int {
 		score += 3*len(re.FindAllStringIndex(n.head, -1)) + len(re.FindAllStringIndex(n.text, -1))
 	}
 	return score
+}
+
+// Growth is a note that grows by dated additions instead of being rewritten with what holds now.
+type Growth struct {
+	Note         string
+	Dated, Parts int
+	First, Last  string
+	Size         int
+}
+
+const minDated = 4
+
+var (
+	paragraphRE = regexp.MustCompile(`\n\s*\n`)
+	dateRE      = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
+)
+
+// Growing lists the notes with minDated or more paragraphs that open with a date, those with the most first.
+func Growing(notes []Note) []Growth {
+	var out []Growth
+	for _, n := range notes {
+		g := Growth{Note: n.Path, Size: len(n.body)}
+		for _, p := range paragraphRE.Split(n.body, -1) {
+			if p = strings.TrimSpace(p); p == "" {
+				continue
+			}
+			g.Parts++
+			if dateRE.MatchString(p[:min(len(p), 160)]) {
+				g.Dated++
+			}
+		}
+		if g.Dated < minDated {
+			continue
+		}
+		dates := dateRE.FindAllString(n.body, -1)
+		slices.Sort(dates)
+		g.First, g.Last = dates[0], dates[len(dates)-1]
+		out = append(out, g)
+	}
+	slices.SortFunc(out, func(a, b Growth) int {
+		return cmp.Or(cmp.Compare(b.Dated, a.Dated), cmp.Compare(b.Size, a.Size), strings.Compare(a.Note, b.Note))
+	})
+	return out
 }

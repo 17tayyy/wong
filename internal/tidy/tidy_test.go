@@ -73,3 +73,19 @@ func TestMisplaced(t *testing.T) {
 		}
 	}
 }
+
+func TestGrowing(t *testing.T) {
+	brain := t.TempDir()
+	log := "PRE starts on deploy.\n\n**Other side (2026-09-30):** deploying both stalls.\n\n**Measured 2026-10-10:** startup takes 2 minutes.\n\n" +
+		"Some plain paragraph.\n\n**2026-10-23:** the user said it starts by itself.\n\nStatus 2026-10-24: superseded above. It mentions 2026-01-01 later on, far from its start, which does not count."
+	write(t, brain, "projects/acme/pre-alarm.md", "project", "pre-alarm", "PRE goes idle", log)
+	write(t, brain, "projects/acme/history.md", "decision", "history", "Decided once", "Decided on 2026-10-08.\n\nWhy: it is cheaper.\n\nSee 2026-10-09 notes.")
+	notes, err := Load(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Growing(notes)
+	if len(got) != 1 || got[0].Note != filepath.Join("projects", "acme", "pre-alarm.md") || got[0].Dated != 4 || got[0].Parts != 6 || got[0].First != "2026-01-01" || got[0].Last != "2026-10-24" {
+		t.Errorf("Growing = %+v", got)
+	}
+}

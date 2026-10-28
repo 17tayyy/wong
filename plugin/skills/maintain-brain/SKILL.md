@@ -98,8 +98,9 @@ for a move or a finished plan; leave scratch files and mark the note verified.
 ## Tidying the brain
 
 `wong tidy` lists preferences that repeat each other (often the same rule saved once per
-project) and notes that seem to live in the wrong folder. It is a list of candidates, not
-a verdict: lexical matching misses duplicates written in another language and flags
+project), notes that seem to live in the wrong folder, and notes that grow by dated
+additions ("**Measured 2026-10-10:** …", "Status 2026-10-14: …") instead of being
+rewritten with what holds now. It is a list of candidates, not a verdict: lexical matching misses duplicates written in another language and flags
 notes that merely mention another project. Show the user what you would do with each and
 act only on what they approve:
 
@@ -107,6 +108,13 @@ act only on what they approve:
   `me/` (`wong note write --to me ...`), then `wong note remove` each of the others. Fix
   the links that `remove` reports.
 - **Wrong folder:** `wong note move <note> --to <project|me>`.
+- **Grows by additions:** rewrite the note with the current state first, then a short
+  dated history of how it got there. Where two additions disagree, settle it against the
+  sources (the issue, the commit, the deploy), not by keeping the newest line; drop the
+  progress lines that later ones superseded, and keep every fact that still holds, with
+  its links and sources. On a long note, show the user the rewrite before saving it.
+  Write new findings into the state they change, not as one more dated paragraph at the
+  end.
 
 ## Writing a note
 

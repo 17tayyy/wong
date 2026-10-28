@@ -16,10 +16,11 @@ import (
 func newTidyCmd(brainDir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tidy",
-		Short: "List preferences that repeat each other and notes that seem to be in the wrong folder",
-		Long: "List preferences that repeat each other and notes that seem to be in the wrong folder.\n\n" +
-			"It only reports: merging and moving notes across projects is for the user to\n" +
-			"decide, then wong note move and wong note remove do it.",
+		Short: "List preferences that repeat each other, notes in the wrong folder and notes that grow by additions",
+		Long: "List preferences that repeat each other, notes that seem to be in the wrong folder, and\n" +
+			"notes that grow by dated additions instead of being rewritten with what holds now.\n\n" +
+			"It only reports: merging, moving and rewriting notes is for the user to decide, then\n" +
+			"wong note move, wong note remove and an edit of the note do it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			notes, err := tidy.Load(*brainDir)
@@ -50,6 +51,11 @@ func newTidyCmd(brainDir *string) *cobra.Command {
 			fmt.Fprintf(out, "\nNotes that may be in the wrong folder (%d):\n", len(moves))
 			for _, m := range moves {
 				fmt.Fprintf(out, "    %s -> %s (names it %d times, its own folder %d)\n", m.Note, m.To, m.Score, m.Others)
+			}
+			growing := tidy.Growing(notes)
+			fmt.Fprintf(out, "\nNotes that grow by dated additions, to rewrite with what holds now (%d):\n", len(growing))
+			for _, g := range growing {
+				fmt.Fprintf(out, "    %s (%d of %d paragraphs open with a date, %s to %s, %d KB)\n", g.Note, g.Dated, g.Parts, g.First, g.Last, (g.Size+512)/1024)
 			}
 			return nil
 		},
