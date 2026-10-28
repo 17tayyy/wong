@@ -1,4 +1,4 @@
-// Package hook answers Claude Code's session hooks: context when a session starts, a brain snapshot when it ends.
+// Package hook answers Claude Code's hooks: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
 package hook
 
 import (
@@ -76,6 +76,11 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		fmt.Fprintf(&b, "\nGlobal preferences from the brain; the notes are in %s, read one when it applies:\n%s\n",
 			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))
 	}
+	fmt.Fprintf(&b, "\nWhen you save a note in the brain, its frontmatter carries at the top level, beside name and description and not under "+
+		"metadata: `kind` (preference, project, "+
+		"person, client, decision or reference), `scope` (`project:%s` here, `global` in me/), `sources` for what it relies on "+
+		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, and `pending: release` or "+
+		"`pending: main` when it leaves work for the next release or push to the main branch. Point to sources instead of copying their state.\n", project)
 	if g, err := graph.Load(env.Brain); err == nil {
 		if tags := g.TagList(40); len(tags) > 0 {
 			fmt.Fprintf(&b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))

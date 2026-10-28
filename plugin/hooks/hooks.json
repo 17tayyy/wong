@@ -33,6 +33,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wong hook post-tool-use",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

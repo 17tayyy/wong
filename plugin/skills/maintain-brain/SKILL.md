@@ -154,8 +154,9 @@ and adds it to the folder's `MEMORY.md`. Prefer it to writing the file yourself:
 refuses a tag that is a new spelling of one in use, a `[[link]]` that reaches no note,
 and a note on the same shelf that covers the same subject (pass `--distinct` only when
 you checked that the subject is really different), and it lists the related notes the new
-one does not link yet. Writing the file yourself works too, following this format; either
-way, every note declares where its claims come from:
+one does not link yet. Writing the file yourself works too, following this format: when
+you save a note of the brain, wong checks it and answers with what to fix, and you fix it
+at once. Either way, every note declares where its claims come from:
 
 ```yaml
 ---

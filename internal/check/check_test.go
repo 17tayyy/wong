@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/17tayyy/wong/internal/linear"
+	"github.com/17tayyy/wong/internal/note"
 )
 
 type fakeTracker struct {
@@ -463,5 +464,23 @@ func TestRunFindsWorkLeftForADeploy(t *testing.T) {
 	}
 	if w := got["projects/acme/weird.md pending: soon"]; w.Severity != Review {
 		t.Errorf("an unknown pending value = %+v", w)
+	}
+}
+
+func TestUndeclaredNamesWhatTheTextCitesAsSources(t *testing.T) {
+	f := newFixture(t)
+	n := &note.Note{
+		Name: "n", Description: "Membership model, tracked in ENG-15",
+		Body:    "Lives in `app/models.py` and `acme-api/docs/guide.md`, not `app/nowhere.py`; added in " + f.initial + ", see ENG-16.\n",
+		Sources: []string{"linear:ENG-16", "file:acme-api/docs/guide.md"},
+	}
+	got := Undeclared(n, []string{f.repo}, "")
+	want := []string{"linear:ENG-15", "file:acme-api/app/models.py", "commit:acme-api@" + f.initial}
+	if !slices.Equal(got, want) {
+		t.Errorf("Undeclared = %v, want %v", got, want)
+	}
+	n.Sources = append(n.Sources, want...)
+	if got := Undeclared(n, []string{f.repo}, ""); len(got) != 0 {
+		t.Errorf("Undeclared with everything declared = %v", got)
 	}
 }

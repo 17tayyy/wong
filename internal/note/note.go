@@ -36,6 +36,19 @@ var claudeTypes = map[Kind]string{
 	Client:     "reference",
 }
 
+// KindOf returns the kind that Claude Code's own memory type stands for, or "" for an unknown type.
+func KindOf(claudeType string) Kind {
+	switch claudeType {
+	case "user", "feedback":
+		return Preference
+	case "project":
+		return Project
+	case "reference":
+		return Reference
+	}
+	return ""
+}
+
 // ParseKind returns the kind named s.
 func ParseKind(s string) (Kind, error) {
 	if k := Kind(s); slices.Contains(kinds, k) {

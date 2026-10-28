@@ -1,6 +1,8 @@
 package check
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -155,4 +157,51 @@ func References(n *note.Note) []string {
 	r := extract(n.Description + "\n" + n.Body)
 	r.addSources(n.Sources)
 	return slices.Concat(r.issues, r.files, r.commits)
+}
+
+// Undeclared lists, as sources, what a note's text cites and its sources leave out: issue keys, and the files and commits found in dirs.
+func Undeclared(n *note.Note, dirs []string, home string) []string {
+	cited := extract(n.Description + "\n" + n.Body)
+	declared := refs{clauses: map[string][]string{}}
+	declared.addSources(n.Sources)
+	var out []string
+	for _, id := range cited.issues {
+		if !slices.Contains(declared.issues, id) {
+			out = append(out, "linear:"+id)
+		}
+	}
+	for _, f := range cited.files {
+		if s, ok := fileSource(f, dirs, home); ok && !slices.Contains(declared.files, strings.TrimPrefix(s, "file:")) && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	for _, sha := range cited.commits {
+		if slices.ContainsFunc(declared.commits, func(d string) bool { return strings.HasPrefix(d, sha) || strings.HasPrefix(sha, d) }) {
+			continue
+		}
+		for _, dir := range dirs {
+			if _, err := git(dir, "", "cat-file", "-e", sha+"^{commit}"); err == nil {
+				out = append(out, "commit:"+filepath.Base(dir)+"@"+sha)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// fileSource names a cited file as a file: source of the repo among dirs that holds it.
+func fileSource(f string, dirs []string, home string) (string, bool) {
+	if rest, ok := strings.CutPrefix(f, "~/"); ok {
+		f = filepath.Join(home, rest)
+	}
+	for _, dir := range dirs {
+		rel, ok := (&repo{dir: dir}).rel(f)
+		if !ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+			return "file:" + filepath.Base(dir) + "/" + filepath.ToSlash(rel), true
+		}
+	}
+	return "", false
 }

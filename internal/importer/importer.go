@@ -33,13 +33,6 @@ var (
 	headingRE      = regexp.MustCompile(`(?m)^#+ `)
 )
 
-var kindOf = map[string]note.Kind{
-	"user":      note.Preference,
-	"feedback":  note.Preference,
-	"project":   note.Project,
-	"reference": note.Reference,
-}
-
 // Source is one Claude Code memory folder and where its notes go in the brain.
 type Source struct {
 	Folder string
@@ -123,7 +116,7 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 					return res, err
 				}
 				if n.Kind == "" {
-					n.Kind = kindOf[n.ClaudeType()]
+					n.Kind = note.KindOf(n.ClaudeType())
 				}
 				if n.Scope == "" {
 					n.Scope = s.Scope

@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -276,5 +277,55 @@ func TestSessionStartPutsWorkLeftForADeployFirst(t *testing.T) {
 	if deploy < 0 || !strings.Contains(got, "- projects/acme/prod-steps.md: acme-api released v1.0.0 on ") ||
 		strings.Count(got, "prod-steps") != 1 || deploy > strings.Index(got, "1 findings say") {
 		t.Errorf("session start:\n%s", got)
+	}
+}
+
+func TestNoteWrittenAsksForWhatWongNeeds(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(repo, "app", "billing.py"), "pass\n")
+	write(t, filepath.Join(env.Brain, "projects", "acme", "deploy-flow.md"), "---\nname: deploy-flow\ndescription: How Acme ships billing\nkind: reference\nscope: project:acme\ntags: [deploy]\n---\nMerge, then promote.\n")
+	written := func(tool, rel, content string) string {
+		t.Helper()
+		p := filepath.Join(env.Brain, rel)
+		write(t, p, content)
+		in := Input{ToolName: tool}
+		in.ToolInput.FilePath = p
+		return NoteWritten(in, env)
+	}
+
+	got := written("Write", "projects/acme/billing.md", "---\nname: billing\ndescription: How Acme ships billing\nmetadata:\n  type: feedback\n"+
+		"pending: later\n---\nSee `app/billing.py`, ENG-15 and [[nope]].\n")
+	var out struct{ Decision, Reason string }
+	if err := json.Unmarshal([]byte(got), &out); err != nil || out.Decision != "block" {
+		t.Fatalf("NoteWritten = %q, %v", got, err)
+	}
+	for _, want := range []string{"projects/acme/billing.md is saved", "add `kind`", "metadata.type says preference", "set `scope: project:acme`",
+		`unknown pending "later"`, "reusing those in use: deploy", "[[nope]] reaches no note", "projects/acme/deploy-flow.md (How Acme ships billing) seems to cover",
+		"`sources`, so wong notices when it changes: linear:ENG-15, file:acme-api/app/billing.py"} {
+		if !strings.Contains(out.Reason, want) {
+			t.Errorf("reason lacks %q:\n%s", want, out.Reason)
+		}
+	}
+
+	if got := written("Edit", "projects/acme/billing.md", "---\nname: billing\ndescription: Billing runs on Stripe\nkind: decision\nscope: project:acme\n"+
+		"tags: [deploy, Deployment]\nsources:\n  - linear:ENG-15\n  - file:acme-api/app/billing.py\n---\nSee `app/billing.py` and ENG-15.\n"); !strings.Contains(got, `\"deployment\" is a spelling of \"deploy\"`) {
+		t.Errorf("a tag that is a spelling of another: %s", got)
+	}
+	if got := written("Edit", "projects/acme/billing.md", "---\nname: billing\ndescription: Billing runs on Stripe\nkind: decision\nscope: project:acme\n"+
+		"tags: [deploy, billing]\nsources:\n  - linear:ENG-15\n  - file:acme-api/app/billing.py\n---\nSee `app/billing.py`, ENG-15 and [[deploy-flow]].\n"); got != "" {
+		t.Errorf("a note in wong's format: %s", got)
+	}
+	if got := written("Write", "me/no-frontmatter.md", "Just text.\n"); !strings.Contains(got, "frontmatter does not parse") {
+		t.Errorf("a note without frontmatter: %s", got)
+	}
+	for _, rel := range []string{"projects/acme/MEMORY.md", ".wong/notes.md", "projects/acme/sub/x.md"} {
+		if got := written("Write", rel, "x\n"); got != "" {
+			t.Errorf("%s: %s", rel, got)
+		}
+	}
+	in := Input{ToolName: "Write"}
+	in.ToolInput.FilePath = filepath.Join(repo, "README.md")
+	if got := NoteWritten(in, env); got != "" {
+		t.Errorf("a file outside the brain: %s", got)
 	}
 }
