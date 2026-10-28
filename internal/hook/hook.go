@@ -104,13 +104,23 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		}
 		list = fmt.Sprintf("`wong check --project %s` and `wong tasks --project %s` list everything", project, project)
 	}
-	var stale []check.Finding
+	var deploys, stale []check.Finding
 	review := map[string]bool{}
 	for _, f := range findings {
-		if f.Severity == check.Stale {
+		switch {
+		case f.Deploy():
+			deploys = append(deploys, f)
+		case f.Severity == check.Stale:
 			stale = append(stale, f)
-		} else {
+		default:
 			review[f.Note] = true
+		}
+	}
+	if len(deploys) > 0 {
+		b.WriteString("\nwong: notes of this project leave work for a deploy that has happened. Tell the user about it before " +
+			"you start on their request:\n")
+		for _, f := range deploys {
+			fmt.Fprintf(&b, "- %s: %s\n", f.Note, f.Message)
 		}
 	}
 	if len(stale) > 0 {

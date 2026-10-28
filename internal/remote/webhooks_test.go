@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -206,5 +207,46 @@ func TestWebhooksAreOffWithoutASecret(t *testing.T) {
 		if code := deliver(t, url+path, nil, "{}"); code != http.StatusNotFound {
 			t.Errorf("%s: status %d", path, code)
 		}
+	}
+}
+
+func TestReleasesLeaveTasksOnNotesWithWorkForThem(t *testing.T) {
+	url, desktop := hookSetup(t)
+	write(t, filepath.Join(desktop.brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")
+	note := "---\nname: prod-steps\ndescription: d\npending: release\n---\nRun the migration in prod.\n"
+	writeAt(t, filepath.Join(desktop.brain, "projects/acme/prod-steps.md"), note, "2026-09-01")
+	writeAt(t, filepath.Join(desktop.brain, "projects/acme/pre-steps.md"), "---\nname: pre-steps\ndescription: d\npending: main\n---\nWarm PRE up.\n", "2026-09-01")
+	writeAt(t, filepath.Join(desktop.brain, "projects/acme/plain.md"), "---\nname: plain\ndescription: d\n---\nNothing pending.\n", "2026-09-01")
+	push(t, desktop)
+	send := func(ref, created string) int {
+		body := `{"ref": "` + ref + `", "after": "9f8e7d6c5b4a3928", "created": ` + created + `, "deleted": false, "pusher": {"name": "colleague"},
+  "repository": {"full_name": "Acme/acme-api", "default_branch": "main"}, "commits": []}`
+		return deliver(t, url+"/hooks/github", map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=" + sign(githubSecret, body)}, body)
+	}
+
+	for _, ref := range []string{"refs/tags/v1.4.0", "refs/tags/v1.5.4"} {
+		if code := send(ref, "true"); code != http.StatusOK {
+			t.Fatalf("%s: status %d", ref, code)
+		}
+	}
+	send("refs/tags/nightly", "true")
+	send("refs/heads/feature", "false")
+	got := tasks(t, desktop, "acme")
+	if len(got) != 1 || got[0].Note != "projects/acme/prod-steps.md" || got[0].Ref != "release" || got[0].Source != "github Acme/acme-api@v1.5.4" ||
+		!strings.Contains(got[0].Message, "acme-api released v1.5.4") || !strings.Contains(got[0].Message, "pushed by colleague") {
+		t.Fatalf("tasks after two releases = %+v", got)
+	}
+
+	if code := send("refs/heads/main", "false"); code != http.StatusOK {
+		t.Fatalf("push to main: status %d", code)
+	}
+	if got := tasks(t, desktop, "acme"); len(got) != 2 || got[0].Note != "projects/acme/pre-steps.md" || got[0].Ref != "main" || !strings.Contains(got[0].Message, "up to 9f8e7d6") {
+		t.Fatalf("tasks after a push to main = %+v", got)
+	}
+
+	write(t, filepath.Join(desktop.brain, "projects/acme/prod-steps.md"), strings.Replace(note, "pending: release\n", "", 1)+"Done on the v1.5.4 release.\n")
+	push(t, desktop)
+	if got := tasks(t, desktop, "acme"); len(got) != 1 || got[0].Note != "projects/acme/pre-steps.md" {
+		t.Errorf("tasks after updating the note = %+v", got)
 	}
 }

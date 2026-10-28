@@ -17,6 +17,9 @@ other notes) and reports where the world moved since:
 Keep the brain true as you work, without turning a session into a maintenance pass the
 user did not ask for:
 
+- A note that **leaves work for a deploy that has happened** (the session start lists
+  these first): tell the user what is left before you start on their request, and do your
+  part once they agree.
 - A note that **contradicts its sources** (stale): fix it once you have finished what the
   user asked.
 - A note that **may be outdated** (review) and bears on your task: check it and fix it
@@ -108,6 +111,15 @@ abandoned, say so.
 Decide whether it was a plan, a scratch file outside the repo, or a move. Update the note
 for a move or a finished plan; leave scratch files and mark the note verified.
 
+### Deploy with work left (stale)
+
+The note declares `pending: release` or `pending: main`, and a `v*` tag or a push to the
+main branch came after it was written. Tell the user what the note leaves for that
+deploy, quoting the finding (it says who pushed it), and do only the part they agree to.
+Then rewrite what was done as history with its tag or commit and date ("ran the migration
+after v1.5.4, on 2026-10-28") and drop `pending` once nothing is left; if something is
+still waiting for a later deploy, keep `pending` and say what.
+
 ## Tidying the brain
 
 `wong tidy` lists preferences that repeat each other (often the same rule saved once per
@@ -168,6 +180,11 @@ verified: 2026-10-27
   start lists them, and `wong tags` too. A tag is lowercase, words joined by `-`, nested
   with `/` (`infra/k8s`). Never a new spelling of a tag in use (`deployment` when `deploy`
   exists, `Testing` when `test` exists); `wong check` flags those.
+- `pending`: `release` when the note leaves work for the next release (a `v*` tag in the
+  project's repos), `main` when it leaves work for the next push to the main branch: a
+  migration to run in production, a flag to turn on, someone to tell. When the deploy
+  happens, whoever deploys, the session start and the server's tasks remind the user.
+  Set it with `--pending` on `wong note write`, and drop it once nothing is left.
 - `verified`: the date you last checked the note against its sources; set it with `wong
   note verify`. `wong check` reads `sources` and measures from `verified`: when a source
   changes after that date (an issue closes, a file is deleted), the note comes back for

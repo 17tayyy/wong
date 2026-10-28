@@ -109,7 +109,7 @@ func newNoteSearchCmd(brainDir *string) *cobra.Command {
 }
 
 func newNoteWriteCmd(brainDir *string) *cobra.Command {
-	var to, name, description, kind string
+	var to, name, description, kind, pending string
 	var sources, tags []string
 	var distinct bool
 	cmd := &cobra.Command{
@@ -118,7 +118,8 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 		Long: "Create a note from its body on stdin and add it to the folder's MEMORY.md.\n\n" +
 			"--to is a project id or me for global notes. --kind is preference, project,\n" +
 			"person, client, decision or reference. --source, repeatable, is linear:<ID>,\n" +
-			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.\n\n" +
+			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL. --pending release or\n" +
+			"main marks work left for the next v* tag or push to the main branch.\n\n" +
 			"It refuses a --tag that is a spelling of a tag in use (wong tags lists them), a [[link]]\n" +
 			"that reaches no note, and a note on the same shelf that covers the same subject: update\n" +
 			"that one instead, or pass --distinct when the subject is really different. Afterwards it\n" +
@@ -136,6 +137,9 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 			if err := validSources(sources); err != nil {
 				return err
 			}
+			if err := note.CheckPending(pending); err != nil {
+				return err
+			}
 			body, err := io.ReadAll(cmd.InOrStdin())
 			if err != nil {
 				return err
@@ -144,7 +148,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 				return errors.New("write the note's body on stdin")
 			}
 			n := note.New(name, description, k, scope, "\n"+strings.TrimSpace(string(body))+"\n")
-			n.Sources = sources
+			n.Sources, n.Pending = sources, pending
 			g, err := graph.Load(*brainDir)
 			if err != nil {
 				return err
@@ -191,6 +195,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	cmd.Flags().StringVar(&kind, "kind", "", "preference, project, person, client, decision or reference")
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "where a claim comes from (repeatable)")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "a tag for the note, reusing those in use (repeatable)")
+	cmd.Flags().StringVar(&pending, "pending", "", "release or main: the note leaves work for the next v* tag or push to the main branch")
 	cmd.Flags().BoolVar(&distinct, "distinct", false, "write it although a note on the same shelf looks like the same subject")
 	for _, f := range []string{"to", "name", "description", "kind"} {
 		_ = cmd.MarkFlagRequired(f)

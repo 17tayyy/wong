@@ -17,6 +17,14 @@ type repo struct {
 	tracked []string
 	deleted map[string]deletion
 	remote  map[string]bool
+	release struct {
+		name string
+		when time.Time
+	}
+	head struct {
+		branch, sha string
+		when        time.Time
+	}
 }
 
 type deletion struct {
@@ -59,6 +67,29 @@ func openRepo(dir string) (*repo, error) {
 	}
 	for _, sha := range strings.Fields(out) {
 		r.remote[sha] = true
+	}
+	if out, err := git(dir, "", "for-each-ref", "--sort=-creatordate", "--count=1", "--format=%(refname:short) %(creatordate:unix)", "refs/tags/v*"); err == nil {
+		if name, unix, ok := strings.Cut(strings.TrimSpace(out), " "); ok {
+			if seconds, err := strconv.ParseInt(unix, 10, 64); err == nil {
+				r.release.name, r.release.when = name, time.Unix(seconds, 0)
+			}
+		}
+	}
+	for _, ref := range []string{"origin/HEAD", "origin/main", "origin/master"} {
+		out, err := git(dir, "", "log", "-1", "--format=%H %ct", ref)
+		sha, unix, ok := strings.Cut(strings.TrimSpace(out), " ")
+		seconds, perr := strconv.ParseInt(unix, 10, 64)
+		if err != nil || !ok || perr != nil {
+			continue
+		}
+		branch := ref
+		if ref == "origin/HEAD" {
+			if b, err := git(dir, "", "rev-parse", "--abbrev-ref", ref); err == nil {
+				branch = strings.TrimSpace(b)
+			}
+		}
+		r.head.branch, r.head.sha, r.head.when = strings.TrimPrefix(branch, "origin/"), sha[:min(len(sha), 7)], time.Unix(seconds, 0)
+		break
 	}
 	return r, nil
 }

@@ -428,3 +428,40 @@ func TestRunFindsTagsToFix(t *testing.T) {
 		t.Errorf("findings = %v", got)
 	}
 }
+
+func TestRunFindsWorkLeftForADeploy(t *testing.T) {
+	f := newFixture(t)
+	run(t, f.repo, "tag", "v1.0.0", f.deleted)
+	pending := func(rel, value, modified string) {
+		path := filepath.Join(f.brain, rel)
+		write(t, path, "---\nname: "+strings.TrimSuffix(filepath.Base(rel), ".md")+"\ndescription: d\npending: "+value+"\n---\nRun the migration in prod.\n")
+		if err := os.Chtimes(path, date(modified), date(modified)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pending("projects/acme/release-old.md", "release", "2026-09-01")
+	pending("projects/acme/release-new.md", "release", "2026-09-20")
+	pending("projects/acme/main-old.md", "main", "2026-09-01")
+	pending("projects/acme/weird.md", "soon", "2026-09-01")
+
+	rep, err := Run(context.Background(), f.options(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Finding{}
+	for _, finding := range rep.Findings {
+		got[finding.Note+" "+finding.Ref] = finding
+	}
+	if r := got["projects/acme/release-old.md release"]; r.Severity != Stale || !strings.Contains(r.Message, "acme-api released v1.0.0 on 2026-09-15") {
+		t.Errorf("release finding = %+v", r)
+	}
+	if m := got["projects/acme/main-old.md main"]; m.Severity != Stale || !strings.Contains(m.Message, "on main up to "+f.deleted) {
+		t.Errorf("main finding = %+v (all: %v)", m, found(rep))
+	}
+	if _, ok := got["projects/acme/release-new.md release"]; ok {
+		t.Error("a note written after the release was flagged")
+	}
+	if w := got["projects/acme/weird.md pending: soon"]; w.Severity != Review {
+		t.Errorf("an unknown pending value = %+v", w)
+	}
+}

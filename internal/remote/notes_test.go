@@ -69,6 +69,13 @@ func TestNoteOperations(t *testing.T) {
 	if _, err := store.EditNote("codex", p, Sha([]byte(current(t, store, p))), []byte("no frontmatter"), Checks{}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("saving a note that does not parse: %v", err)
 	}
+	soon := strings.Replace(current(t, store, p), "kind: reference\n", "kind: reference\npending: soon\n", 1)
+	if _, err := store.EditNote("codex", p, Sha([]byte(current(t, store, p))), []byte(soon), Checks{}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "release") {
+		t.Errorf("a pending that is not understood: %v", err)
+	}
+	if _, err := store.EditNote("codex", p, Sha([]byte(current(t, store, p))), []byte(strings.Replace(soon, "soon", "release", 1)), Checks{}); err != nil {
+		t.Errorf("pending: release: %v", err)
+	}
 	if _, err := store.DeleteNote("codex", "nothing"); !errors.Is(err, ErrNoNote) {
 		t.Errorf("deleting a missing note: %v", err)
 	}

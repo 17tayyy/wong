@@ -71,6 +71,11 @@ func (b *Brain) Graph() *graph.Graph {
 // guard applies the checks to a note about to be written over before, which is nil for a new note.
 func (b *Brain) guard(checks Checks, n *note.Note, target string, before *note.Note) error {
 	g := b.Graph()
+	if before == nil || n.Pending != before.Pending {
+		if err := note.CheckPending(n.Pending); err != nil {
+			return refuse(ErrInvalid, "%v.", err)
+		}
+	}
 	if checks.Tags {
 		var fresh, kept []string
 		for _, t := range n.Tags {

@@ -109,6 +109,7 @@ var tools = []tool{
 			"body":        str("The note's text, in markdown. Link other notes with [[name]], only to notes that exist."),
 			"sources":     strs(sourceArg),
 			"tags":        strs("Tags for the note: reuse the tags in use; lowercase, words joined by -, nested with /."),
+			"pending":     map[string]any{"type": "string", "enum": []string{"release", "main"}, "description": "Set it when the note leaves work for the next deploy: release for the next v* tag, main for the next push to the main branch. The user is reminded once it happens."},
 			"distinct":    map[string]any{"type": "boolean", "description": "Set it only when write_note said a note covers the same subject and you checked that it does not."},
 		}),
 		Annotations: writes,
@@ -366,9 +367,9 @@ func readNote(s *Server, _ string, args json.RawMessage) (string, error) {
 
 func writeNote(s *Server, machine string, args json.RawMessage) (string, error) {
 	var a struct {
-		To, Name, Description, Kind, Body string
-		Sources, Tags                     []string
-		Distinct                          bool
+		To, Name, Description, Kind, Body, Pending string
+		Sources, Tags                              []string
+		Distinct                                   bool
 	}
 	if err := decode(args, &a); err != nil {
 		return "", err
@@ -381,7 +382,7 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 		return "", argErr("a note needs a name, a one-line description and a body")
 	}
 	n := note.New(strings.TrimSpace(a.Name), strings.Join(strings.Fields(a.Description), " "), kind, "", "\n"+strings.TrimSpace(a.Body)+"\n")
-	n.Sources, n.Tags = a.Sources, a.Tags
+	n.Sources, n.Tags, n.Pending = a.Sources, a.Tags, a.Pending
 	checks := remote.Agent
 	checks.Duplicates = !a.Distinct
 	p, _, err := s.store.CreateNote(machine, a.To, n, checks)

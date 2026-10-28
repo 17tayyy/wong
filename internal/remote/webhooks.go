@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -27,8 +28,16 @@ type Webhooks struct {
 	LinearSecret string
 }
 
+var versionTagRE = regexp.MustCompile(`^v\d`)
+
 type githubPush struct {
-	Ref        string `json:"ref"`
+	Ref     string `json:"ref"`
+	After   string `json:"after"`
+	Created bool   `json:"created"`
+	Deleted bool   `json:"deleted"`
+	Pusher  struct {
+		Name string `json:"name"`
+	} `json:"pusher"`
 	Repository struct {
 		FullName      string `json:"full_name"`
 		DefaultBranch string `json:"default_branch"`
@@ -83,7 +92,12 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if push.Ref != "refs/heads/"+push.Repository.DefaultBranch {
+		tag, isTag := strings.CutPrefix(push.Ref, "refs/tags/")
+		switch {
+		case isTag && (!versionTagRE.MatchString(tag) || !push.Created || push.Deleted):
+			ignore(w, log, "github", "tag "+tag+" of "+push.Repository.FullName+" is not a new v* tag")
+			return
+		case !isTag && push.Ref != "refs/heads/"+push.Repository.DefaultBranch:
 			ignore(w, log, "github", "not the default branch of "+push.Repository.FullName)
 			return
 		}
@@ -98,6 +112,31 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 			ignore(w, log, "github", push.Repository.FullName+" is in no project")
 			return
 		}
+		notes, err := store.notes(remote.Project)
+		if err != nil {
+			log.Error("github", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		deploy := event{Repo: remote.Dir, By: push.Pusher.Name, When: time.Now().UTC()}
+		source := "github " + push.Repository.FullName + "@"
+		if isTag {
+			deploy.Tag, source = tag, source+tag
+		} else {
+			deploy.Branch, deploy.Commit = push.Repository.DefaultBranch, push.After[:min(len(push.After), 7)]
+			source += deploy.Commit
+		}
+		pending, err := store.addTasks(deploy, source, notes)
+		if err != nil {
+			log.Error("github", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if isTag {
+			log.Info("github release", "repo", push.Repository.FullName, "tag", tag, "tasks", pending)
+			writeJSON(w, hookResponse{Tasks: pending})
+			return
+		}
 		removed := map[string]event{}
 		for _, c := range push.Commits {
 			for _, p := range c.Added {
@@ -107,13 +146,7 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 				removed[p] = event{Repo: remote.Dir, Path: p, Commit: c.ID[:min(len(c.ID), 7)], When: c.Timestamp}
 			}
 		}
-		notes, err := store.notes(remote.Project)
-		if err != nil {
-			log.Error("github", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		total := 0
+		total := pending
 		for _, p := range slices.Sorted(maps.Keys(removed)) {
 			ev := removed[p]
 			n, err := store.addTasks(ev, "github "+push.Repository.FullName+"@"+ev.Commit, notes)

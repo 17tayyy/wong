@@ -260,3 +260,21 @@ func TestSessionStartNamesTheNotesToReview(t *testing.T) {
 		t.Errorf("session start:\n%s", got)
 	}
 }
+
+func TestSessionStartPutsWorkLeftForADeployFirst(t *testing.T) {
+	env, repo := newEnv(t)
+	note := filepath.Join(env.Brain, "projects", "acme", "prod-steps.md")
+	write(t, note, "---\nname: prod-steps\ndescription: d\npending: release\n---\nRun the migration in prod.\n")
+	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(note, old, old); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	run(t, repo, "tag", "-a", "v1.0.0", "-m", "v1.0.0")
+	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
+	deploy := strings.Index(got, "leave work for a deploy that has happened")
+	if deploy < 0 || !strings.Contains(got, "- projects/acme/prod-steps.md: acme-api released v1.0.0 on ") ||
+		strings.Count(got, "prod-steps") != 1 || deploy > strings.Index(got, "1 findings say") {
+		t.Errorf("session start:\n%s", got)
+	}
+}

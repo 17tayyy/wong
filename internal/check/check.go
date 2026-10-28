@@ -54,6 +54,7 @@ type loaded struct {
 	rel      string
 	dir      string
 	tags     []string
+	pending  string
 	kind     note.Kind
 	verified time.Time
 	asOf     time.Time
@@ -202,6 +203,7 @@ func newLoaded(rel string, n *note.Note, written time.Time) loaded {
 		rel:      rel,
 		dir:      filepath.Dir(rel),
 		tags:     n.Tags,
+		pending:  n.Pending,
 		kind:     n.Kind,
 		verified: verified,
 		asOf:     asOf(verified, n.Modified(), written),
@@ -255,6 +257,31 @@ func (c *checker) check(l loaded) []Finding {
 		if sev, msg, found := c.tag(t); found {
 			add(sev, "#"+t, msg)
 		}
+	}
+	switch l.pending {
+	case "":
+	case "release", "main":
+		var latest Finding
+		var latestWhen time.Time
+		for _, r := range c.own[l.dir] {
+			name := filepath.Base(r.dir)
+			f, found, when := Finding{}, false, time.Time{}
+			if l.pending == "release" && r.release.name != "" {
+				f, found = l.released(name, r.release.name, "", r.release.when)
+				when = r.release.when
+			} else if l.pending == "main" && r.head.sha != "" {
+				f, found = l.pushed(name, r.head.branch, r.head.sha, "", r.head.when)
+				when = r.head.when
+			}
+			if found && when.After(latestWhen) {
+				latest, latestWhen = f, when
+			}
+		}
+		if !latestWhen.IsZero() {
+			out = append(out, latest)
+		}
+	default:
+		add(Review, "pending: "+l.pending, note.CheckPending(l.pending).Error())
 	}
 	if own := c.own[l.dir]; len(own) > 0 {
 		for _, f := range l.refs.files {

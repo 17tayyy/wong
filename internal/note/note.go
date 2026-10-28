@@ -44,6 +44,14 @@ func ParseKind(s string) (Kind, error) {
 	return "", fmt.Errorf("unknown kind %q: use preference, project, person, client, decision or reference", s)
 }
 
+// CheckPending refuses a pending value other than release and main.
+func CheckPending(s string) error {
+	if s == "" || s == "release" || s == "main" {
+		return nil
+	}
+	return fmt.Errorf("unknown pending %q: use release (the next v* tag) or main (the next push to the main branch)", s)
+}
+
 // WikiLinkRE matches a [[link]] to another note: the name, then an optional #heading and |label.
 var WikiLinkRE = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]`)
 
@@ -61,8 +69,10 @@ type Note struct {
 	Kind        Kind
 	Scope       string
 	Tags        []string
-	Sources     []string
-	Verified    time.Time
+	// Pending is "release" or "main" when the note leaves work for the next release or push to the main branch.
+	Pending  string
+	Sources  []string
+	Verified time.Time
 	// Extra holds the other frontmatter entries as alternating key and value nodes, in file order.
 	Extra []*yaml.Node
 }
@@ -104,6 +114,8 @@ func Parse(data []byte) (*Note, error) {
 			n.Scope, err = scope(value)
 		case "tags":
 			n.Tags = tags(value)
+		case "pending":
+			n.Pending = value.Value
 		case "sources":
 			n.Sources, err = sources(value)
 		case "verified":
@@ -164,6 +176,9 @@ func (n *Note) Marshal() ([]byte, error) {
 			seq.Content = append(seq.Content, str(t))
 		}
 		add("tags", seq)
+	}
+	if n.Pending != "" {
+		add("pending", str(n.Pending))
 	}
 	if len(n.Sources) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode}

@@ -31,12 +31,20 @@ type event struct {
 	Repo   string        `json:"repo,omitempty"`
 	Path   string        `json:"path,omitempty"`
 	Commit string        `json:"commit,omitempty"`
+	Tag    string        `json:"tag,omitempty"`
+	Branch string        `json:"branch,omitempty"`
+	By     string        `json:"by,omitempty"`
 	When   time.Time     `json:"when,omitzero"`
 }
 
 func (e event) apply(n check.Note) (check.Finding, bool, error) {
-	if e.Issue != nil {
+	switch {
+	case e.Issue != nil:
 		return check.IssueClosed(n, *e.Issue)
+	case e.Tag != "":
+		return check.Released(n, e.Repo, e.Tag, e.By, e.When)
+	case e.Branch != "":
+		return check.Pushed(n, e.Repo, e.Branch, e.Commit, e.By, e.When)
 	}
 	return check.FileRemoved(n, e.Repo, e.Path, e.Commit, e.When)
 }
