@@ -17,9 +17,11 @@ func newCheckCmd(brain *string) *cobra.Command {
 		Short: "Check every note against the files, commits, issues and notes it cites",
 		Long: "Check every note against the files, commits, issues and notes it cites.\n\n" +
 			"stale   the note is wrong: a file it cites was deleted, an issue it calls open is\n" +
-			"        closed, or a note it links to does not exist.\n" +
+			"        closed, a note it links to does not exist, or a deploy it leaves work for\n" +
+			"        (pending: release or main) happened.\n" +
 			"review  the note may be outdated: a file or commit cannot be found, a commit is on\n" +
-			"        no remote branch, or an issue closed after the note was last updated.\n\n" +
+			"        no remote branch, an issue closed after the note was last updated, a tag is a\n" +
+			"        spelling of another, or its modified or verified date is later than the file.\n\n" +
 			"Files and commits are looked up in the repos that wong import registered for each\n" +
 			"project. Linear issues are checked when LINEAR_API_KEY holds a personal API key.",
 		Args: cobra.NoArgs,

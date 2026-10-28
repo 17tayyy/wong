@@ -17,8 +17,10 @@ func newTasksCmd() *cobra.Command {
 		Use:   "tasks",
 		Short: "List the tasks the server's webhooks left on notes",
 		Long: "List the tasks the server's webhooks left on notes.\n\n" +
-			"A push to a repo's default branch that removes a file a note cites, or a Linear\n" +
-			"issue a note cites that becomes completed or canceled, leaves a task on the note.\n" +
+			"A push to a repo's default branch that removes a file a note cites, a Linear issue\n" +
+			"a note cites that becomes completed or canceled, and a new v* tag or push to the\n" +
+			"default branch that a note leaves work for (pending: release or main) leave a task\n" +
+			"on the note.\n" +
 			"A task closes by itself when the note reaches the server and no longer breaks the\n" +
 			"rule: fix it with the wong:maintain-brain skill and run wong push (the session-end\n" +
 			"hook does).",
