@@ -250,3 +250,18 @@ func TestStoreKeepsEveryVersion(t *testing.T) {
 		t.Errorf("Changes(2) = %+v, %d", changes, cursor)
 	}
 }
+
+func TestObsidianFoldersStayOnTheMachine(t *testing.T) {
+	store, _, desktop, _ := setup(t)
+	write(t, filepath.Join(desktop.brain, "me/use-uv.md"), "uv\n")
+	write(t, filepath.Join(desktop.brain, ".obsidian/workspace.json"), "{}")
+	write(t, filepath.Join(desktop.brain, ".trash/old.md"), "old\n")
+	push(t, desktop)
+	files, err := store.Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != "me/use-uv.md" {
+		t.Errorf("server files = %v", files)
+	}
+}

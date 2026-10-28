@@ -264,7 +264,7 @@ func fileSha(path string) (string, error) {
 	return Sha(data), nil
 }
 
-// walk returns the sha of every file in the brain, outside its local .git and .wong folders.
+// walk returns the sha of every file in the brain, outside each machine's own folders: git's, wong's and Obsidian's.
 func walk(brain string) (map[string]string, error) {
 	files := map[string]string{}
 	err := filepath.WalkDir(brain, func(path string, d fs.DirEntry, err error) error {
@@ -274,7 +274,7 @@ func walk(brain string) (map[string]string, error) {
 		rel, _ := filepath.Rel(brain, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if rel == ".git" || rel == ".wong" {
+			if rel == ".git" || rel == ".wong" || rel == ".obsidian" || rel == ".trash" {
 				return filepath.SkipDir
 			}
 			return nil

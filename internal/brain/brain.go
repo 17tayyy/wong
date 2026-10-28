@@ -107,6 +107,7 @@ func Write(brain, folder string, n *note.Note) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return "", fmt.Errorf("%s already exists: edit it and run wong note verify", rel)
 	}
+	n.Alias(stem)
 	data, err := n.Marshal()
 	if err != nil {
 		return "", err

@@ -214,6 +214,7 @@ func (s *Store) CreateNote(machine, to string, n *note.Note, checks Checks) (str
 	if err != nil {
 		return "", "", refuse(ErrInvalid, "The name needs at least one letter or digit to make a file name from.")
 	}
+	n.Alias(stem)
 	if bad := slices.IndexFunc(n.Sources, func(s string) bool { return !check.ValidSource(s) }); bad >= 0 {
 		return "", "", refuse(ErrInvalid, "Source %q not understood: use linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.", n.Sources[bad])
 	}
@@ -344,6 +345,7 @@ func (s *Store) RenameNote(machine, ref, name string) (string, string, error) {
 		})
 	}
 	n.Name, n.Description, n.Body = name, relink(n.Description), relink(n.Body)
+	n.Alias(stem)
 	data, err := n.Marshal()
 	if err != nil {
 		return "", "", err

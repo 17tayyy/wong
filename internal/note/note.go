@@ -190,6 +190,27 @@ func (n *Note) Marshal() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Alias makes the note's name an Obsidian alias when its file is named otherwise, so a [[name]] link resolves there too.
+func (n *Note) Alias(stem string) {
+	if n.Name == stem {
+		return
+	}
+	aliases := lookup(n.Extra, "aliases")
+	if aliases == nil {
+		aliases = &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+		n.Extra = append(n.Extra, str("aliases"), aliases)
+	}
+	if aliases.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, a := range aliases.Content {
+		if a.Value == n.Name {
+			return
+		}
+	}
+	aliases.Content = append(aliases.Content, str(n.Name))
+}
+
 // ClaudeType returns Claude Code's own type: metadata.type, or the legacy top-level type.
 func (n *Note) ClaudeType() string {
 	if t := n.meta("type"); t != nil {

@@ -116,7 +116,7 @@ func (g *Graph) Missing(text, before string) []string {
 	var out []string
 	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(text, -1) {
 		name := strings.TrimSpace(m[1])
-		if _, ok := g.Resolve(name); ok || known[name] {
+		if _, ok := g.Resolve(name); ok || known[name] || note.IsAttachment(name) {
 			continue
 		}
 		known[name] = true

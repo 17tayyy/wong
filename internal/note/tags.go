@@ -72,3 +72,10 @@ func Distance(a, b string) int {
 	}
 	return prev[len(rb)]
 }
+
+var attachmentRE = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|svg|webp|avif|bmp|pdf|mp3|mp4|m4a|wav|ogg|webm|mov|zip|csv|xlsx?|docx?|pptx?|canvas|excalidraw)$`)
+
+// IsAttachment reports whether a [[link]] names a file Obsidian embeds, such as an image or a PDF, rather than a note.
+func IsAttachment(name string) bool {
+	return attachmentRE.MatchString(strings.TrimSpace(name))
+}
