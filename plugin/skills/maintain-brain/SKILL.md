@@ -12,6 +12,19 @@ other notes) and reports where the world moved since:
 - **stale**: the note contradicts its source. Fix it.
 - **review**: the note may be outdated. Look, then fix it or mark it verified.
 
+## When
+
+Keep the brain true as you work, without turning a session into a maintenance pass the
+user did not ask for:
+
+- A note that **contradicts its sources** (stale): fix it once you have finished what the
+  user asked.
+- A note that **may be outdated** (review) and bears on your task: check it and fix it
+  before you rely on it.
+- The other notes to review: once you have finished, maintain up to three of them per
+  session, so the brain clears itself a little each time.
+- When the user asks you to maintain the brain, take them all.
+
 ## Workflow
 
 1. Run `wong check --project <id>` and, when the machine has a wong server, `wong tasks

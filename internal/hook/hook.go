@@ -23,6 +23,7 @@ import (
 const (
 	maxFindings = 5
 	maxReview   = 15
+	maxMaintain = 3
 )
 
 // Input is the part of a hook's JSON input that wong reads.
@@ -133,8 +134,9 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		if len(names) > maxReview {
 			names, more = names[:maxReview], fmt.Sprintf(" and %d more", len(names)-maxReview)
 		}
-		fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated, so trust them less; maintain them only if the user asks: %s%s.\n",
-			len(review), strings.Join(names, ", "), more)
+		fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated: %s%s. If one bears on your task, check it against "+
+			"its sources and fix it before relying on it. When you have finished what the user asked, maintain up to %d of the others "+
+			"with the wong:maintain-brain skill.\n", len(review), strings.Join(names, ", "), more, maxMaintain)
 	}
 	return b.String()
 }

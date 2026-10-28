@@ -255,8 +255,8 @@ func TestSessionStartNamesTheNotesToReview(t *testing.T) {
 		write(t, filepath.Join(env.Brain, "projects", "acme", name+".md"), "---\nname: "+name+"\ndescription: d\n---\nSee `app/missing_"+name+".py`.\n")
 	}
 	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
-	if !strings.Contains(got, "these 17 notes of this project may be outdated, so trust them less") ||
-		!strings.Contains(got, ": n00.md, n01.md, ") || !strings.Contains(got, "n14.md and 2 more.") || strings.Contains(got, "n15.md") {
+	if !strings.Contains(got, "these 17 notes of this project may be outdated: n00.md, n01.md, ") || !strings.Contains(got, "n14.md and 2 more.") ||
+		strings.Contains(got, "n15.md") || !strings.Contains(got, "If one bears on your task") || !strings.Contains(got, "maintain up to 3 of the others") {
 		t.Errorf("session start:\n%s", got)
 	}
 }
