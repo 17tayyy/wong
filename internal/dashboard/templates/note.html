@@ -56,8 +56,15 @@
 </article>
 {{end}}
 {{define "blocks"}}{{range .}}<div class="blk" data-from="{{.From}}" data-to="{{.To}}" data-md="{{.Src}}">{{.HTML}}</div>{{else}}<p class="blk-empty">Nothing written yet.</p>{{end}}{{end}}
+{{define "scripts"}}{{if .LocalGraph}}<script src="{{asset "graph.js"}}" defer></script>{{end}}{{end}}
 {{define "aside"}}
 <aside class="panel" aria-label="Links and history">
+  {{with .LocalGraph}}
+  <section>
+    <h2>{{icon "waypoints"}}Local graph</h2>
+    <canvas class="graph local" data-graph="{{.}}" data-focus="{{$.Path}}" role="img" aria-label="This note and the notes it links to or that link to it, also listed below."></canvas>
+  </section>
+  {{end}}
   {{if .Entry}}
   <section>
     <h2>{{icon "arrow-up-right"}}Links<span class="count">{{len .Links}}</span></h2>

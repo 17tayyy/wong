@@ -297,6 +297,22 @@ a.callout:hover { filter: brightness(0.97); }
 .timeline .row { display: flex; gap: 2px; margin: 4px 0 0 -9px; }
 .timeline form { display: inline; }
 
+/* Graph */
+.graph-page { display: flex; flex-direction: column; height: calc(100vh - 45px); }
+.graph-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 6px 16px 10px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.graph-bar select { height: 30px; padding: 0 8px; font-size: 13.5px; }
+.graph-bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.graph-bar .toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+.graph-bar .toggle input { margin: 0; accent-color: var(--accent); }
+.graph-find { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--muted); }
+.graph-find:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.graph-find input { width: 170px; padding: 0; border: 0; background: transparent; }
+.graph-find input:focus { outline: none; }
+.graph-count { margin-left: auto; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+canvas.graph { display: block; flex: 1; width: 100%; min-height: 0; cursor: grab; touch-action: none; }
+canvas.graph:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px solid var(--line); border-radius: var(--radius); }
+
 /* Comparing versions */
 .diff { width: 100%; margin: 24px 0 0; border-collapse: collapse; font: 13px/1.6 var(--mono); }
 .diff.split { table-layout: fixed; border: 1px solid var(--line); }
@@ -445,6 +461,10 @@ a.callout:hover { filter: brightness(0.97); }
   .tabbar .badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 18px; margin: 0; }
   .snack { bottom: calc(70px + env(safe-area-inset-bottom)); }
   .page, .page.wide { padding: 20px 16px 64px; }
+  .graph-page { height: calc(100dvh - 48px - 58px - env(safe-area-inset-bottom)); }
+  .graph-bar { padding: 8px 12px 10px; }
+  .graph-find { flex: 1 1 100%; order: -1; }
+  .graph-find input { flex: 1; width: auto; }
   .page h1, .newnote .title-input { font-size: 30px; }
   .db .c-kind, .db .c-edited { display: none; }
   .db:has(.c-name), .db:has(.c-name) tbody { display: block; }

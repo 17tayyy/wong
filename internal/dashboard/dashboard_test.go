@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -217,5 +218,29 @@ func TestNewNote(t *testing.T) {
 	form.Set("folder", "../etc")
 	if code, _ := b.post("/new", form, b.srv.URL); code != http.StatusUnprocessableEntity {
 		t.Errorf("a folder outside the brain: %d", code)
+	}
+}
+
+func TestGraph(t *testing.T) {
+	_, b := signedIn(t)
+	_, page := b.get("/graph")
+	if !strings.Contains(page, `data-graph="{&#34;nodes&#34;:[`) || !strings.Contains(page, "3 notes · 1 links") {
+		t.Fatalf("graph page:\n%s", page)
+	}
+	start := strings.Index(page, `data-graph="`) + len(`data-graph="`)
+	raw := strings.NewReplacer("&#34;", `"`).Replace(page[start : start+strings.Index(page[start:], `"`)])
+	var data graphData
+	if err := json.Unmarshal([]byte(raw), &data); err != nil || len(data.Nodes) != 3 || len(data.Edges) != 1 {
+		t.Fatalf("graph data %s: %v", raw, err)
+	}
+	a, z := data.Nodes[data.Edges[0][0]].Path, data.Nodes[data.Edges[0][1]].Path
+	if a+" "+z != "projects/acme/deploy-runbook.md projects/acme/search.md" || data.Nodes[data.Edges[0][1]].State != "stale" {
+		t.Errorf("edge %s - %s, nodes %+v", a, z, data.Nodes)
+	}
+	if _, note := b.get("/notes/projects/acme/search.md"); !strings.Contains(note, `class="graph local"`) || !strings.Contains(note, "graph.js") {
+		t.Error("the note page has no local graph")
+	}
+	if _, note := b.get("/notes/me/use-uv.md"); strings.Contains(note, `class="graph local"`) {
+		t.Error("a note without links got a local graph")
 	}
 }

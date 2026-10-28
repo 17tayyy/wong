@@ -62,6 +62,13 @@ type page struct {
 	Form    newNote
 	Folders []string
 	Kinds   []note.Kind
+
+	Graph      string
+	GraphNotes int
+	GraphLinks int
+	LocalGraph string
+	TagNames   []string
+	KindNames  []string
 }
 
 // newNote is what the new-note form holds.
@@ -536,6 +543,9 @@ func (d *Dashboard) note(w http.ResponseWriter, r *http.Request, machine string)
 			p.Mentions = append(p.Mentions, b.byPath[l])
 		}
 		p.Content, p.Editable = string(e.Data), e.Valid
+		if len(e.Links)+len(e.Backlinks) > 0 {
+			p.LocalGraph = local(b, e).json()
+		}
 		if p.Blocks, err = renderBlocks(e.Note.Body, b.resolve); err != nil {
 			d.fail(w, err)
 			return

@@ -39,7 +39,7 @@ func Handler(store *remote.Store, log *slog.Logger) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "corrections", "history", "change", "skills", "login"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "login"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -65,6 +65,7 @@ func Handler(store *remote.Store, log *slog.Logger) (http.Handler, error) {
 	mux.HandleFunc("GET /edit/{path...}", d.session(d.edit))
 	mux.HandleFunc("GET /new", d.session(d.newForm))
 	mux.HandleFunc("POST /new", d.session(d.create))
+	mux.HandleFunc("GET /graph", d.session(d.graph))
 	mux.HandleFunc("GET /corrections", d.session(d.corrections))
 	mux.HandleFunc("GET /history", d.session(d.history))
 	mux.HandleFunc("GET /changes/{seq}", d.session(d.change))

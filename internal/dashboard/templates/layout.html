@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="{{asset "app.css"}}">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <script src="{{asset "app.js"}}"></script>
+{{block "scripts" .}}{{end}}
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -33,6 +34,7 @@
     </form>
     <div class="nav">
       <a href="/"{{if eq .Nav "library"}} aria-current="page"{{end}}>{{icon "book-open"}}<span>Library</span><span class="count">{{.Masthead.Notes}}</span></a>
+      <a href="/graph"{{if eq .Nav "graph"}} aria-current="page"{{end}}>{{icon "waypoints"}}<span>Graph</span></a>
       <a href="/corrections"{{if eq .Nav "corrections"}} aria-current="page"{{end}}>{{icon "triangle-alert"}}<span>Corrections</span>{{with .Masthead.Corrections}}<span class="badge">{{.}}</span>{{end}}</a>
       <a href="/history"{{if eq .Nav "history"}} aria-current="page"{{end}}>{{icon "history"}}<span>History</span></a>
       <a href="/skills"{{if eq .Nav "skills"}} aria-current="page"{{end}}>{{icon "puzzle"}}<span>Skills</span></a>
