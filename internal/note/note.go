@@ -60,6 +60,7 @@ type Note struct {
 	Body        string
 	Kind        Kind
 	Scope       string
+	Tags        []string
 	Sources     []string
 	Verified    time.Time
 	// Extra holds the other frontmatter entries as alternating key and value nodes, in file order.
@@ -101,6 +102,8 @@ func Parse(data []byte) (*Note, error) {
 			n.Kind, err = kind(value)
 		case "scope":
 			n.Scope, err = scope(value)
+		case "tags":
+			n.Tags = tags(value)
 		case "sources":
 			n.Sources, err = sources(value)
 		case "verified":
@@ -154,6 +157,13 @@ func (n *Note) Marshal() ([]byte, error) {
 	}
 	if n.Scope != "" {
 		add("scope", str(n.Scope))
+	}
+	if len(n.Tags) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+		for _, t := range n.Tags {
+			seq.Content = append(seq.Content, str(t))
+		}
+		add("tags", seq)
 	}
 	if len(n.Sources) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode}
@@ -273,6 +283,28 @@ func scope(v *yaml.Node) (string, error) {
 		return "", fmt.Errorf("scope must be 'global' or 'project:<id>', got %q", v.Value)
 	}
 	return v.Value, nil
+}
+
+// tags reads Obsidian's tags property, a list or one string of comma- or space-separated tags, leaving any # out.
+func tags(v *yaml.Node) []string {
+	var raw []string
+	switch v.Kind {
+	case yaml.SequenceNode:
+		for _, t := range v.Content {
+			if t.Kind == yaml.ScalarNode {
+				raw = append(raw, t.Value)
+			}
+		}
+	case yaml.ScalarNode:
+		raw = strings.FieldsFunc(v.Value, func(r rune) bool { return r == ',' || r == ' ' })
+	}
+	var out []string
+	for _, t := range raw {
+		if t = strings.TrimPrefix(strings.TrimSpace(t), "#"); t != "" && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func sources(v *yaml.Node) ([]string, error) {

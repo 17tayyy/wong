@@ -257,3 +257,45 @@ func TestBridge(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentsKeepTagsLinksAndNotesTidy(t *testing.T) {
+	_, c := setup(t)
+	write := func(args string) (string, bool) { return c.tool("write_note", args) }
+
+	if text, failed := write(`{"to":"acme","name":"CI pipeline","description":"How CI builds images","kind":"reference","body":"Builds on every push. Tracked in ENG-15.","tags":["#Deploy","CI"]}`); failed {
+		t.Fatalf("write_note with tags: %s", text)
+	}
+	text, failed := write(`{"to":"acme","name":"Preview apps","description":"One preview per pull request","kind":"reference","body":"Built by CI.","tags":["deployment"]}`)
+	if !failed || !strings.Contains(text, `use "deploy"`) || !strings.Contains(text, "Tags in use: ci (1), deploy (1)") {
+		t.Errorf("a spelling of a tag in use: %s", text)
+	}
+	text, failed = write(`{"to":"acme","name":"Preview apps","description":"One preview per pull request","kind":"reference","body":"Built as in [[ci-pipelin]].","tags":["deploy"]}`)
+	if !failed || !strings.Contains(text, "did you mean [[ci-pipeline]]") {
+		t.Errorf("a link to no note: %s", text)
+	}
+	text, failed = write(`{"to":"acme","name":"Release process","description":"How a release goes out","kind":"reference","body":"Merge, then promote."}`)
+	if !failed || !strings.Contains(text, "projects/acme/deploy-runbook.md") {
+		t.Errorf("a note on a subject already covered: %s", text)
+	}
+	if text, failed = write(`{"to":"acme","name":"Release process","description":"How a release goes out","kind":"reference","body":"Merge, then promote.","distinct":true}`); failed {
+		t.Errorf("distinct: %s", text)
+	}
+	text, failed = write(`{"to":"acme","name":"Image tags","description":"Images are tagged with the commit","kind":"reference","body":"Tracked in ENG-15.","tags":["deploy"]}`)
+	if failed || !strings.Contains(text, "[[CI pipeline]] (projects/acme/ci-pipeline.md, shares ENG-15, #deploy)") {
+		t.Errorf("related notes after writing: %s", text)
+	}
+
+	if text, failed := c.tool("edit_note", `{"note":"deploy-runbook","old_text":"then promote","new_text":"then promote, see [[nowhere]]"}`); !failed || !strings.Contains(text, "[[nowhere]] reaches no note") {
+		t.Errorf("edit_note adding a link to no note: %s", text)
+	}
+	if text, failed := c.tool("edit_note", `{"note":"ci-pipeline","old_text":"tags: [deploy, ci]","new_text":"tags: [deploy, ci, Security]"}`); !failed || !strings.Contains(text, `as "security"`) {
+		t.Errorf("edit_note adding an unnormalized tag: %s", text)
+	}
+	text, _ = c.tool("read_note", `{"note":"ci-pipeline"}`)
+	if !strings.Contains(text, "Related but not linked yet") || !strings.Contains(text, "[[Image tags]] (projects/acme/image-tags.md, shares ENG-15, #deploy)") {
+		t.Errorf("read_note does not suggest links:\n%s", text)
+	}
+	if text, _ := c.tool("get_context", `{"project":"acme"}`); !strings.Contains(text, "Reuse these instead of new spellings: deploy (2), ci (1)") {
+		t.Errorf("get_context does not list the tags:\n%s", text)
+	}
+}

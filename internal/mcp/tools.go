@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/note"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
@@ -62,9 +63,9 @@ var tools = []tool{
 		Name:  "get_context",
 		Title: "Load the brain for a task",
 		Description: "Start here. Returns the user's global preferences (me/MEMORY.md), the project's index of notes " +
-			"(projects/<id>/MEMORY.md) and what is open on its notes: findings from wong check and tasks from GitHub and Linear " +
-			"webhooks. Name the project by its id, or by the git remote of the repo you work in; with neither you get the " +
-			"preferences and the list of projects.",
+			"(projects/<id>/MEMORY.md), the tags in use, and what is open on its notes: findings from wong check and tasks " +
+			"from GitHub and Linear webhooks. Name the project by its id, or by the git remote of the repo you work in; with " +
+			"neither you get the preferences and the list of projects.",
 		InputSchema: object(nil, map[string]any{
 			"project": str("The project id, as in projects/<id>/."),
 			"repo":    str("The repo you work in: its git remote URL or owner/name."),
@@ -86,8 +87,8 @@ var tools = []tool{
 	{
 		Name:  "read_note",
 		Title: "Read a note",
-		Description: "Return a note's whole file (frontmatter and body), its path, its sha for edit_note, and what is open on it. " +
-			"Read a note whole, description included, before changing it.",
+		Description: "Return a note's whole file (frontmatter and body), its path, its sha for edit_note, what is open on it, " +
+			"and the notes it relates to but does not link yet. Read a note whole, description included, before changing it.",
 		InputSchema: object([]string{"note"}, map[string]any{"note": str(noteArg)}),
 		Annotations: readOnly,
 		run:         readNote,
@@ -96,14 +97,20 @@ var tools = []tool{
 		Name:  "write_note",
 		Title: "Write a new note",
 		Description: "Create a note and add it to its shelf's MEMORY.md. Point to the source instead of copying its state: " +
-			"\"tracked in ENG-15\", not \"ENG-15 is in progress\"; past facts with a date are fine. List the sources the note relies on.",
+			"\"tracked in ENG-15\", not \"ENG-15 is in progress\"; past facts with a date are fine. List the sources the note " +
+			"relies on, reuse the tags in use (get_context lists them) and link related notes with [[name]]. It is refused when a " +
+			"tag is a spelling of one in use, when a [[link]] reaches no note, and when a note on the same shelf already covers " +
+			"the subject: update that one with edit_note, or set distinct if the subject is really different. The answer lists " +
+			"related notes to link.",
 		InputSchema: object([]string{"to", "name", "description", "kind", "body"}, map[string]any{
 			"to":          str(shelfArg),
 			"name":        str("A short name; the file name is made from it."),
 			"description": str("One line: what the note says."),
 			"kind":        map[string]any{"type": "string", "enum": []string{"preference", "project", "person", "client", "decision", "reference"}, "description": "What the note is: a preference of the user's, project knowledge, a decision, a reference, or about a person or client."},
-			"body":        str("The note's text, in markdown. Link other notes with [[name]]."),
+			"body":        str("The note's text, in markdown. Link other notes with [[name]], only to notes that exist."),
 			"sources":     strs(sourceArg),
+			"tags":        strs("Tags for the note: reuse the tags in use; lowercase, words joined by -, nested with /."),
+			"distinct":    map[string]any{"type": "boolean", "description": "Set it only when write_note said a note covers the same subject and you checked that it does not."},
 		}),
 		Annotations: writes,
 		run:         writeNote,
@@ -113,7 +120,8 @@ var tools = []tool{
 		Title: "Edit a note",
 		Description: "Change a note: old_text must appear exactly once in its file, frontmatter included, and becomes new_text. " +
 			"To replace the whole file, pass content and the sha read_note returned. Keep the note's meaning, voice and language, " +
-			"and change only what the evidence contradicts. Then mark it with verify_note if every claim you could check holds.",
+			"and change only what the evidence contradicts. New tags must reuse the tags in use and new [[links]] must reach a " +
+			"note. Then mark it with verify_note if every claim you could check holds.",
 		InputSchema: object([]string{"note"}, map[string]any{
 			"note":     str(noteArg),
 			"old_text": str("Text of the file to replace, exactly as read_note shows it."),
@@ -263,6 +271,9 @@ func getContext(s *Server, _ string, args json.RawMessage) (string, error) {
 		return out.String(), nil
 	}
 	fmt.Fprintf(&out, "\n# Project %s (projects/%s/MEMORY.md)\n\n%s\n", project, project, orNone(b.Files["projects/"+project+"/MEMORY.md"].Content))
+	if tags := b.Graph().TagList(60); len(tags) > 0 {
+		fmt.Fprintf(&out, "\n# Tags in use\n\nReuse these instead of new spellings: %s.\n", strings.Join(tags, ", "))
+	}
 	open, err := s.issues(project, "")
 	if err != nil {
 		return "", err
@@ -382,13 +393,19 @@ func readNote(s *Server, _ string, args json.RawMessage) (string, error) {
 	if len(open) > 0 {
 		fmt.Fprintf(&out, "\nOpen on this note:\n%s\n", strings.Join(open, "\n"))
 	}
+	if n, err := note.Parse(f.Content); err == nil {
+		if related := b.Graph().Related(graph.Note{Path: p, Note: n}, 5); len(related) > 0 {
+			fmt.Fprintf(&out, "\nRelated but not linked yet; link the ones that help with [[name]]:\n- %s\n", strings.Join(related, "\n- "))
+		}
+	}
 	return out.String(), nil
 }
 
 func writeNote(s *Server, machine string, args json.RawMessage) (string, error) {
 	var a struct {
 		To, Name, Description, Kind, Body string
-		Sources                           []string
+		Sources, Tags                     []string
+		Distinct                          bool
 	}
 	if err := decode(args, &a); err != nil {
 		return "", err
@@ -401,12 +418,20 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 		return "", argErr("a note needs a name, a one-line description and a body")
 	}
 	n := note.New(strings.TrimSpace(a.Name), strings.Join(strings.Fields(a.Description), " "), kind, "", "\n"+strings.TrimSpace(a.Body)+"\n")
-	n.Sources = a.Sources
-	p, _, err := s.store.CreateNote(machine, a.To, n)
+	n.Sources, n.Tags = a.Sources, a.Tags
+	checks := remote.Agent
+	checks.Duplicates = !a.Distinct
+	p, _, err := s.store.CreateNote(machine, a.To, n, checks)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Wrote %s and added it to %s/MEMORY.md.", p, path.Dir(p)), nil
+	out := fmt.Sprintf("Wrote %s and added it to %s/MEMORY.md.", p, path.Dir(p))
+	if b, err := s.store.Brain(); err == nil {
+		if related := b.Graph().Related(graph.Note{Path: p, Note: n}, 5); len(related) > 0 {
+			out += "\n\nRelated notes it does not link yet; link the ones that help with edit_note:\n- " + strings.Join(related, "\n- ")
+		}
+	}
+	return out, nil
 }
 
 func editNote(s *Server, machine string, args json.RawMessage) (string, error) {
@@ -453,7 +478,7 @@ func editNote(s *Server, machine string, args json.RawMessage) (string, error) {
 	default:
 		return "", argErr("pass old_text and new_text, or content and sha")
 	}
-	sha, err := s.store.EditNote(machine, p, a.Sha, []byte(data))
+	sha, err := s.store.EditNote(machine, p, a.Sha, []byte(data), remote.Checks{Tags: true, Links: true})
 	if err != nil {
 		return "", err
 	}

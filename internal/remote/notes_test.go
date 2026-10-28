@@ -19,17 +19,17 @@ func TestNoteOperations(t *testing.T) {
 
 	n := note.New("Deploy flow", "How Acme ships", note.Reference, "", "\nMerge, then promote.\n")
 	n.Sources = []string{"linear:ENG-15"}
-	p, op, err := store.CreateNote("codex", "acme", n)
+	p, op, err := store.CreateNote("codex", "acme", n, Checks{})
 	if err != nil || p != "projects/acme/deploy-flow.md" || !strings.HasPrefix(op, "create:") {
 		t.Fatalf("CreateNote = %q %q %v", p, op, err)
 	}
 	if got := current(t, store, "projects/acme/MEMORY.md"); got != "- [Deploy flow](deploy-flow.md) — How Acme ships\n" {
 		t.Errorf("MEMORY.md = %q", got)
 	}
-	if _, _, err := store.CreateNote("codex", "acme", n); !errors.Is(err, ErrTaken) {
+	if _, _, err := store.CreateNote("codex", "acme", n, Checks{}); !errors.Is(err, ErrTaken) {
 		t.Errorf("creating it twice: %v", err)
 	}
-	if _, _, err := store.CreateNote("codex", "../etc", n); !errors.Is(err, ErrInvalid) {
+	if _, _, err := store.CreateNote("codex", "../etc", n, Checks{}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a shelf outside the brain: %v", err)
 	}
 
@@ -63,10 +63,10 @@ func TestNoteOperations(t *testing.T) {
 		t.Errorf("a source that is not understood: %v", err)
 	}
 
-	if _, err := store.EditNote("codex", p, "stale", []byte(current(t, store, p))); !errors.Is(err, ErrChanged) {
+	if _, err := store.EditNote("codex", p, "stale", []byte(current(t, store, p)), Checks{}); !errors.Is(err, ErrChanged) {
 		t.Errorf("editing over a newer version: %v", err)
 	}
-	if _, err := store.EditNote("codex", p, Sha([]byte(current(t, store, p))), []byte("no frontmatter")); !errors.Is(err, ErrInvalid) {
+	if _, err := store.EditNote("codex", p, Sha([]byte(current(t, store, p))), []byte("no frontmatter"), Checks{}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("saving a note that does not parse: %v", err)
 	}
 	if _, err := store.DeleteNote("codex", "nothing"); !errors.Is(err, ErrNoNote) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/note"
@@ -56,6 +57,11 @@ func newNoteShowCmd(home string, brainDir *string) *cobra.Command {
 				fmt.Fprintln(out, "\nfindings:")
 				printFindings(out, rep.Findings)
 			}
+			if g, err := graph.Load(*brainDir); err == nil {
+				if n, err := note.Parse(data); err == nil {
+					printRelated(out, g, filepath.ToSlash(rel), n)
+				}
+			}
 			return nil
 		},
 	}
@@ -63,14 +69,19 @@ func newNoteShowCmd(home string, brainDir *string) *cobra.Command {
 
 func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	var to, name, description, kind string
-	var sources []string
+	var sources, tags []string
+	var distinct bool
 	cmd := &cobra.Command{
 		Use:   "write --to <project|me> --name <name> --description <text> --kind <kind> < body.md",
 		Short: "Create a note from its body on stdin and add it to MEMORY.md",
 		Long: "Create a note from its body on stdin and add it to the folder's MEMORY.md.\n\n" +
 			"--to is a project id or me for global notes. --kind is preference, project,\n" +
 			"person, client, decision or reference. --source, repeatable, is linear:<ID>,\n" +
-			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.",
+			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.\n\n" +
+			"It refuses a --tag that is a spelling of a tag in use (wong tags lists them), a [[link]]\n" +
+			"that reaches no note, and a note on the same shelf that covers the same subject: update\n" +
+			"that one instead, or pass --distinct when the subject is really different. Afterwards it\n" +
+			"lists the related notes the new one does not link yet.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			k, err := note.ParseKind(kind)
@@ -93,6 +104,25 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 			}
 			n := note.New(name, description, k, scope, "\n"+strings.TrimSpace(string(body))+"\n")
 			n.Sources = sources
+			g, err := graph.Load(*brainDir)
+			if err != nil {
+				return err
+			}
+			if n.Tags, err = g.CheckTags(tags); err != nil {
+				return fmt.Errorf("%w; tags in use: %s", err, tagList(g))
+			}
+			if missing := g.Missing(n.Description+"\n"+n.Body, ""); len(missing) > 0 {
+				return fmt.Errorf("%s: link only to notes that exist, by their name or file name", strings.Join(missing, "; "))
+			}
+			if stem, err := brain.Stem(name); err == nil && !distinct {
+				var same []string
+				for _, o := range g.Similar(graph.Note{Path: filepath.ToSlash(filepath.Join(folder, stem+".md")), Note: n}) {
+					same = append(same, fmt.Sprintf("%s (%s)", o.Path, o.Description))
+				}
+				if len(same) > 0 {
+					return fmt.Errorf("this looks like the same subject as %s: update that note instead, or pass --distinct if it is a different one", strings.Join(same, ", "))
+				}
+			}
 			data, err := n.Marshal()
 			if err != nil {
 				return err
@@ -105,6 +135,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "wrote", rel)
+			printRelated(cmd.OutOrStdout(), g, filepath.ToSlash(rel), n)
 			rep, err := checkNote(cmd, *brainDir, rel)
 			if err != nil {
 				return err
@@ -118,6 +149,8 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "one line: what the note says")
 	cmd.Flags().StringVar(&kind, "kind", "", "preference, project, person, client, decision or reference")
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "where a claim comes from (repeatable)")
+	cmd.Flags().StringArrayVar(&tags, "tag", nil, "a tag for the note, reusing those in use (repeatable)")
+	cmd.Flags().BoolVar(&distinct, "distinct", false, "write it although a note on the same shelf looks like the same subject")
 	for _, f := range []string{"to", "name", "description", "kind"} {
 		_ = cmd.MarkFlagRequired(f)
 	}
@@ -264,6 +297,23 @@ func validSources(sources []string) error {
 		}
 	}
 	return nil
+}
+
+// printRelated lists the notes that share sources or tags with a note it does not link yet.
+func printRelated(out io.Writer, g *graph.Graph, rel string, n *note.Note) {
+	if related := g.Related(graph.Note{Path: rel, Note: n}, 5); len(related) > 0 {
+		fmt.Fprintln(out, "\nrelated, not linked yet (link the ones that help with [[name]]):")
+		for _, r := range related {
+			fmt.Fprintln(out, "  "+r)
+		}
+	}
+}
+
+func tagList(g *graph.Graph) string {
+	if tags := g.TagList(30); len(tags) > 0 {
+		return strings.Join(tags, ", ")
+	}
+	return "none yet"
 }
 
 func printFindings(out io.Writer, findings []check.Finding) {

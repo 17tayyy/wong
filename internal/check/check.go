@@ -53,6 +53,7 @@ type Report struct {
 type loaded struct {
 	rel      string
 	dir      string
+	tags     []string
 	kind     note.Kind
 	verified time.Time
 	asOf     time.Time
@@ -62,6 +63,7 @@ type loaded struct {
 type checker struct {
 	home    string
 	names   map[string]bool
+	tags    map[string]int
 	own     map[string][]*repo
 	all     []*repo
 	commits map[*repo]map[string]string
@@ -71,7 +73,7 @@ type checker struct {
 
 func Run(ctx context.Context, opts Options) (Report, error) {
 	var rep Report
-	c := &checker{names: map[string]bool{}, own: map[string][]*repo{}, commits: map[*repo]map[string]string{}}
+	c := &checker{names: map[string]bool{}, tags: map[string]int{}, own: map[string][]*repo{}, commits: map[*repo]map[string]string{}}
 	c.home, _ = os.UserHomeDir()
 	notes, err := c.load(opts.Brain, opts.Project, opts.Note)
 	if err != nil {
@@ -174,6 +176,9 @@ func (c *checker) load(brain, project, only string) ([]loaded, error) {
 			rel := filepath.Join(dir, filepath.Base(path))
 			c.names[n.Name] = true
 			c.names[strings.TrimSuffix(filepath.Base(path), ".md")] = true
+			for _, t := range n.Tags {
+				c.tags[t]++
+			}
 			if project != "" && dir != filepath.Join("projects", project) || only != "" && rel != only {
 				continue
 			}
@@ -196,6 +201,7 @@ func newLoaded(rel string, n *note.Note, written time.Time) loaded {
 	return loaded{
 		rel:      rel,
 		dir:      filepath.Dir(rel),
+		tags:     n.Tags,
 		kind:     n.Kind,
 		verified: verified,
 		asOf:     asOf(verified, n.Modified(), written),
@@ -245,6 +251,11 @@ func (c *checker) check(l loaded) []Finding {
 			add(Stale, "[["+link+"]]", "links to a note that does not exist")
 		}
 	}
+	for _, t := range l.tags {
+		if sev, msg, found := c.tag(t); found {
+			add(sev, "#"+t, msg)
+		}
+	}
 	if own := c.own[l.dir]; len(own) > 0 {
 		for _, f := range l.refs.files {
 			if sev, msg, found := c.file(f, own, l.asOf); found {
@@ -271,6 +282,23 @@ func (c *checker) check(l loaded) []Finding {
 		}
 	}
 	return out
+}
+
+// tag finds what is wrong with a tag: a spelling wong does not keep, or a variant of a tag more notes use.
+func (c *checker) tag(t string) (Severity, string, bool) {
+	norm, err := note.NormalizeTag(t)
+	if err != nil {
+		return Review, "tag not valid: use letters and digits, words joined by -, nested with /", true
+	}
+	if norm != t {
+		return Review, "write the tag as " + norm, true
+	}
+	for _, other := range slices.Sorted(maps.Keys(c.tags)) {
+		if note.CloseTags(t, other) && (c.tags[other] > c.tags[t] || c.tags[other] == c.tags[t] && other < t) {
+			return Review, fmt.Sprintf("a spelling of the tag %s, which %d notes use: use that one", other, c.tags[other]), true
+		}
+	}
+	return "", "", false
 }
 
 // issueFinding applies the rules for a closed issue that the note cites.

@@ -106,10 +106,17 @@ act only on what they approve:
 
 ## Writing a note
 
+Before writing, look for a note that already covers the subject (`wong note show`, the
+`MEMORY.md` indexes, `grep` in the brain): update it instead of writing a second one.
+
 `wong note write --to <project|me> --name <name> --description <text> --kind <kind>
---source <source>... < body.md` creates a note with the right frontmatter and adds it to
-the folder's `MEMORY.md`. Writing the file yourself works too, following this format;
-either way, every note declares where its claims come from:
+--source <source>... --tag <tag>... < body.md` creates a note with the right frontmatter
+and adds it to the folder's `MEMORY.md`. Prefer it to writing the file yourself: it
+refuses a tag that is a new spelling of one in use, a `[[link]]` that reaches no note,
+and a note on the same shelf that covers the same subject (pass `--distinct` only when
+you checked that the subject is really different), and it lists the related notes the new
+one does not link yet. Writing the file yourself works too, following this format; either
+way, every note declares where its claims come from:
 
 ```yaml
 ---
@@ -117,6 +124,7 @@ name: move-billing-to-stripe
 description: Decided 2026-10-08 to move billing to Stripe; tracked in ENG-15
 kind: decision
 scope: project:acme
+tags: [billing, payments]
 sources:
   - linear:ENG-15
   - file:acme-api/app/billing/stripe.py
@@ -129,9 +137,17 @@ verified: 2026-10-27
 - `scope`: `global` (lives in `me/`) or `project:<id>` (lives in `projects/<id>/`).
 - `sources`: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>`,
   or a URL.
+- `tags`: a few tags for what the note is about, reusing the tags in use: the session
+  start lists them, and `wong tags` too. A tag is lowercase, words joined by `-`, nested
+  with `/` (`infra/k8s`). Never a new spelling of a tag in use (`deployment` when `deploy`
+  exists, `Testing` when `test` exists); `wong check` flags those.
 - `verified`: the date you last checked the note against its sources; set it with `wong
   note verify`. `wong check` reads `sources` and measures from `verified`: when a source
   changes after that date (an issue closes, a file is deleted), the note comes back for
   review.
+- Link the notes it builds on or that build on it with `[[name]]`, using the exact name
+  or file name of a note that exists. Never link a note you have not seen: `wong check`
+  reports links that reach no note. `wong note show` lists related notes that share
+  sources or tags and are not linked yet; link the ones a reader would want next.
 - Keep Claude Code's own fields (`metadata`, `originSessionId`) as they are.
 - Update the project's `MEMORY.md` line if the note's name or description changes.

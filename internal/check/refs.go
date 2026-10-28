@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/17tayyy/wong/internal/note"
 )
 
 var (
@@ -146,4 +148,11 @@ func openWord(clauses []string) string {
 		}
 	}
 	return ""
+}
+
+// References returns the issues, files and commits a note cites in its text and its sources.
+func References(n *note.Note) []string {
+	r := extract(n.Description + "\n" + n.Body)
+	r.addSources(n.Sources)
+	return slices.Concat(r.issues, r.files, r.commits)
 }

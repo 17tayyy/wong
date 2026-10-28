@@ -15,6 +15,7 @@
   {{with .Entry}}
   {{if .ShowDescription}}<p class="desc"{{if and $.Editable (not $.Raw)}} data-field="description"{{end}}>{{.Description}}</p>{{else if and $.Editable (not $.Raw)}}<p class="desc needs-js" data-field="description"></p>{{end}}
   <div class="props">
+    <div class="prop"><span class="k">{{icon "hash"}}Tags</span><span class="v">{{range .Note.Tags}}<span class="pill gray">#{{.}}</span>{{else}}<span class="muted">None</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "tag"}}Kind</span><span class="v">{{with .Kind}}<span class="pill gray">{{.}}</span>{{else}}<span class="muted">Empty</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "info"}}Status</span><span class="v">{{if or .Issues (not .Verified.IsZero)}}{{template "status" .}}{{else}}<span class="muted">Not verified yet</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "circle-check"}}Verified</span><span class="v">{{if .Verified.IsZero}}<span class="muted">Never · last written {{day .Written}}</span>{{else}}{{day .Verified}} <span class="muted">· {{days .Verified}} days ago</span>{{end}}</span></div>

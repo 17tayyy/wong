@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/17tayyy/wong/internal/brain"
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/note"
 )
 
@@ -18,22 +19,6 @@ const (
 	bodyPrefix         = 600
 	minMoveScore       = 3
 )
-
-var wordRE = regexp.MustCompile(`[\p{L}\p{N}_-]{3,}`)
-
-var stopwords = map[string]bool{}
-
-func init() {
-	for _, w := range strings.Fields(`the and for with are not use always never when before after from this that
-		into its it's than then them they there their have has had was were will would should could about
-		over only also just like more most what which who how why all any each other such some
-		los las del por para con sin que una uno unos unas como más pero sus este esta esto estos estas
-		ese esa eso hay ser son fue era está están todo todos toda todas cuando donde sobre entre tras
-		ya muy sí también porque desde hasta antes después siempre nunca nada algo
-		why how apply name description metadata type kind scope sources verified`) {
-		stopwords[w] = true
-	}
-}
 
 // Note is one note as tidy reads it.
 type Note struct {
@@ -86,7 +71,7 @@ func Load(dir string) ([]Note, error) {
 				Name:        n.Name,
 				Description: n.Description,
 				Kind:        kind,
-				words:       words(head + " " + body),
+				words:       graph.Words(head + " " + body),
 				text:        strings.ToLower(n.Body),
 				head:        head,
 			})
@@ -116,7 +101,7 @@ func Duplicates(notes []Note) [][]string {
 	}
 	for i := range prefs {
 		for j := i + 1; j < len(prefs); j++ {
-			if jaccard(prefs[i].words, prefs[j].words) >= duplicateThreshold {
+			if graph.Jaccard(prefs[i].words, prefs[j].words) >= duplicateThreshold {
 				parent[find(i)] = find(j)
 			}
 		}
@@ -171,27 +156,4 @@ func mentions(n Note, patterns []*regexp.Regexp) int {
 		score += 3*len(re.FindAllStringIndex(n.head, -1)) + len(re.FindAllStringIndex(n.text, -1))
 	}
 	return score
-}
-
-func words(text string) map[string]bool {
-	set := map[string]bool{}
-	for _, w := range wordRE.FindAllString(strings.ToLower(text), -1) {
-		if !stopwords[w] {
-			set[w] = true
-		}
-	}
-	return set
-}
-
-func jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	shared := 0
-	for w := range a {
-		if b[w] {
-			shared++
-		}
-	}
-	return float64(shared) / float64(len(a)+len(b)-shared)
 }

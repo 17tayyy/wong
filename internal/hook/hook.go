@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
@@ -65,6 +66,11 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	if index, err := os.ReadFile(filepath.Join(env.Brain, "me", "MEMORY.md")); err == nil && len(strings.TrimSpace(string(index))) > 0 {
 		fmt.Fprintf(&b, "\nGlobal preferences from the brain; the notes are in %s, read one when it applies:\n%s\n",
 			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))
+	}
+	if g, err := graph.Load(env.Brain); err == nil {
+		if tags := g.TagList(40); len(tags) > 0 {
+			fmt.Fprintf(&b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))
+		}
 	}
 
 	var findings []check.Finding

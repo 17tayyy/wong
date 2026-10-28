@@ -149,3 +149,34 @@ func TestNoteRemoveAndTidy(t *testing.T) {
 		t.Errorf("note still there: %v", err)
 	}
 }
+
+func TestNoteWriteKeepsTagsLinksAndNotesTidy(t *testing.T) {
+	brain := noteEnv(t)
+	write := func(body string, args ...string) (string, error) {
+		return runWithInput(t, body, append([]string{"--brain", brain, "note", "write", "--to", "acme", "--kind", "reference"}, args...)...)
+	}
+
+	if out, err := write("Builds images. Tracked in ENG-15.\n", "--name", "ci-pipeline", "--description", "How CI builds images", "--tag", "#Deploy", "--tag", "ci"); err != nil {
+		t.Fatalf("write with tags: %v\n%s", err, out)
+	}
+	data, _ := os.ReadFile(filepath.Join(brain, "projects/acme/ci-pipeline.md"))
+	if !strings.Contains(string(data), "tags: [deploy, ci]") {
+		t.Errorf("the tags were not normalized:\n%s", data)
+	}
+	if _, err := write("x\n", "--name", "previews", "--description", "One preview per pull request", "--tag", "deployment"); err == nil || !strings.Contains(err.Error(), `use "deploy"`) {
+		t.Errorf("a spelling of a tag in use: %v", err)
+	}
+	if _, err := write("Built as in [[ci-pipelin]].\n", "--name", "previews", "--description", "One preview per pull request"); err == nil || !strings.Contains(err.Error(), "did you mean [[ci-pipeline]]") {
+		t.Errorf("a link to no note: %v", err)
+	}
+	if _, err := write("Build images.\n", "--name", "image-builds", "--description", "How CI builds images"); err == nil || !strings.Contains(err.Error(), "projects/acme/ci-pipeline.md") {
+		t.Errorf("a note on a subject already covered: %v", err)
+	}
+	out, err := write("Tagged with the commit. Tracked in ENG-15.\n", "--name", "image-tags", "--description", "Images carry the commit as their tag", "--tag", "deploy")
+	if err != nil || !strings.Contains(out, "[[ci-pipeline]] (projects/acme/ci-pipeline.md, shares ENG-15, #deploy)") {
+		t.Errorf("related notes after writing: %v\n%s", err, out)
+	}
+	if out, err := run(t, "--brain", brain, "tags"); err != nil || out != "deploy (2)\nci (1)\n" {
+		t.Errorf("wong tags = %q, %v", out, err)
+	}
+}

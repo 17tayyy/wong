@@ -596,7 +596,7 @@ func (d *Dashboard) save(w http.ResponseWriter, r *http.Request, machine string)
 		w.WriteHeader(http.StatusConflict)
 		d.render(w, "edit", p)
 	}
-	sha, err := d.store.EditNote(dashboardPrefix+machine, target, r.FormValue("base"), []byte(content))
+	sha, err := d.store.EditNote(dashboardPrefix+machine, target, r.FormValue("base"), []byte(content), remote.Checks{})
 	var ne *remote.NoteError
 	switch {
 	case errors.As(err, &ne) && ne.Kind == remote.ErrChanged && wantsJSON(r):
@@ -882,7 +882,7 @@ func (d *Dashboard) create(w http.ResponseWriter, r *http.Request, machine strin
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	target, _, err := d.store.CreateNote(dashboardPrefix+machine, form.Folder, note.New(form.Name, form.Description, kind, "", body))
+	target, _, err := d.store.CreateNote(dashboardPrefix+machine, form.Folder, note.New(form.Name, form.Description, kind, "", body), remote.Checks{})
 	var ne *remote.NoteError
 	if errors.As(err, &ne) {
 		retry(ne.Msg)

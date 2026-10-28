@@ -72,7 +72,7 @@ func (d *Dashboard) saveBlock(w http.ResponseWriter, r *http.Request, machine st
 	}
 	data := append([]byte(nil), f.Content[:len(f.Content)-len(n.Body)]...)
 	data = append(data, body...)
-	sha, err := d.store.EditNote(dashboardPrefix+machine, f.Path, f.Sha, data)
+	sha, err := d.store.EditNote(dashboardPrefix+machine, f.Path, f.Sha, data, remote.Checks{})
 	if err != nil {
 		d.refused(w, err)
 		return

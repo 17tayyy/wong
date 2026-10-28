@@ -11,6 +11,7 @@ import (
 
 	"github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/note"
 )
 
@@ -20,6 +21,7 @@ var (
 	ErrInvalid = errors.New("invalid note")
 	ErrTaken   = errors.New("path taken")
 	ErrChanged = errors.New("changed meanwhile")
+	ErrSimilar = errors.New("similar note exists")
 )
 
 // NoteError is a note operation refused for a reason the user or agent can act on.
@@ -39,6 +41,79 @@ func refuse(kind error, format string, args ...any) error {
 type Brain struct {
 	Files map[string]Change
 	names map[string]string
+	graph *graph.Graph
+}
+
+// Checks are what a write must pass besides a frontmatter that parses: agents get them, people in the dashboard do not.
+type Checks struct {
+	Tags, Links, Duplicates bool
+}
+
+// Agent is every check, for writes made by agents.
+var Agent = Checks{Tags: true, Links: true, Duplicates: true}
+
+// Graph sees the brain's notes as a graph of links and tags.
+func (b *Brain) Graph() *graph.Graph {
+	if b.graph == nil {
+		var notes []graph.Note
+		for p, f := range b.Files {
+			if _, isNote := NoteProject(p); isNote {
+				if n, err := note.Parse(f.Content); err == nil {
+					notes = append(notes, graph.Note{Path: p, Note: n})
+				}
+			}
+		}
+		b.graph = graph.New(notes)
+	}
+	return b.graph
+}
+
+// guard applies the checks to a note about to be written over before, which is nil for a new note.
+func (b *Brain) guard(checks Checks, n *note.Note, target string, before *note.Note) error {
+	g := b.Graph()
+	if checks.Tags {
+		var fresh, kept []string
+		for _, t := range n.Tags {
+			if before != nil && slices.Contains(before.Tags, t) {
+				kept = append(kept, t)
+				continue
+			}
+			norm, err := note.NormalizeTag(t)
+			if err != nil {
+				return refuse(ErrInvalid, "%v.", err)
+			}
+			if norm != t && before != nil {
+				return refuse(ErrInvalid, "Write the tag %q as %q.", t, norm)
+			}
+			if !slices.Contains(kept, norm) {
+				kept = append(kept, norm)
+				fresh = append(fresh, norm)
+			}
+		}
+		if _, err := g.CheckTags(fresh); err != nil {
+			return refuse(ErrInvalid, "%v. Tags in use: %s.", err, strings.Join(g.TagList(30), ", "))
+		}
+		n.Tags = kept
+	}
+	if checks.Links {
+		old := ""
+		if before != nil {
+			old = before.Description + "\n" + before.Body
+		}
+		if missing := g.Missing(n.Description+"\n"+n.Body, old); len(missing) > 0 {
+			return refuse(ErrInvalid, "%s. Link only to notes that exist, by their name or file name; write the missing note first if it is needed.", strings.Join(missing, "; "))
+		}
+	}
+	if checks.Duplicates {
+		var same []string
+		for _, o := range g.Similar(graph.Note{Path: target, Note: n}) {
+			same = append(same, fmt.Sprintf("%s (%q: %s)", o.Path, o.Name, o.Description))
+		}
+		if len(same) > 0 {
+			return refuse(ErrSimilar, "This looks like the same subject as %s. Update that note instead, or mark this one as a different subject.", strings.Join(same, "; "))
+		}
+	}
+	return nil
 }
 
 // Brain reads the current files of the brain.
@@ -129,7 +204,7 @@ func shelf(target string) (string, string, error) {
 }
 
 // CreateNote writes a new note on a shelf, me or a project id, and adds it to that shelf's MEMORY.md.
-func (s *Store) CreateNote(machine, to string, n *note.Note) (string, string, error) {
+func (s *Store) CreateNote(machine, to string, n *note.Note, checks Checks) (string, string, error) {
 	folder, scope, err := shelf(to)
 	if err != nil {
 		return "", "", err
@@ -157,6 +232,12 @@ func (s *Store) CreateNote(machine, to string, n *note.Note) (string, string, er
 	if _, taken := b.Files[target]; taken {
 		return "", "", refuse(ErrTaken, "There is already a note at %s: give this one another name, or edit that one.", target)
 	}
+	if err := b.guard(checks, n, target, nil); err != nil {
+		return "", "", err
+	}
+	if data, err = n.Marshal(); err != nil {
+		return "", "", err
+	}
 	ups := []Upload{upload(target, "", data)}
 	if up, ok := b.index(folder, func(s string) string { return brain.WithIndexEntry(s, stem+".md", n) }); ok {
 		ups = append(ups, up)
@@ -166,7 +247,7 @@ func (s *Store) CreateNote(machine, to string, n *note.Note) (string, string, er
 }
 
 // EditNote replaces a note's file with data, unless it changed since base or the new file does not parse.
-func (s *Store) EditNote(machine, ref, base string, data []byte) (string, error) {
+func (s *Store) EditNote(machine, ref, base string, data []byte, checks Checks) (string, error) {
 	b, err := s.Brain()
 	if err != nil {
 		return "", err
@@ -175,8 +256,16 @@ func (s *Store) EditNote(machine, ref, base string, data []byte) (string, error)
 	if !ok {
 		return "", refuse(ErrNoNote, "There is no note %q in the brain.", ref)
 	}
-	if _, err := note.Parse(data); err != nil {
+	n, err := note.Parse(data)
+	if err != nil {
 		return "", refuse(ErrInvalid, "The note did not save: %v. Fix the frontmatter and save again.", err)
+	}
+	before, err := note.Parse(b.Files[p].Content)
+	if err != nil {
+		before = &note.Note{Body: string(b.Files[p].Content)}
+	}
+	if err := b.guard(checks, n, p, before); err != nil {
+		return "", err
 	}
 	return Sha(data), s.commit(machine, "", []Upload{upload(p, base, data)})
 }

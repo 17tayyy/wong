@@ -406,3 +406,25 @@ func TestOpenWordOnlyLooksAtTheIssueClause(t *testing.T) {
 		t.Errorf("ENG-3 open word = %q", w)
 	}
 }
+
+func TestRunFindsTagsToFix(t *testing.T) {
+	f := newFixture(t)
+	tagged := func(rel, tags string) {
+		write(t, filepath.Join(f.brain, rel), "---\nname: "+strings.TrimSuffix(filepath.Base(rel), ".md")+"\ndescription: d\ntags: ["+tags+"]\n---\nBody.\n")
+	}
+	tagged("projects/acme/a.md", "deploy, ci")
+	tagged("projects/acme/b.md", "deploy")
+	tagged("projects/acme/c.md", "deployment, Security")
+
+	rep, err := Run(context.Background(), Options{Brain: f.brain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, finding := range rep.Findings {
+		got[finding.Note+" "+finding.Ref] = finding.Message
+	}
+	if len(got) != 2 || !strings.Contains(got["projects/acme/c.md #deployment"], "the tag deploy, which 2 notes use") || got["projects/acme/c.md #Security"] != "write the tag as security" {
+		t.Errorf("findings = %v", got)
+	}
+}
