@@ -253,10 +253,15 @@ func removeFromIndex(dir, file string) error {
 	if err != nil {
 		return err
 	}
+	return os.WriteFile(path, []byte(WithoutIndexEntry(string(data), file)), 0o644)
+}
+
+// WithoutIndexEntry returns a MEMORY.md without the link to file, and without its line when no other link is left on it.
+func WithoutIndexEntry(index, file string) string {
 	link := `\[[^\]]*\]\(` + regexp.QuoteMeta(file) + `\)`
 	linkRE := regexp.MustCompile(link)
 	withSeparatorRE := regexp.MustCompile(`\s*·\s*` + link + `|` + link + `\s*·\s*`)
-	lines := strings.SplitAfter(string(data), "\n")
+	lines := strings.SplitAfter(index, "\n")
 	lines = slices.DeleteFunc(lines, func(line string) bool {
 		return linkRE.MatchString(line) && !anyLinkRE.MatchString(linkRE.ReplaceAllString(line, ""))
 	})
@@ -265,7 +270,22 @@ func removeFromIndex(dir, file string) error {
 			lines[i] = withSeparatorRE.ReplaceAllString(line, "")
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "")), 0o644)
+	return strings.Join(lines, "")
+}
+
+// WithIndexLine returns a MEMORY.md whose link to file points to newFile under the note's name, adding a line when there is none.
+func WithIndexLine(index, file, newFile string, n *note.Note) string {
+	link := `\[[^\]]*\]\(` + regexp.QuoteMeta(file) + `\)`
+	label := fmt.Sprintf("[%s](%s)", n.Name, newFile)
+	linkRE := regexp.MustCompile(link)
+	if !linkRE.MatchString(index) {
+		return WithIndexEntry(index, newFile, n)
+	}
+	whole := regexp.MustCompile(`(?m)^(\s*[-*+] )` + link + `(?: — .*)?$`)
+	index = whole.ReplaceAllStringFunc(index, func(line string) string {
+		return whole.FindStringSubmatch(line)[1] + label + " — " + strings.Join(strings.Fields(n.Description), " ")
+	})
+	return linkRE.ReplaceAllLiteralString(index, label)
 }
 
 func notesIn(dir string) ([]string, error) {

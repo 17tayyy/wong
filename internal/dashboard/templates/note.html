@@ -2,18 +2,18 @@
 {{define "actions"}}
 {{if .Entry}}
 <nav class="seg" aria-label="View">
-  <a href="{{notePath .Path}}"{{if not .Raw}} aria-current="true"{{end}}>{{icon "eye"}}Page</a>
-  <a href="{{notePath .Path}}?view=markdown"{{if .Raw}} aria-current="true"{{end}}>{{icon "code"}}Markdown</a>
+  <a href="{{notePath .Path}}"{{if not .Raw}} aria-current="true"{{end}} title="Page">{{icon "eye"}}<span>Page</span></a>
+  <a href="{{notePath .Path}}?view=markdown"{{if .Raw}} aria-current="true"{{end}} title="Markdown">{{icon "code"}}<span>Markdown</span></a>
 </nav>
-<a class="btn small" href="/edit/{{.Path}}">{{icon "pencil"}}Edit</a>
+{{with .Entry}}<button class="btn small ghost icon needs-js" type="button" data-menu{{template "noteData" .}} aria-haspopup="menu" aria-label="Actions for this note">{{icon "ellipsis"}}</button>{{end}}
 {{end}}
 {{end}}
 {{define "main"}}
-<article class="page">
-  <h1>{{.Title}}</h1>
+<article class="page" data-path="{{.Path}}"{{with .Entry}} data-sha="{{.Sha}}"{{end}}>
+  <h1{{if and .Editable (not .Raw)}} data-field="name" data-label{{end}}>{{.Title}}</h1>
   {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
   {{with .Entry}}
-  {{if .ShowDescription}}<p class="desc">{{.Description}}</p>{{end}}
+  {{if .ShowDescription}}<p class="desc"{{if and $.Editable (not $.Raw)}} data-field="description"{{end}}>{{.Description}}</p>{{else if and $.Editable (not $.Raw)}}<p class="desc needs-js" data-field="description"></p>{{end}}
   <div class="props">
     <div class="prop"><span class="k">{{icon "tag"}}Kind</span><span class="v">{{with .Kind}}<span class="pill gray">{{.}}</span>{{else}}<span class="muted">Empty</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "info"}}Status</span><span class="v">{{if or .Issues (not .Verified.IsZero)}}{{template "status" .}}{{else}}<span class="muted">Not verified yet</span>{{end}}</span></div>
@@ -22,34 +22,49 @@
     <div class="prop"><span class="k">{{icon "globe"}}Scope</span><span class="v">{{with .Note.Scope}}{{.}}{{else}}<span class="muted">Empty</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "folder"}}File</span><span class="v"><code class="chip">{{.Path}}</code></span></div>
   </div>
-  {{range .Issues}}
-  <div class="callout {{if eq .Severity "stale"}}red{{else}}yellow{{end}}" role="note">
+  {{if not .Valid}}<div class="callout red" role="note">{{icon "triangle-alert"}}<p><b>The frontmatter of this file does not parse.</b> Fix it in the Markdown view; until then the page cannot be edited in place.</p></div>{{end}}
+  {{with .Issues}}
+  <div class="callout {{if $.Entry.Stale}}red{{else}}yellow{{end}}" role="note">
     {{icon "triangle-alert"}}
     <div>
+      {{if eq (len .) 1}}{{with index . 0}}
       <p><b>{{if eq .Severity "stale"}}This note contradicts its source.{{else}}This note may be out of date.{{end}}</b> {{.Message}}.</p>
-      <p class="muted">{{.Ref}} · found by {{.Source}}. The agent working on this project fixes it with the maintain-brain skill, or you can edit the note.</p>
+      <p class="muted">{{.Ref}} · found by {{.Source}}.</p>
+      {{end}}{{else}}
+      <p><b>{{if $.Entry.Stale}}This note contradicts its sources{{else}}This note may be out of date{{end}}</b> · {{len .}} findings</p>
+      <ul class="findings">{{range .}}<li>{{.Message}} <span class="muted">· {{.Ref}} · {{.Source}}</span></li>{{end}}</ul>
+      {{end}}
+      <p class="muted">The agent working on this project fixes it with the maintain-brain skill, or you can fix the text here.</p>
     </div>
   </div>
   {{end}}
   {{end}}
   <hr class="divider">
   {{if .Raw}}
-  {{if .Content}}<pre class="raw">{{.Content}}</pre>{{else}}<p class="empty">This file was deleted. Its versions are in the panel.</p>{{end}}
+  {{if .Entry}}
+  <form class="source" method="post" action="{{notePath .Path}}">
+    <input type="hidden" name="base" value="{{.Entry.Sha}}">
+    <label class="sr" for="source">The note file, frontmatter and body</label>
+    <textarea id="source" name="content" spellcheck="false">{{.Content}}</textarea>
+    <div class="formbar no-js"><button class="btn primary" type="submit">Save</button><span class="muted">Saving makes a new version, signed as you in the dashboard, that can be undone.</span></div>
+  </form>
+  {{else if .Content}}<pre class="raw">{{.Content}}</pre>{{else}}<p class="empty">This file was deleted. Its versions are in the panel.</p>{{end}}
   {{else}}
-  <div class="prose">{{.Body}}</div>
+  <div class="prose"{{if .Editable}} data-blocks{{end}}>{{template "blocks" .Blocks}}</div>
   {{end}}
 </article>
 {{end}}
+{{define "blocks"}}{{range .}}<div class="blk" data-from="{{.From}}" data-to="{{.To}}" data-md="{{.Src}}">{{.HTML}}</div>{{else}}<p class="blk-empty">Nothing written yet.</p>{{end}}{{end}}
 {{define "aside"}}
 <aside class="panel" aria-label="Links and history">
   {{if .Entry}}
   <section>
     <h2>{{icon "arrow-up-right"}}Links<span class="count">{{len .Links}}</span></h2>
-    <ul class="refs">{{range .Links}}<li><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a></li>{{else}}<li class="muted">Links to no other note.</li>{{end}}</ul>
+    <ul class="refs">{{range .Links}}<li><a href="{{notePath .Path}}"{{template "noteData" .}}>{{icon "file-text"}}<span data-label>{{.Name}}</span></a></li>{{else}}<li class="muted">Links to no other note.</li>{{end}}</ul>
   </section>
   <section>
     <h2>{{icon "link-2"}}Linked mentions<span class="count">{{len .Mentions}}</span></h2>
-    <ul class="refs">{{range .Mentions}}<li><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a></li>{{else}}<li class="muted">No note links here.</li>{{end}}</ul>
+    <ul class="refs">{{range .Mentions}}<li><a href="{{notePath .Path}}"{{template "noteData" .}}>{{icon "file-text"}}<span data-label>{{.Name}}</span></a></li>{{else}}<li class="muted">No note links here.</li>{{end}}</ul>
   </section>
   {{end}}
   <section>
@@ -58,7 +73,7 @@
       {{range .Versions}}
       <li>
         <p>{{template "action" .}}{{template "delta" .}}</p>
-        <p class="muted">{{signer .Machine}} · {{stamp .When}}</p>
+        <p class="muted">{{who .Machine}} · {{stamp .When}}</p>
         <p class="row"><a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "git-compare"}}Compare</a>{{if .Latest}}{{template "undo" .}}{{end}}</p>
       </li>
       {{end}}

@@ -156,3 +156,18 @@ func TestRemove(t *testing.T) {
 		t.Errorf("linkers = %v", linkers)
 	}
 }
+
+func TestWithIndexLine(t *testing.T) {
+	n := note.New("deploy-flow", "How Acme ships", note.Project, "project:acme", "")
+	index := "# Acme\n- [Deploy](deploy.md) — old words\n- [Api](api.md) · [Deploy](deploy.md)\n"
+	want := "# Acme\n- [deploy-flow](deploy-flow.md) — How Acme ships\n- [Api](api.md) · [deploy-flow](deploy-flow.md)\n"
+	if got := WithIndexLine(index, "deploy.md", "deploy-flow.md", n); got != want {
+		t.Errorf("WithIndexLine = %q", got)
+	}
+	if got := WithIndexLine("", "deploy.md", "deploy-flow.md", n); got != "- [deploy-flow](deploy-flow.md) — How Acme ships\n" {
+		t.Errorf("WithIndexLine on an empty index = %q", got)
+	}
+	if got := WithoutIndexEntry(want, "deploy-flow.md"); got != "# Acme\n- [Api](api.md)\n" {
+		t.Errorf("WithoutIndexEntry = %q", got)
+	}
+}

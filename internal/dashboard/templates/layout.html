@@ -2,20 +2,30 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>{{.Title}} · wong</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="{{asset "app.css"}}">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<script src="{{asset "app.js"}}"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 {{if .Machine}}
 <div class="app">
-  <nav class="side" aria-label="Workspace">
+  {{with .Snack}}
+  <div class="snack">
+    {{icon "circle-check"}}<span>{{.Text}}</span>
+    {{with .Op}}<form method="post" action="/ops/{{.}}/undo"><button class="snack-undo">{{icon "undo-2"}}Undo</button></form>{{end}}
+    <a class="snack-close" href="{{.Close}}" aria-label="Dismiss">{{icon "x"}}</a>
+  </div>
+  {{end}}
+  <div class="sr" id="live" role="status" aria-live="polite"></div>
+  <nav class="side" id="side" aria-label="Workspace">
     <div class="workspace">
       <span class="logo" aria-hidden="true">w</span>
       <span class="ws-name">wong <span class="ws-host">{{.Server}}</span></span>
+      <a class="btn ghost icon drawer-close" href="#" aria-label="Close the sidebar">{{icon "x"}}</a>
     </div>
     <form class="search" action="/" method="get" role="search">
       <label class="sr" for="q">Search notes</label>
@@ -31,9 +41,9 @@
     <div class="tree">
       {{range .Shelves}}
       <details{{if eq .ID $.Open}} open{{end}}>
-        <summary>{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></summary>
+        <summary data-shelf="{{.ID}}">{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></summary>
         <ul>
-          {{range .Entries}}<li><a href="{{notePath .Path}}"{{if eq .Path $.Path}} aria-current="page"{{end}}>{{icon "file-text"}}<span>{{.Name}}</span>{{if .Issues}}<span class="dot {{if .Stale}}red{{else}}yellow{{end}}" title="{{if .Stale}}Stale{{else}}To review{{end}}"></span>{{end}}</a></li>{{end}}
+          {{range .Entries}}<li><a href="{{notePath .Path}}"{{template "noteData" .}}{{if eq .Path $.Path}} aria-current="page"{{end}}>{{icon "file-text"}}<span data-label>{{.Name}}</span>{{if .Issues}}<span class="dot {{if .Stale}}red{{else}}yellow{{end}}" title="{{if .Stale}}Stale{{else}}To review{{end}}"></span>{{end}}</a></li>{{end}}
         </ul>
       </details>
       {{end}}
@@ -45,9 +55,12 @@
       <form method="post" action="/logout"><button class="btn ghost small">{{icon "log-out"}}Sign out</button></form>
     </div>
   </nav>
+  <a class="scrim" href="#" tabindex="-1" aria-hidden="true"></a>
   <div class="frame">
     <header class="topbar">
+      <a class="btn ghost icon drawer-open" href="#side" aria-label="Open the sidebar" aria-controls="side">{{icon "panel-left"}}</a>
       <nav class="crumbs" aria-label="Breadcrumb">{{block "crumbs" .}}<span>{{.Title}}</span>{{end}}</nav>
+      <span class="saved" role="status" aria-live="polite"></span>
       <div class="actions">{{block "actions" .}}{{end}}</div>
     </header>
     <div class="body">
@@ -55,6 +68,13 @@
       {{block "aside" .}}{{end}}
     </div>
   </div>
+  <nav class="tabbar" aria-label="Main">
+    <a href="/"{{if eq .Nav "library"}} aria-current="page"{{end}}>{{icon "book-open"}}<span>Library</span></a>
+    <a href="#side" data-search>{{icon "search"}}<span>Search</span></a>
+    <a href="/new">{{icon "plus"}}<span>New</span></a>
+    <a href="/corrections"{{if eq .Nav "corrections"}} aria-current="page"{{end}}>{{icon "triangle-alert"}}<span>Corrections</span>{{with .Masthead.Corrections}}<span class="badge">{{.}}</span>{{end}}</a>
+    <a href="/history"{{if eq .Nav "history"}} aria-current="page"{{end}}>{{icon "history"}}<span>History</span></a>
+  </nav>
 </div>
 {{else}}
 <main id="main" class="bare">{{template "main" .}}</main>
@@ -62,12 +82,14 @@
 </body>
 </html>
 
+{{define "noteData"}} data-note="{{.Path}}" data-name="{{.Name}}" data-links="{{len .Backlinks}}"{{end}}
+
 {{define "pill"}}{{if eq .Severity "stale"}}<span class="pill red">Stale</span>{{else}}<span class="pill yellow">Review</span>{{end}}{{end}}
 
-{{define "status"}}{{range .Issues}}{{template "pill" .}}{{else}}{{if not .Verified.IsZero}}<span class="pill green">Verified</span>{{end}}{{end}}{{end}}
+{{define "status"}}{{if .Issues}}<span class="pill {{if .Stale}}red{{else}}yellow{{end}}">{{if .Stale}}Stale{{else}}Review{{end}}{{if gt (len .Issues) 1}}<span class="n">{{len .Issues}}</span>{{end}}</span>{{else if not .Verified.IsZero}}<span class="pill green">Verified</span>{{end}}{{end}}
 
 {{define "undo"}}{{if .Latest}}{{if eq .Action "created"}}<a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "undo-2"}}Undo…</a>{{else}}<form method="post" action="/changes/{{.Seq}}/undo"><button class="btn small ghost" aria-label="Undo this change to {{.Name}}">{{icon "undo-2"}}Undo</button></form>{{end}}{{else}}<a class="btn small ghost" href="/changes/{{.Seq}}">{{icon "git-compare"}}Restore…</a>{{end}}{{end}}
 
 {{define "delta"}}{{if or .Plus .Minus}} <span class="delta">{{if .Plus}}<span class="plus">+{{.Plus}}</span>{{end}}{{if .Minus}} <span class="minus">−{{.Minus}}</span>{{end}}</span>{{end}}{{end}}
 
-{{define "action"}}<span class="pill {{if eq .Action "created"}}green{{else if eq .Action "deleted"}}red{{else}}blue{{end}}">{{.Action}}</span>{{end}}
+{{define "action"}}<span class="pill {{if eq .Action "created"}}green{{else if eq .Action "deleted"}}red{{else if eq .Action "undone"}}gray{{else}}blue{{end}}">{{.Action}}</span>{{end}}

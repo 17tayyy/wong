@@ -84,6 +84,58 @@ func TestUndoAndRestore(t *testing.T) {
 	}
 }
 
+func TestOperationsApplyAndUndoAsAWhole(t *testing.T) {
+	store, _, _, _ := setup(t)
+	applyAs(t, store, "desktop", "me/old.md", "", "note")
+	applyAs(t, store, "desktop", "me/MEMORY.md", "", "- [old](old.md)\n")
+	up := func(path, base, content string) Upload {
+		u := Upload{Path: path, Base: base}
+		if content != "" {
+			u.Sha, u.Content = Sha([]byte(content)), []byte(content)
+		}
+		return u
+	}
+
+	conflicts, err := store.ApplyOp("dashboard", NewOp("rename"), []Upload{
+		up("me/new.md", "", "note"),
+		up("me/old.md", Sha([]byte("note")), ""),
+		up("me/MEMORY.md", Sha([]byte("stale")), "- [new](new.md)\n"),
+	})
+	if err != nil || len(conflicts) != 1 {
+		t.Fatalf("ApplyOp with a stale base = %v, %v", conflicts, err)
+	}
+	if current(t, store, "me/new.md") != "" || current(t, store, "me/old.md") != "note" {
+		t.Fatal("a conflicting operation applied part of its changes")
+	}
+
+	op := NewOp("rename")
+	conflicts, err = store.ApplyOp("dashboard", op, []Upload{
+		up("me/new.md", "", "note"),
+		up("me/old.md", Sha([]byte("note")), ""),
+		up("me/MEMORY.md", Sha([]byte("- [old](old.md)\n")), "- [new](new.md)\n"),
+	})
+	if err != nil || len(conflicts) > 0 {
+		t.Fatalf("ApplyOp = %v, %v", conflicts, err)
+	}
+	if vs, err := store.Op(op); err != nil || len(vs) != 3 || vs[0].Op != op {
+		t.Fatalf("Op = %+v, %v", vs, err)
+	}
+
+	undo, err := store.UndoOp(op, "dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current(t, store, "me/new.md") != "" || current(t, store, "me/old.md") != "note" || current(t, store, "me/MEMORY.md") != "- [old](old.md)\n" {
+		t.Error("undoing the operation did not bring every file back")
+	}
+	if _, err := store.UndoOp(op, "dashboard"); !errors.Is(err, ErrNotLatest) {
+		t.Errorf("undoing an operation twice: %v", err)
+	}
+	if _, err := store.UndoOp(undo, "dashboard"); err != nil || current(t, store, "me/new.md") != "note" {
+		t.Errorf("undoing the undo: %v", err)
+	}
+}
+
 func TestFindingsAreReportedPerMachine(t *testing.T) {
 	store, _, desktop, laptop := setup(t)
 	stale := check.Finding{Note: "projects/acme/a.md", Severity: check.Stale, Ref: "ENG-15", Message: "Done since 2026-10-20"}

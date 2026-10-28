@@ -11,8 +11,8 @@
       {{range .Changes}}
       <tr>
         <td class="name"><a href="/changes/{{.Seq}}">{{icon "file-text"}}<span>{{.Name}}</span></a> <span class="pill gray">{{.Folder}}</span></td>
-        <td>{{template "action" .}}{{template "delta" .}}</td>
-        <td class="by">{{icon "laptop"}}{{signer .Machine}}</td>
+        <td>{{template "action" .}}{{template "delta" .}}{{with .Also}} <span class="also">+{{.}} {{if eq . 1}}file{{else}}files{{end}}</span>{{end}}</td>
+        <td class="by" title="{{.Machine}}">{{icon "laptop"}}{{signer .Machine}}</td>
         <td class="c-date">{{stamp .When}}</td>
         <td class="act">{{template "undo" .}}</td>
       </tr>

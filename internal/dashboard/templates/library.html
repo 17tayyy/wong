@@ -1,9 +1,9 @@
 {{define "crumbs"}}{{icon "book-open"}}<span>Library</span>{{end}}
-{{define "actions"}}<a class="btn primary small" href="/new">{{icon "plus"}}New note</a>{{end}}
+{{define "actions"}}<a class="btn primary small wide-only" href="/new">{{icon "plus"}}New note</a>{{end}}
 {{define "main"}}
 <div class="page wide">
   <h1>Library</h1>
-  <p class="desc">Every note in the brain, by shelf.{{with .Edition}} Last change {{stamp .When}} by {{signer .Machine}}.{{end}}</p>
+  <p class="desc">Every note in the brain, by shelf.{{with .Edition}} Last change {{stamp .When}} by {{who .Machine}}.{{end}}</p>
   {{with .Masthead.Corrections}}
   <a class="callout red" href="/corrections">{{icon "triangle-alert"}}<span><b>{{.}} {{if eq . 1}}note needs{{else}}notes need{{end}} a correction.</b> They contradict their sources or may be out of date.</span><span class="go">Review {{icon "arrow-up-right"}}</span></a>
   {{end}}
@@ -13,18 +13,18 @@
   {{if .Query}}<p class="query">Notes that mention “{{.Query}}”. <a href="/">Clear the search</a></p>{{end}}
   {{range .Groups}}
   <details class="group" open>
-    <summary><h2 id="{{.ID}}">{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></h2><a class="add" href="/new?in={{.ID}}" title="New note in {{.ID}}">{{icon "plus"}}<span class="sr">New note in {{.ID}}</span></a></summary>
+    <summary data-shelf="{{.ID}}"><h2 id="{{.ID}}">{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></h2><a class="add" href="/new?in={{.ID}}" title="New note in {{.ID}}">{{icon "plus"}}<span class="sr">New note in {{.ID}}</span></a></summary>
     <div class="table-wrap">
     <table class="db">
       <thead><tr><th scope="col" class="c-name">Name</th><th scope="col" class="c-kind">Kind</th><th scope="col" class="c-status">Status</th><th scope="col" class="c-date">Verified</th><th scope="col" class="c-date c-edited">Last edited</th></tr></thead>
       <tbody>
         {{range .Entries}}
-        <tr>
-          <td class="name"><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a>{{with .Changed}}<a class="edited inline" href="/changes/{{.Seq}}">{{.Action}} {{when .When}} · {{signer .Machine}}</a>{{end}}</td>
+        <tr{{template "noteData" .}}>
+          <td class="name"><a href="{{notePath .Path}}">{{icon "file-text"}}<span data-label>{{.Name}}</span></a>{{with .Changed}}<a class="edited inline" href="/changes/{{.Seq}}">{{.Action}} {{when .When}} · {{who .Machine}}</a>{{end}}</td>
           <td class="c-kind">{{with .Kind}}<span class="pill gray">{{.}}</span>{{end}}</td>
           <td class="status"{{with .Issues}} title="{{range .}}{{.Message}} {{end}}"{{end}}>{{template "status" .}}</td>
           <td class="c-date">{{if not .Verified.IsZero}}{{day .Verified}}{{end}}</td>
-          <td class="c-date c-edited">{{with .Changed}}<a class="edited" href="/changes/{{.Seq}}">{{.Action}} {{when .When}} · {{signer .Machine}}</a>{{else}}<span class="muted">{{day .Written}}</span>{{end}}</td>
+          <td class="c-date c-edited">{{with .Changed}}<a class="edited" href="/changes/{{.Seq}}">{{.Action}} {{when .When}} · {{who .Machine}}</a>{{else}}<span class="muted">{{day .Written}}</span>{{end}}</td>
         </tr>
         {{end}}
       </tbody>

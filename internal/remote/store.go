@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS history (
 	deleted    INTEGER NOT NULL DEFAULT 0,
 	modified   TEXT NOT NULL DEFAULT '',
 	machine    TEXT NOT NULL,
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	op         TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS history_path ON history(path, seq);
 CREATE TABLE IF NOT EXISTS files (
@@ -112,11 +113,21 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(schema); err != nil {
 		return err
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tokens') WHERE name = 'last_used'`).Scan(&n); err != nil || n > 0 {
-		return err
+	for _, c := range []struct{ table, column, ddl string }{
+		{"tokens", "last_used", `ALTER TABLE tokens ADD COLUMN last_used TEXT NOT NULL DEFAULT ''`},
+		{"history", "op", `ALTER TABLE history ADD COLUMN op TEXT NOT NULL DEFAULT ''`},
+	} {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(c.ddl); err != nil {
+				return err
+			}
+		}
 	}
-	_, err := db.Exec(`ALTER TABLE tokens ADD COLUMN last_used TEXT NOT NULL DEFAULT ''`)
+	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS history_op ON history(op) WHERE op != ''`)
 	return err
 }
 
@@ -151,6 +162,23 @@ func (s *Store) Changes(since int64) ([]Change, int64, error) {
 
 // Apply stores the changes whose base is the server's current version and returns the others as conflicts.
 func (s *Store) Apply(machine string, pushes []Upload) (accepted []string, conflicts []Change, err error) {
+	return s.apply(machine, "", pushes)
+}
+
+// ApplyOp stores changes to several files as one operation, undone as a whole: all of them, or none when any conflicts.
+func (s *Store) ApplyOp(machine, op string, pushes []Upload) (conflicts []Change, err error) {
+	_, conflicts, err = s.apply(machine, op, pushes)
+	return conflicts, err
+}
+
+// NewOp names a new operation of a kind, such as rename or delete.
+func NewOp(kind string) string {
+	raw := make([]byte, 6)
+	rand.Read(raw)
+	return kind + ":" + hex.EncodeToString(raw)
+}
+
+func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, conflicts []Change, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, nil, err
@@ -184,8 +212,8 @@ func (s *Store) Apply(machine string, pushes []Upload) (accepted []string, confl
 			accepted = append(accepted, p.Path)
 			continue
 		}
-		res, err := tx.Exec(`INSERT INTO history (path, sha, content, deleted, modified, machine, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			p.Path, p.Sha, p.Content, p.Sha == "", p.Modified, machine, now)
+		res, err := tx.Exec(`INSERT INTO history (path, sha, content, deleted, modified, machine, created_at, op) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.Path, p.Sha, p.Content, p.Sha == "", p.Modified, machine, now, op)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -206,6 +234,9 @@ func (s *Store) Apply(machine string, pushes []Upload) (accepted []string, confl
 			return nil, nil, err
 		}
 		accepted = append(accepted, p.Path)
+	}
+	if op != "" && len(conflicts) > 0 {
+		return nil, conflicts, nil
 	}
 	return accepted, conflicts, tx.Commit()
 }

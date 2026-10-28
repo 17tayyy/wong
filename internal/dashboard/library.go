@@ -29,6 +29,7 @@ type entry struct {
 	Data        []byte
 	Sha         string
 	Seq         int64
+	Valid       bool
 }
 
 // issue is a finding on a note and who raised it: a machine's check or a webhook.
@@ -79,6 +80,7 @@ type brain struct {
 	byName  map[string]string
 	Skills  []string
 	Other   []string
+	files   map[string]remote.Change
 }
 
 func loadBrain(store *remote.Store) (*brain, error) {
@@ -106,9 +108,10 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		f := check.Finding{Note: t.Note, Severity: check.Severity(t.Severity), Ref: t.Ref, Message: t.Message}
 		issues[t.Note] = append(issues[t.Note], issue{f, map[string]string{"github": "GitHub", "linear": "Linear"}[source] + " webhook"})
 	}
-	b := &brain{byPath: map[string]*entry{}, byName: map[string]string{}}
+	b := &brain{byPath: map[string]*entry{}, byName: map[string]string{}, files: map[string]remote.Change{}}
 	shelves := map[string]*shelf{}
 	for _, f := range files {
+		b.files[f.Path] = f
 		if strings.HasPrefix(f.Path, "skills/") {
 			if path.Base(f.Path) == "SKILL.md" {
 				b.Skills = append(b.Skills, path.Dir(f.Path))
@@ -121,7 +124,8 @@ func loadBrain(store *remote.Store) (*brain, error) {
 			continue
 		}
 		n, err := note.Parse(f.Content)
-		if err != nil {
+		valid := err == nil
+		if !valid {
 			n = &note.Note{Name: strings.TrimSuffix(path.Base(f.Path), ".md"), Body: string(f.Content)}
 		}
 		written, _ := time.Parse(time.RFC3339Nano, f.Modified)
@@ -129,7 +133,7 @@ func loadBrain(store *remote.Store) (*brain, error) {
 			written = m
 		}
 		e := entry{Path: f.Path, Name: n.Name, Description: n.Description, Kind: n.Kind, Verified: n.Verified,
-			Written: written, Issues: issues[f.Path], Note: n, Data: f.Content, Sha: f.Sha, Seq: f.Seq}
+			Written: written, Issues: issues[f.Path], Note: n, Data: f.Content, Sha: f.Sha, Seq: f.Seq, Valid: valid}
 		if shelves[id] == nil {
 			shelves[id] = &shelf{ID: id}
 		}

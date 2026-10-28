@@ -2,7 +2,9 @@
 package dashboard
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -48,6 +50,12 @@ func Handler(store *remote.Store, log *slog.Logger) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheFor(http.FileServerFS(static))))
+	mux.HandleFunc("POST /blocks/{path...}", d.session(d.saveBlock))
+	mux.HandleFunc("POST /description/{path...}", d.session(d.saveDescription))
+	mux.HandleFunc("POST /rename/{path...}", d.session(d.rename))
+	mux.HandleFunc("POST /move/{path...}", d.session(d.move))
+	mux.HandleFunc("POST /delete/{path...}", d.session(d.deleteNote))
+	mux.HandleFunc("POST /ops/{op}/undo", d.session(d.undoOp))
 	mux.HandleFunc("GET /login", d.login)
 	mux.HandleFunc("POST /login", d.loginSubmit)
 	mux.HandleFunc("POST /logout", d.logout)
@@ -173,10 +181,28 @@ func securityHeaders(next http.Handler) http.Handler {
 
 func cacheFor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+		if r.URL.Query().Get("v") == assetVersion {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+// assetVersion changes whenever a static file does, so browsers fetch the new one.
+var assetVersion = func() string {
+	h := sha256.New()
+	fs.WalkDir(staticFS, ".", func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() {
+			data, _ := staticFS.ReadFile(p)
+			h.Write([]byte(p))
+			h.Write(data)
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}()
 
 var funcs = template.FuncMap{
 	"day": func(t time.Time) string {
@@ -203,11 +229,13 @@ var funcs = template.FuncMap{
 		return max(0, int(time.Since(t).Hours()/24))
 	},
 	"notePath": notePath,
+	"asset":    func(name string) string { return "/static/" + name + "?v=" + assetVersion },
 	"folder":   folderOf,
 	"title":    func(p string) string { return strings.TrimSuffix(path.Base(p), ".md") },
 	"signer":   signer,
+	"who":      who,
 	"icon": func(name string) template.HTML {
-		return template.HTML(`<svg class="i" aria-hidden="true"><use href="/static/icons.svg#` + template.HTMLEscapeString(name) + `"></use></svg>`)
+		return template.HTML(`<svg class="i" aria-hidden="true"><use href="/static/icons.svg?v=` + assetVersion + `#` + template.HTMLEscapeString(name) + `"></use></svg>`)
 	},
 	"lineOp": func(op lineOp) string { return [...]string{"same", "added", "removed"}[op] },
 	"viewIcon": func(id string) string {
@@ -239,10 +267,18 @@ func folderOf(p string) string {
 	return path.Dir(p)
 }
 
-// signer says who made a change: a machine, or this dashboard on behalf of one.
+// signer says who made a change: a machine, or you in this dashboard.
 func signer(machine string) string {
-	if name, ok := strings.CutPrefix(machine, dashboardPrefix); ok {
-		return "you, in the dashboard (" + name + ")"
+	if strings.HasPrefix(machine, dashboardPrefix) {
+		return "you, in the dashboard"
+	}
+	return machine
+}
+
+// who is signer in a few words, for tight places.
+func who(machine string) string {
+	if strings.HasPrefix(machine, dashboardPrefix) {
+		return "you"
 	}
 	return machine
 }

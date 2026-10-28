@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"maps"
 	"net/http"
+	"net/url"
 	"path"
 	"slices"
 	"strconv"
@@ -28,6 +30,7 @@ type page struct {
 	Next     string
 	Error    string
 	Notice   string
+	Snack    *snack
 	Masthead masthead
 
 	Filter  string
@@ -45,6 +48,8 @@ type page struct {
 	Mentions []*entry
 	Path     string
 	Body     template.HTML
+	Blocks   []block
+	Editable bool
 	Raw      bool
 	Content  string
 	Base     string
@@ -62,6 +67,11 @@ type page struct {
 // newNote is what the new-note form holds.
 type newNote struct {
 	Folder, Name, Description, Kind, Body string
+}
+
+// snack is the note shown at the foot of the page after an operation, with the way to undo it.
+type snack struct {
+	Text, Op, Close string
 }
 
 type masthead struct {
@@ -102,6 +112,8 @@ type change struct {
 	Plus    int
 	Minus   int
 	Latest  bool
+	Op      string
+	Also    int
 }
 
 type changeView struct {
@@ -123,8 +135,35 @@ type skillRow struct {
 	Name, Source, Path string
 }
 
+var snacks = map[string]string{
+	"renamed":  "Renamed to “%[1]s”, with its line in MEMORY.md and the links to it.",
+	"moved":    "Moved “%[1]s” to %[2]s, with its scope and MEMORY.md line.",
+	"deleted":  "Deleted “%[1]s”. It stays in the history.",
+	"reverted": "Undone.",
+}
+
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
 	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host}
+	q := r.URL.Query()
+	if format, ok := snacks[q.Get("done")]; ok {
+		p.Snack = &snack{Text: format}
+		if op := q.Get("op"); opRE.MatchString(op) {
+			vs, err := d.store.Op(op)
+			if err != nil {
+				return p, err
+			}
+			if len(vs) > 0 {
+				c, err := d.describeOp(b, vs)
+				if err != nil {
+					return p, err
+				}
+				p.Snack.Op, p.Snack.Text = op, fmt.Sprintf(format, c.Name, c.Folder)
+			}
+		}
+		q.Del("done")
+		q.Del("op")
+		p.Snack.Close = (&url.URL{Path: r.URL.Path, RawQuery: q.Encode()}).String()
+	}
 	tokens, err := d.store.Tokens()
 	if err != nil {
 		return p, err
@@ -231,7 +270,7 @@ func (d *Dashboard) library(w http.ResponseWriter, r *http.Request, machine stri
 	if len(p.Slips) > 6 {
 		p.More, p.Slips = len(p.Slips)-6, p.Slips[:6]
 	}
-	if p.Changes, err = d.changes(b, 6, 0); err != nil {
+	if p.Changes, _, err = d.changes(b, 1, 0); err != nil {
 		d.fail(w, err)
 		return
 	}
@@ -308,21 +347,77 @@ func (d *Dashboard) recent(window time.Duration) (map[string]change, error) {
 
 const bulkSync = 20
 
-// changes describes up to limit changes of the brain's history, older than before when it is not 0.
-func (d *Dashboard) changes(b *brain, limit int, before int64) ([]change, error) {
+// changes describes up to limit changes of the brain's history, older than before when it is not 0, with the files of
+// one operation as a single change; it also returns the oldest sequence number it read.
+func (d *Dashboard) changes(b *brain, limit int, before int64) ([]change, int64, error) {
 	log, err := d.store.Log(limit, before)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]change, 0, len(log))
+	seen := map[string]bool{}
+	var oldest int64
 	for _, v := range log {
-		c, err := d.describe(b, v)
-		if err != nil {
-			return nil, err
+		oldest = v.Seq
+		if v.Op == "" {
+			c, err := d.describe(b, v)
+			if err != nil {
+				return nil, 0, err
+			}
+			out = append(out, c.change)
+			continue
 		}
-		out = append(out, c.change)
+		if seen[v.Op] {
+			continue
+		}
+		seen[v.Op] = true
+		vs, err := d.store.Op(v.Op)
+		if err != nil {
+			return nil, 0, err
+		}
+		if before > 0 && vs[len(vs)-1].Seq >= before {
+			continue
+		}
+		c, err := d.describeOp(b, vs)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, c)
 	}
-	return out, nil
+	return out, oldest, nil
+}
+
+var opActions = map[string]string{"create": "created", "edit": "edited", "rename": "renamed", "move": "moved", "delete": "deleted", "undo": "undone"}
+
+// describeOp describes an operation by its note, with how many other files it changed and whether it can still be undone.
+func (d *Dashboard) describeOp(b *brain, vs []remote.Version) (change, error) {
+	main := vs[0]
+	if i := slices.IndexFunc(vs, isNote); i >= 0 {
+		main = vs[i]
+	}
+	if i := slices.IndexFunc(vs, func(v remote.Version) bool { return isNote(v) && !v.Deleted }); i >= 0 {
+		main = vs[i]
+	}
+	c, err := d.describe(b, main)
+	if err != nil {
+		return change{}, err
+	}
+	kind, _, _ := strings.Cut(main.Op, ":")
+	if a, ok := opActions[kind]; ok {
+		c.Action = a
+	}
+	c.Op, c.Also, c.Latest = main.Op, len(vs)-1, true
+	for _, v := range vs {
+		if hist, err := d.store.History(v.Path); err != nil || len(hist) == 0 || hist[0].Seq != v.Seq {
+			c.Latest = false
+		}
+	}
+	return c.change, nil
+}
+
+func isNote(v remote.Version) bool {
+	_, ok := remote.NoteProject(v.Path)
+	return ok
 }
 
 func (d *Dashboard) describe(b *brain, v remote.Version) (changeView, error) {
@@ -440,8 +535,8 @@ func (d *Dashboard) note(w http.ResponseWriter, r *http.Request, machine string)
 		for _, l := range e.Backlinks {
 			p.Mentions = append(p.Mentions, b.byPath[l])
 		}
-		p.Content = string(e.Data)
-		if p.Body, err = renderMarkdown(e.Note.Body, b.resolve); err != nil {
+		p.Content, p.Editable = string(e.Data), e.Valid
+		if p.Blocks, err = renderBlocks(e.Note.Body, b.resolve); err != nil {
 			d.fail(w, err)
 			return
 		}
@@ -470,24 +565,7 @@ func (d *Dashboard) note(w http.ResponseWriter, r *http.Request, machine string)
 }
 
 func (d *Dashboard) edit(w http.ResponseWriter, r *http.Request, machine string) {
-	b, err := loadBrain(d.store)
-	if err != nil {
-		d.fail(w, err)
-		return
-	}
-	p, err := d.base(r, "library", machine, b)
-	if err != nil {
-		d.fail(w, err)
-		return
-	}
-	p.Path = r.PathValue("path")
-	e, ok := b.byPath[p.Path]
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	p.Entry, p.Title, p.Content, p.Base, p.Open = e, "Edit "+e.Name, string(e.Data), e.Sha, folderOf(p.Path)
-	d.render(w, "edit", p)
+	http.Redirect(w, r, notePath(r.PathValue("path"))+"?view=markdown", http.StatusSeeOther)
 }
 
 func (d *Dashboard) save(w http.ResponseWriter, r *http.Request, machine string) {
@@ -497,6 +575,10 @@ func (d *Dashboard) save(w http.ResponseWriter, r *http.Request, machine string)
 		content += "\n"
 	}
 	retry := func(msg string) {
+		if wantsJSON(r) {
+			jsonError(w, http.StatusConflict, msg)
+			return
+		}
 		b, err := loadBrain(d.store)
 		if err != nil {
 			d.fail(w, err)
@@ -531,11 +613,19 @@ func (d *Dashboard) save(w http.ResponseWriter, r *http.Request, machine string)
 		d.fail(w, err)
 		return
 	}
+	if len(conflicts) > 0 && wantsJSON(r) {
+		jsonError(w, http.StatusConflict, changedMsg)
+		return
+	}
 	if len(conflicts) > 0 {
 		retry("This note changed since you opened it. Your text is below: copy what you need, open the note again and redo the edit there.")
 		return
 	}
-	http.Redirect(w, r, notePath(target)+"?done=saved", http.StatusSeeOther)
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, map[string]string{"sha": up.Sha})
+		return
+	}
+	http.Redirect(w, r, notePath(target)+"?view=markdown&done=saved", http.StatusSeeOther)
 }
 
 func (d *Dashboard) corrections(w http.ResponseWriter, r *http.Request, machine string) {
@@ -569,12 +659,13 @@ func (d *Dashboard) history(w http.ResponseWriter, r *http.Request, machine stri
 	}
 	p.Title = "History"
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-	if p.Changes, err = d.changes(b, historyPage, before); err != nil {
+	var oldest int64
+	if p.Changes, oldest, err = d.changes(b, historyPage, before); err != nil {
 		d.fail(w, err)
 		return
 	}
-	if len(p.Changes) == historyPage {
-		p.Older = p.Changes[len(p.Changes)-1].Seq
+	if older, err := d.store.Log(1, oldest); err == nil && len(older) > 0 && oldest > 0 {
+		p.Older = oldest
 	}
 	p.Notice = notice(r)
 	d.render(w, "history", p)
@@ -627,6 +718,11 @@ func (d *Dashboard) undo(w http.ResponseWriter, r *http.Request, machine string)
 	seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if v, _, err := d.store.Version(seq); err == nil && v.Op != "" {
+		r.SetPathValue("op", v.Op)
+		d.undoOp(w, r, machine)
 		return
 	}
 	err = d.store.Undo(seq, dashboardPrefix+machine)
@@ -829,7 +925,7 @@ func (d *Dashboard) create(w http.ResponseWriter, r *http.Request, machine strin
 		{Path: target, Sha: remote.Sha(data), Content: data, Modified: now},
 		{Path: folder + "/MEMORY.md", Base: indexSha, Sha: remote.Sha([]byte(newIndex)), Content: []byte(newIndex), Modified: now},
 	}
-	_, conflicts, err := d.store.Apply(dashboardPrefix+machine, ups)
+	conflicts, err := d.store.ApplyOp(dashboardPrefix+machine, remote.NewOp("create"), ups)
 	if err != nil {
 		d.fail(w, err)
 		return

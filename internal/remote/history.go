@@ -21,14 +21,15 @@ type Version struct {
 	Machine  string
 	Created  time.Time
 	Modified string
+	Op       string
 }
 
-const versionCols = `seq, path, sha, deleted, machine, created_at, modified`
+const versionCols = `seq, path, sha, deleted, machine, created_at, modified, op`
 
 func scanVersion(row interface{ Scan(...any) error }) (Version, error) {
 	var v Version
 	var created string
-	if err := row.Scan(&v.Seq, &v.Path, &v.Sha, &v.Deleted, &v.Machine, &created, &v.Modified); err != nil {
+	if err := row.Scan(&v.Seq, &v.Path, &v.Sha, &v.Deleted, &v.Machine, &created, &v.Modified, &v.Op); err != nil {
 		return v, err
 	}
 	v.Created, _ = time.Parse(time.RFC3339, created)
@@ -154,6 +155,41 @@ func (s *Store) Restore(seq int64, base, machine string) error {
 		err = fmt.Errorf("%s: %w", v.Path, ErrNotLatest)
 	}
 	return err
+}
+
+// Op returns the versions an operation wrote, in order.
+func (s *Store) Op(op string) ([]Version, error) {
+	return s.versions(`SELECT `+versionCols+` FROM history WHERE op = ? ORDER BY seq`, op)
+}
+
+// UndoOp reverts every change of an operation, as a new operation by machine, unless a later change replaced any of them.
+func (s *Store) UndoOp(op, machine string) (string, error) {
+	vs, err := s.Op(op)
+	if err != nil {
+		return "", err
+	}
+	if len(vs) == 0 {
+		return "", sql.ErrNoRows
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	var ups []Upload
+	for _, v := range vs {
+		prev, content, ok, err := s.Previous(v)
+		if err != nil {
+			return "", err
+		}
+		up := Upload{Path: v.Path, Base: v.Sha, Modified: now}
+		if ok && !prev.Deleted {
+			up.Sha, up.Content = prev.Sha, content
+		}
+		ups = append(ups, up)
+	}
+	undo := NewOp("undo")
+	conflicts, err := s.ApplyOp(machine, undo, ups)
+	if err == nil && len(conflicts) > 0 {
+		err = fmt.Errorf("%s: %w", conflicts[0].Path, ErrNotLatest)
+	}
+	return undo, err
 }
 
 // ReportFindings replaces what a machine's check last reported for a project.

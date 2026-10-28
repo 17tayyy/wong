@@ -158,7 +158,7 @@ func TestEditAndUndo(t *testing.T) {
 	}
 
 	_, body = b.get("/changes/" + itoa(log[0].Seq))
-	if !strings.Contains(body, `<ins><span class="sign">+</span>Merge to `+"`main`"+`, then promote from the release workflow.</ins>`) || !strings.Contains(body, "you, in the dashboard (browser)") {
+	if !strings.Contains(body, `<ins><span class="sign">+</span>Merge to `+"`main`"+`, then promote from the release workflow.</ins>`) || !strings.Contains(body, "you, in the dashboard") {
 		t.Errorf("change page:\n%s", body)
 	}
 	if code, body := b.post("/changes/"+itoa(log[0].Seq)+"/undo", nil, b.srv.URL); code != http.StatusOK || !strings.Contains(body, "Undone.") {
