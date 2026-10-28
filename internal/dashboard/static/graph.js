@@ -1,26 +1,37 @@
 (() => {
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const notePath = (p) => '/notes/' + p.split('/').map(encodeURIComponent).join('/');
+  const SLOTS = 3;
 
   // A force layout in the manner of d3-force: links pull, notes push each other apart, a weak gravity keeps orphans near.
   function graph(canvas, data, opts) {
     const ctx = canvas.getContext('2d');
-    const nodes = data.nodes.map((n, i) => {
+    const notes = data.nodes.map((n) => ({ ...n, near: new Set() }));
+    const edges = data.edges.map(([a, b]) => ({ a: notes[a], b: notes[b] }));
+    const tagNodes = new Map();
+    for (const n of notes) {
+      for (const t of n.t || []) {
+        const key = t.toLowerCase();
+        if (!tagNodes.has(key)) tagNodes.set(key, { tag: key, n: '#' + key, near: new Set() });
+        edges.push({ a: n, b: tagNodes.get(key), tag: true });
+      }
+    }
+    const nodes = [...notes, ...tagNodes.values()];
+    nodes.forEach((n, i) => {
       const angle = i * Math.PI * (3 - Math.sqrt(5));
       const r = 12 * Math.sqrt(i + 0.5);
-      return { ...n, i, x: r * Math.cos(angle), y: r * Math.sin(angle), vx: 0, vy: 0, deg: 0, near: new Set() };
+      Object.assign(n, { i, x: r * Math.cos(angle), y: r * Math.sin(angle), vx: 0, vy: 0, deg: 0 });
     });
-    const edges = data.edges.map(([a, b]) => ({ a: nodes[a], b: nodes[b] }));
     for (const e of edges) {
-      e.a.deg++;
-      e.b.deg++;
       e.a.near.add(e.b);
       e.b.near.add(e.a);
     }
-    const focus = nodes.find((n) => n.p === opts.focus);
-    let shown = new Set(nodes);
+    const focus = notes.find((n) => n.p === opts.focus);
+    let shown = new Set(notes);
     let found = new Set();
     let colors = {};
+    let colorBy = 'shelf';
+    let top = [];
     let view = { x: 0, y: 0, k: opts.local ? 1.4 : 1 };
     let hover = null;
     let drag = null;
@@ -31,11 +42,48 @@
     const dpr = () => window.devicePixelRatio || 1;
     const radius = (n) => (opts.local ? 5 : 3) + Math.sqrt(n.deg) * (opts.local ? 1.8 : 1.6);
     const steps = () => Math.round(Math.min(300, Math.max(80, 60000 / Math.max(1, shown.size))));
+    const live = (e) => shown.has(e.a) && shown.has(e.b);
+
+    function degrees() {
+      for (const n of nodes) n.deg = 0;
+      for (const e of edges) {
+        if (!live(e)) continue;
+        e.a.deg++;
+        e.b.deg++;
+      }
+    }
+
+    // groupOf is the value a note is coloured by: its shelf, its kind, or the most used of its tags.
+    function groupOf(n) {
+      if (colorBy === 'shelf') return n.s;
+      if (colorBy === 'kind') return n.k || '';
+      const tags = (n.t || []).map((t) => t.toLowerCase());
+      return top.find((t) => tags.includes(t)) || tags[0] || '';
+    }
+
+    // rank orders the values of the colouring by how many notes have them, once, so a filter never repaints a note.
+    function rank() {
+      const count = new Map();
+      for (const n of notes) {
+        const values = colorBy === 'tag' ? (n.t || []).map((t) => t.toLowerCase()) : [groupOf(n)];
+        for (const v of values) if (v && !(colorBy === 'shelf' && v === 'me')) count.set(v, (count.get(v) || 0) + 1);
+      }
+      top = [...count.keys()].sort((a, b) => count.get(b) - count.get(a) || a.localeCompare(b)).slice(0, SLOTS);
+    }
+
+    function colorOf(n) {
+      if (n.tag) return colors.muted;
+      const g = groupOf(n);
+      if (colorBy === 'shelf' && g === 'me') return colors.text;
+      const slot = top.indexOf(g);
+      return slot >= 0 ? colors.series[slot] : colors.other;
+    }
 
     function palette() {
       colors = {
-        bg: css('--bg'), text: css('--text'), muted: css('--muted'), node: css('--faint'), line: css('--line-strong'),
-        accent: css('--accent'), red: css('--red-dot'), yellow: css('--yellow-dot'), font: css('--sans'),
+        bg: css('--bg'), text: css('--text'), muted: css('--muted'), line: css('--line-strong'), accent: css('--accent'),
+        red: css('--red-dot'), yellow: css('--yellow-dot'), font: css('--sans'), other: css('--series-other'),
+        series: [css('--series-1'), css('--series-2'), css('--series-3')],
       };
     }
 
@@ -51,13 +99,13 @@
     function tick() {
       const visible = nodes.filter((n) => shown.has(n));
       for (const e of edges) {
-        if (!shown.has(e.a) || !shown.has(e.b)) continue;
+        if (!live(e)) continue;
         const dx = e.b.x + e.b.vx - e.a.x - e.a.vx || 1e-6;
         const dy = e.b.y + e.b.vy - e.a.y - e.a.vy || 1e-6;
         const l = Math.hypot(dx, dy);
-        const strength = 1 / Math.min(e.a.deg, e.b.deg);
-        const pull = ((l - (opts.local ? 60 : 46)) / l) * alpha * strength;
-        const bias = e.a.deg / (e.a.deg + e.b.deg);
+        const strength = 1 / Math.max(1, Math.min(e.a.deg, e.b.deg));
+        const pull = ((l - (opts.local ? 60 : e.tag ? 36 : 46)) / l) * alpha * strength;
+        const bias = e.a.deg / (e.a.deg + e.b.deg || 1);
         e.b.vx -= dx * pull * bias;
         e.b.vy -= dy * pull * bias;
         e.a.vx += dx * pull * (1 - bias);
@@ -126,9 +174,9 @@
       const dim = (n) => (lit && n !== lit && !near.has(n)) || (found.size && !found.has(n));
       ctx.lineWidth = 1;
       for (const e of edges) {
-        if (!shown.has(e.a) || !shown.has(e.b)) continue;
+        if (!live(e)) continue;
         const on = lit && (e.a === lit || e.b === lit);
-        ctx.globalAlpha = on ? 1 : dim(e.a) || dim(e.b) ? 0.12 : 0.7;
+        ctx.globalAlpha = on ? 1 : dim(e.a) || dim(e.b) ? 0.12 : e.tag ? 0.45 : 0.7;
         ctx.strokeStyle = on ? colors.accent : colors.line;
         const [x1, y1] = screen(e.a);
         const [x2, y2] = screen(e.b);
@@ -142,11 +190,21 @@
         if (!shown.has(n)) continue;
         const [x, y] = screen(n);
         if (x < -40 || y < -40 || x > width + 40 || y > height + 40) continue;
+        const r = size(n);
         ctx.globalAlpha = dim(n) ? 0.18 : 1;
-        ctx.fillStyle = n === lit || found.has(n) ? colors.accent : n.st === 'stale' ? colors.red : n.st === 'review' ? colors.yellow : colors.node;
+        ctx.fillStyle = n === lit || found.has(n) ? colors.accent : colorOf(n);
         ctx.beginPath();
-        ctx.arc(x, y, size(n), 0, Math.PI * 2);
+        if (n.tag) ctx.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
+        else ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
+        if (n.st) {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = n.st === 'stale' ? colors.red : colors.yellow;
+          ctx.beginPath();
+          ctx.arc(x, y, r + 2.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+        }
       }
       ctx.font = `${opts.local ? 11.5 : 12}px ${colors.font}`;
       ctx.textAlign = 'center';
@@ -160,12 +218,13 @@
         const [x, y] = screen(n);
         const name = n.n.length > 28 ? n.n.slice(0, 27) + '…' : n.n;
         const w = ctx.measureText(name).width;
-        const box = [x - w / 2 - 2, y + size(n) + 2, x + w / 2 + 2, y + size(n) + 17];
+        const offset = size(n) + (n.st ? 5 : 3);
+        const box = [x - w / 2 - 2, y + offset - 1, x + w / 2 + 2, y + offset + 14];
         if (!must && placed.some((o) => box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1])) continue;
         placed.push(box);
         ctx.globalAlpha = dim(n) ? 0.25 : 1;
         ctx.fillStyle = n === lit ? colors.text : colors.muted;
-        ctx.fillText(name, x, y + size(n) + 3);
+        ctx.fillText(name, x, y + offset);
       }
       ctx.globalAlpha = 1;
     }
@@ -234,7 +293,7 @@
       if (n !== hover) {
         hover = n;
         canvas.style.cursor = n ? 'pointer' : 'grab';
-        canvas.title = n ? n.n + ' · ' + n.s : '';
+        canvas.title = n ? (n.tag ? n.n : n.n + ' · ' + n.s) : '';
         draw();
       }
     });
@@ -243,10 +302,10 @@
       if (pointers.size < 2) pinch = null;
       const d = drag;
       drag = null;
-      if (d && d.node && !moved) {
-        if (e.ctrlKey || e.metaKey || e.button === 1) open(notePath(d.node.p), '_blank', 'noopener');
-        else location.assign(notePath(d.node.p));
-      }
+      if (!d || !d.node || moved) return;
+      if (d.node.tag) opts.onTag?.(d.node.tag);
+      else if (e.ctrlKey || e.metaKey || e.button === 1) open(notePath(d.node.p), '_blank', 'noopener');
+      else location.assign(notePath(d.node.p));
     };
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
@@ -281,27 +340,6 @@
       draw();
     });
 
-    function filter(by) {
-      const pass = (n) =>
-        (!by.s || n.s === by.s) && (!by.k || n.k === by.k) && (!by.t || (n.t || []).some((t) => t.toLowerCase() === by.t));
-      let keep = new Set(nodes.filter(pass));
-      if (!by.orphans) {
-        keep = new Set([...keep].filter((n) => [...n.near].some((m) => keep.has(m))));
-      }
-      shown = keep;
-      const links = edges.filter((e) => keep.has(e.a) && keep.has(e.b)).length;
-      alpha = 0.6;
-      settle(steps());
-      return [keep.size, links];
-    }
-
-    function find(text) {
-      const q = text.trim().toLowerCase();
-      found = new Set(q ? nodes.filter((n) => shown.has(n) && (n.n.toLowerCase().includes(q) || n.p.toLowerCase().includes(q))) : []);
-      draw();
-      return found;
-    }
-
     // fit zooms and centres the view on the notes shown, leaving room for their labels.
     function fit() {
       const list = nodes.filter((n) => shown.has(n));
@@ -322,44 +360,129 @@
       run();
     }
 
+    function filter(by) {
+      const pass = (n) =>
+        (!by.s || n.s === by.s) && (!by.k || n.k === by.k) && (!by.t || (n.t || []).some((t) => t.toLowerCase() === by.t));
+      let keep = new Set(notes.filter(pass));
+      if (by.tags) {
+        for (const t of tagNodes.values()) if ([...t.near].some((m) => keep.has(m))) keep.add(t);
+      }
+      if (!by.orphans) {
+        const linked = (n) => [...n.near].some((m) => keep.has(m) && !(m.tag && !by.tags));
+        keep = new Set([...keep].filter(linked));
+      }
+      shown = keep;
+      degrees();
+      const links = edges.filter((e) => !e.tag && live(e)).length;
+      alpha = 0.6;
+      settle(steps());
+      return [[...keep].filter((n) => !n.tag).length, links];
+    }
+
+    function find(text) {
+      const q = text.trim().toLowerCase();
+      found = new Set(q ? nodes.filter((n) => shown.has(n) && (n.n.toLowerCase().includes(q) || (n.p || '').toLowerCase().includes(q))) : []);
+      draw();
+      return found;
+    }
+
     function center(n) {
       view.x = -n.x * view.k;
       view.y = -n.y * view.k;
       draw();
     }
 
+    // color sets what the notes are coloured by and returns the legend: the ranked values, the rest, and me.
+    function color(by) {
+      colorBy = by;
+      rank();
+      draw();
+      const legend = top.map((v, i) => ({ label: colorBy === 'tag' ? '#' + v : v || 'no kind', value: v, color: colors.series[i] }));
+      if (notes.some((n) => colorOf(n) === colors.other)) legend.push({ label: colorBy === 'shelf' ? 'other projects' : 'other', color: colors.other });
+      if (colorBy === 'shelf' && notes.some((n) => n.s === 'me')) legend.push({ label: 'me', value: 'me', color: colors.text });
+      return legend;
+    }
+
     palette();
+    rank();
+    degrees();
     new ResizeObserver(resize).observe(canvas);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       palette();
+      opts.onRepaint?.();
       draw();
     });
     resize();
     settle(steps());
-    return { filter, find, center };
+    return { filter, find, center, color };
+  }
+
+  function legendItem(entry, active) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = entry.color;
+    button.append(swatch, entry.label);
+    if (entry.value === undefined) button.disabled = true;
+    button.setAttribute('aria-pressed', String(active));
+    return button;
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     for (const canvas of document.querySelectorAll('canvas[data-graph]')) {
-      const g = graph(canvas, JSON.parse(canvas.dataset.graph), { local: canvas.classList.contains('local'), focus: canvas.dataset.focus });
-      const bar = document.querySelector('.graph-bar');
-      if (!bar || canvas.classList.contains('local')) continue;
-      const count = bar.querySelector('.graph-count');
-      const apply = () => {
-        const by = { orphans: bar.querySelector('#g-orphans').checked };
+      const isLocal = canvas.classList.contains('local');
+      const bar = isLocal ? null : document.querySelector('.graph-bar');
+      const $ = (sel) => bar?.querySelector(sel);
+      let apply = () => {};
+      let paint = () => {};
+      const g = graph(canvas, JSON.parse(canvas.dataset.graph), {
+        local: isLocal,
+        focus: canvas.dataset.focus,
+        onTag: (tag) => {
+          const select = $('#g-tag');
+          if (!select) return;
+          select.value = tag;
+          apply();
+        },
+        onRepaint: () => paint(),
+      });
+      if (!bar) continue;
+      const count = $('.graph-count');
+      const legend = $('.graph-legend');
+      const selects = { shelf: $('#g-shelf'), kind: $('#g-kind'), tag: $('#g-tag') };
+      paint = () => {
+        const by = $('#g-color').value;
+        legend.replaceChildren();
+        for (const entry of g.color(by)) {
+          const target = selects[by];
+          const active = !!target && entry.value !== undefined && target.value === entry.value;
+          const button = legendItem(entry, active);
+          button.addEventListener('click', () => {
+            if (!target) return;
+            target.value = active ? '' : entry.value;
+            apply();
+          });
+          legend.append(button);
+        }
+      };
+      apply = () => {
+        const by = { orphans: $('#g-orphans').checked, tags: !!$('#g-tags')?.checked };
         for (const select of bar.querySelectorAll('select[data-filter]')) by[select.dataset.filter] = select.value;
         const [n, m] = g.filter(by);
         count.textContent = `${n} notes · ${m} links`;
-        g.find(bar.querySelector('#g-find').value);
+        g.find($('#g-find').value);
+        paint();
       };
       bar.addEventListener('change', apply);
-      const findInput = bar.querySelector('#g-find');
+      const findInput = $('#g-find');
       findInput.addEventListener('input', () => g.find(findInput.value));
       findInput.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         const [first] = g.find(findInput.value);
         if (first) g.center(first);
       });
+      paint();
     }
   });
 })();

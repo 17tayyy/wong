@@ -4,14 +4,20 @@
 <div class="graph-page">
   <h1 class="sr">Graph</h1>
   <div class="graph-bar" role="group" aria-label="Filter the graph">
-    <label class="sr" for="g-shelf">Shelf</label>
-    <select id="g-shelf" data-filter="s"><option value="">All shelves</option>{{range .Folders}}<option>{{.}}</option>{{end}}</select>
-    <label class="sr" for="g-kind">Kind</label>
-    <select id="g-kind" data-filter="k"><option value="">All kinds</option>{{range .KindNames}}<option>{{.}}</option>{{end}}</select>
-    {{with .TagNames}}<label class="sr" for="g-tag">Tag</label>
-    <select id="g-tag" data-filter="t"><option value="">All tags</option>{{range .}}<option value="{{.}}">#{{.}}</option>{{end}}</select>{{end}}
-    <label class="toggle"><input type="checkbox" id="g-orphans" checked> Notes without links</label>
     <span class="graph-find">{{icon "search"}}<label class="sr" for="g-find">Find a note</label><input id="g-find" type="search" placeholder="Find a note" autocomplete="off"></span>
+    <div class="graph-controls">
+      <label class="sr" for="g-shelf">Shelf</label>
+      <select id="g-shelf" data-filter="s"><option value="">All shelves</option>{{range .Folders}}<option>{{.}}</option>{{end}}</select>
+      <label class="sr" for="g-kind">Kind</label>
+      <select id="g-kind" data-filter="k"><option value="">All kinds</option>{{range .KindNames}}<option>{{.}}</option>{{end}}</select>
+      {{with .TagNames}}<label class="sr" for="g-tag">Tag</label>
+      <select id="g-tag" data-filter="t"><option value="">All tags</option>{{range .}}<option value="{{.}}">#{{.}}</option>{{end}}</select>{{end}}
+      <label class="sr" for="g-color">Color by</label>
+      <select id="g-color" class="needs-js"><option value="shelf">Color: shelf</option><option value="kind">Color: kind</option>{{if .TagNames}}<option value="tag">Color: tag</option>{{end}}</select>
+      <label class="toggle"><input type="checkbox" id="g-orphans" checked> Notes without links</label>
+      {{if .TagNames}}<label class="toggle"><input type="checkbox" id="g-tags"> Tags</label>{{end}}
+    </div>
+    <div class="graph-legend needs-js" aria-label="What the colours mean"></div>
     <span class="graph-count" aria-live="polite">{{.GraphNotes}} notes · {{.GraphLinks}} links</span>
   </div>
   <canvas class="graph" data-graph="{{.Graph}}" tabindex="0" role="img" aria-label="Graph of {{.GraphNotes}} notes and {{.GraphLinks}} links between them. The library lists the same notes."></canvas>
