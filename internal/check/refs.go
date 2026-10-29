@@ -159,14 +159,16 @@ func References(n *note.Note) []string {
 	return slices.Concat(r.issues, r.files, r.commits)
 }
 
-// Undeclared lists, as sources, what a note's text cites and its sources leave out: issue keys, and the files and commits found in dirs.
-func Undeclared(n *note.Note, dirs []string, home string) []string {
+// Undeclared lists, as sources, what a note's text cites and its sources leave out: issues of the known
+// teams, and the files and commits found in dirs.
+func Undeclared(n *note.Note, dirs []string, home string, teams map[string]bool) []string {
 	cited := extract(n.Description + "\n" + n.Body)
 	declared := refs{clauses: map[string][]string{}}
 	declared.addSources(n.Sources)
 	var out []string
 	for _, id := range cited.issues {
-		if !slices.Contains(declared.issues, id) {
+		team, _, _ := strings.Cut(id, "-")
+		if teams[team] && !slices.Contains(declared.issues, id) {
 			out = append(out, "linear:"+id)
 		}
 	}
@@ -189,7 +191,7 @@ func Undeclared(n *note.Note, dirs []string, home string) []string {
 	return out
 }
 
-// fileSource names a cited file as a file: source of the repo among dirs that holds it.
+// fileSource names a cited file as a file: source of the repo among dirs that tracks it.
 func fileSource(f string, dirs []string, home string) (string, bool) {
 	if rest, ok := strings.CutPrefix(f, "~/"); ok {
 		f = filepath.Join(home, rest)
@@ -199,9 +201,40 @@ func fileSource(f string, dirs []string, home string) (string, bool) {
 		if !ok {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+		if _, err := git(dir, "", "ls-files", "--error-unmatch", "--", rel); err == nil {
 			return "file:" + filepath.Base(dir) + "/" + filepath.ToSlash(rel), true
 		}
 	}
 	return "", false
+}
+
+func teamsFile(brain string) string {
+	return filepath.Join(brain, ".wong", "linear-teams")
+}
+
+// saveTeams keeps the Linear team keys check read, for the hooks that run without a Linear key.
+func saveTeams(brain string, keys []string) {
+	if brain == "" || len(keys) == 0 {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(teamsFile(brain)), 0o755); err == nil {
+		os.WriteFile(teamsFile(brain), []byte(strings.Join(slices.Sorted(slices.Values(keys)), "\n")+"\n"), 0o644)
+	}
+}
+
+// KnownTeams returns the Linear team keys check last read for this brain, plus the teams of the linear: sources given.
+func KnownTeams(brain string, sources []string) map[string]bool {
+	teams := map[string]bool{}
+	if data, err := os.ReadFile(teamsFile(brain)); err == nil {
+		for _, k := range strings.Fields(string(data)) {
+			teams[k] = true
+		}
+	}
+	for _, s := range sources {
+		if id, ok := strings.CutPrefix(s, "linear:"); ok && issueRE.FindString(id) == id {
+			team, _, _ := strings.Cut(id, "-")
+			teams[team] = true
+		}
+	}
+	return teams
 }

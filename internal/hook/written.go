@@ -91,7 +91,11 @@ func lint(n *note.Note, rel, scope, project string, created bool, env Env) []str
 			fixes = append(fixes, fmt.Sprintf("%s (%s) seems to cover the same subject: if it does, add what is new to it and delete this one", o.Path, o.Description))
 		}
 	}
-	if sources := check.Undeclared(n, env.Repos[project], env.Home); len(sources) > 0 {
+	var declared []string
+	for _, o := range g.Notes {
+		declared = append(declared, o.Sources...)
+	}
+	if sources := check.Undeclared(n, env.Repos[project], env.Home, check.KnownTeams(env.Brain, declared)); len(sources) > 0 {
 		fixes = append(fixes, "declare what it cites in `sources`, so wong notices when it changes: "+strings.Join(sources, ", "))
 	}
 	return fixes

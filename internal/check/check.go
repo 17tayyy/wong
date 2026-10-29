@@ -235,6 +235,7 @@ func (c *checker) fetchIssues(ctx context.Context, t Tracker, notes []loaded) er
 	for _, k := range keys {
 		c.teams[k] = true
 	}
+	saveTeams(c.brain, keys)
 	var ids []string
 	for _, l := range notes {
 		for _, id := range l.refs.issues {

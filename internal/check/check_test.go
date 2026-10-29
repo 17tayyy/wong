@@ -471,16 +471,18 @@ func TestUndeclaredNamesWhatTheTextCitesAsSources(t *testing.T) {
 	f := newFixture(t)
 	n := &note.Note{
 		Name: "n", Description: "Membership model, tracked in ENG-15",
-		Body:    "Lives in `app/models.py` and `acme-api/docs/guide.md`, not `app/nowhere.py`; added in " + f.initial + ", see ENG-16.\n",
+		Body:    "Lives in `app/models.py` and `acme-api/docs/guide.md`, not `app/nowhere.py` or the untracked `app/local.cfg`; added in " + f.initial + ", see ENG-16. Licensed AGPL-3.0, like OPS-4 says.\n",
 		Sources: []string{"linear:ENG-16", "file:acme-api/docs/guide.md"},
 	}
-	got := Undeclared(n, []string{f.repo}, "")
+	write(t, filepath.Join(f.repo, "app", "local.cfg"), "debug = true\n")
+	teams := map[string]bool{"ENG": true}
+	got := Undeclared(n, []string{f.repo}, "", teams)
 	want := []string{"linear:ENG-15", "file:acme-api/app/models.py", "commit:acme-api@" + f.initial}
 	if !slices.Equal(got, want) {
 		t.Errorf("Undeclared = %v, want %v", got, want)
 	}
 	n.Sources = append(n.Sources, want...)
-	if got := Undeclared(n, []string{f.repo}, ""); len(got) != 0 {
+	if got := Undeclared(n, []string{f.repo}, "", teams); len(got) != 0 {
 		t.Errorf("Undeclared with everything declared = %v", got)
 	}
 }
@@ -529,5 +531,19 @@ func TestRunFindsFilesOfTheBrainItself(t *testing.T) {
 	}
 	if got := found(rep); !slices.Equal(got, []string{"review projects/acme/a.md skills/gone.json"}) {
 		t.Errorf("findings = %v", got)
+	}
+}
+
+func TestKnownTeams(t *testing.T) {
+	f := newFixture(t)
+	f.note(t, "projects/acme/a.md", "See ENG-15.\n", "")
+	if _, err := Run(context.Background(), f.options(fakeTracker{})); err != nil {
+		t.Fatal(err)
+	}
+	if got := KnownTeams(f.brain, []string{"linear:OPS-103", "https://example.com/X-1", "linear:not-an-id"}); len(got) != 2 || !got["ENG"] || !got["OPS"] {
+		t.Errorf("KnownTeams = %v", got)
+	}
+	if got := KnownTeams(t.TempDir(), nil); len(got) != 0 {
+		t.Errorf("KnownTeams of a brain check never read teams for = %v", got)
 	}
 }

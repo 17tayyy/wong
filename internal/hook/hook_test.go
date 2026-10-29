@@ -283,6 +283,7 @@ func TestSessionStartPutsWorkLeftForADeployFirst(t *testing.T) {
 func TestNoteWrittenAsksForWhatWongNeeds(t *testing.T) {
 	env, repo := newEnv(t)
 	write(t, filepath.Join(repo, "app", "billing.py"), "pass\n")
+	run(t, repo, "add", "app/billing.py")
 	write(t, filepath.Join(env.Brain, "projects", "acme", "deploy-flow.md"), "---\nname: deploy-flow\ndescription: How Acme ships billing\nkind: reference\nscope: project:acme\ntags: [deploy]\n---\nMerge, then promote.\n")
 	written := func(tool, rel, content string) string {
 		t.Helper()
@@ -293,11 +294,15 @@ func TestNoteWrittenAsksForWhatWongNeeds(t *testing.T) {
 		return NoteWritten(in, env)
 	}
 
+	write(t, filepath.Join(env.Brain, ".wong", "linear-teams"), "ENG\n")
 	got := written("Write", "projects/acme/billing.md", "---\nname: billing\ndescription: How Acme ships billing\nmetadata:\n  type: feedback\n"+
-		"pending: later\n---\nSee `app/billing.py`, ENG-15 and [[nope]].\n")
+		"pending: later\n---\nSee `app/billing.py`, ENG-15 and [[nope]], under AGPL-3.0.\n")
 	var out struct{ Decision, Reason string }
 	if err := json.Unmarshal([]byte(got), &out); err != nil || out.Decision != "block" {
 		t.Fatalf("NoteWritten = %q, %v", got, err)
+	}
+	if strings.Contains(out.Reason, "AGPL") {
+		t.Errorf("a license version taken for an issue:\n%s", out.Reason)
 	}
 	for _, want := range []string{"projects/acme/billing.md is saved", "add `kind`", "metadata.type says preference", "set `scope: project:acme`",
 		`unknown pending "later"`, "reusing those in use: deploy", "[[nope]] reaches no note", "projects/acme/deploy-flow.md (How Acme ships billing) seems to cover",
