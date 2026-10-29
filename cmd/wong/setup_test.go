@@ -41,7 +41,27 @@ func machine(t *testing.T, root, name, file string) (home, repo string) {
 	return home, repo
 }
 
+// fakeClaude puts on PATH only git and a claude that records the commands it gets, and returns that record.
+func fakeClaude(t *testing.T) string {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(git, filepath.Join(bin, "git")); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(bin, "claude.log")
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\necho \"$*\" >> "+record+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	return record
+}
+
 func TestSetupBringsEachMachinesMemoryToTheServer(t *testing.T) {
+	record := fakeClaude(t)
 	root := t.TempDir()
 	store, err := remote.Open(filepath.Join(root, "wong.db"))
 	if err != nil {
@@ -63,10 +83,13 @@ func TestSetupBringsEachMachinesMemoryToTheServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: %v\n%s", err, out)
 	}
-	for _, want := range []string{"pulled: 0 updated", "imported 1 note", "pushed: 2", repo + "  -> ", "claude plugin install wong@wong"} {
+	for _, want := range []string{"pulled: 0 updated", "imported 1 note", "pushed: 2", repo + "  -> ", "Installed the wong plugin"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("desktop setup lacks %q:\n%s", want, out)
 		}
+	}
+	if data, _ := os.ReadFile(record); string(data) != "plugin marketplace add 17tayyy/wong\nplugin install wong@wong\n" {
+		t.Errorf("claude was run with %q", data)
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".claude", "settings.local.json")); err != nil {
 		t.Errorf("the repo was not linked: %v", err)
@@ -93,5 +116,22 @@ func TestSetupBringsEachMachinesMemoryToTheServer(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(desktop, ".wong", "projects", "acme", "oncall.md")); err != nil {
 		t.Errorf("the laptop's note did not reach the desktop: %v", err)
+	}
+}
+
+func TestSetupWithoutAServer(t *testing.T) {
+	record := fakeClaude(t)
+	os.Remove(filepath.Join(filepath.Dir(record), "claude"))
+	home, repo := machine(t, t.TempDir(), "laptop", "deploy.md")
+	out, err := run(t, "setup")
+	if err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "pulled") || strings.Contains(out, "pushed") || !strings.Contains(out, "imported 1 note") ||
+		!strings.Contains(out, repo+"  -> ") || !strings.Contains(out, "Claude Code is not on this machine's PATH") {
+		t.Errorf("setup without a server:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "wong", "remote.yaml")); err == nil {
+		t.Error("setup without a server saved one")
 	}
 }

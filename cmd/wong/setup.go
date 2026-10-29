@@ -5,36 +5,43 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/17tayyy/wong/internal/link"
+	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
 )
 
 func newSetupCmd(home string, brain *string) *cobra.Command {
 	var maps []string
 	cmd := &cobra.Command{
-		Use:   "setup <server-url>",
-		Short: "Connect this machine to a wong server, bring its memory into the brain and point Claude Code at it",
-		Long: "Connect this machine to a wong server and make the brain its memory, in one go:\n\n" +
-			"  1. saves the server and this machine's token, made on the server with\n" +
-			"     wong serve --new-token <name> and pasted when asked or read from stdin;\n" +
-			"  2. pulls the brain, which is empty until the first machine pushes;\n" +
-			"  3. imports this machine's Claude Code memory into it, as wong import does;\n" +
-			"  4. pushes it, so the server holds the memory of every machine;\n" +
-			"  5. links every repo it imported to its project, and every other folder to me/.\n\n" +
+		Use:   "setup [server-url]",
+		Short: "Make the brain this machine's memory, connected to a wong server or on its own",
+		Long: "Make the brain this machine's memory, in one go:\n\n" +
+			"  1. with a server, saves it and this machine's token, made on the server with\n" +
+			"     wong serve --new-token <name> and pasted when asked or read from stdin,\n" +
+			"     then pulls the brain, which is empty until the first machine pushes;\n" +
+			"  2. imports this machine's Claude Code memory into it, as wong import does;\n" +
+			"  3. with a server, pushes it, so the server holds the memory of every machine;\n" +
+			"  4. links every repo it imported to its project, and every other folder to me/;\n" +
+			"  5. installs the wong plugin for Claude Code.\n\n" +
 			"wong import --dry-run shows first how the memory will be grouped into projects;\n" +
-			"--map changes it. Then install the Claude Code plugin.",
-		Args: cobra.ExactArgs(1),
+			"--map changes it. Run it again with a url to connect a machine set up on its own.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := setRemote(cmd, args[0])
-			if err != nil {
-				return err
-			}
-			if err := syncBrain(cmd, client, *brain, true, false); err != nil {
-				return fmt.Errorf("the server did not answer as expected, check the url and the token: %w", err)
+			var client *remote.Client
+			if len(args) == 1 {
+				var err error
+				if client, err = setRemote(cmd, args[0]); err != nil {
+					return err
+				}
+				if err := syncBrain(cmd, client, *brain, true, false); err != nil {
+					return fmt.Errorf("the server did not answer as expected, check the url and the token: %w", err)
+				}
 			}
 			from := filepath.Join(claudeConfigDir(home), "projects")
 			if _, err := os.Stat(from); errors.Is(err, fs.ErrNotExist) {
@@ -42,15 +49,15 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			} else if err := runImport(cmd, home, *brain, from, maps, false); err != nil {
 				return err
 			}
-			if err := syncBrain(cmd, client, *brain, false, true); err != nil {
-				return err
+			if client != nil {
+				if err := syncBrain(cmd, client, *brain, false, true); err != nil {
+					return err
+				}
 			}
 			if err := linkEverything(cmd, *brain, home); err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), "\nNow install the Claude Code plugin, then restart open sessions:\n"+
-				"  claude plugin marketplace add 17tayyy/wong\n"+
-				"  claude plugin install wong@wong\n")
+			installPlugin(cmd)
 			return nil
 		},
 	}
@@ -84,4 +91,25 @@ func linkEverything(cmd *cobra.Command, brain, home string) error {
 		return err
 	}
 	return linkGlobal(out, brain, home, false)
+}
+
+var pluginSteps = [][]string{{"plugin", "marketplace", "add", "17tayyy/wong"}, {"plugin", "install", "wong@wong"}}
+
+// installPlugin installs the wong plugin with Claude Code's own command, or says how to once Claude Code is there.
+func installPlugin(cmd *cobra.Command) {
+	out := cmd.OutOrStdout()
+	manual := "  claude " + strings.Join(pluginSteps[0], " ") + "\n  claude " + strings.Join(pluginSteps[1], " ") + "\n"
+	claude, err := exec.LookPath("claude")
+	if err != nil {
+		fmt.Fprint(out, "\nClaude Code is not on this machine's PATH. Once it is, install the wong plugin:\n"+manual)
+		return
+	}
+	for i, step := range pluginSteps {
+		result, err := exec.Command(claude, step...).CombinedOutput()
+		if err != nil && (i > 0 || !strings.Contains(strings.ToLower(string(result)), "already")) {
+			fmt.Fprintf(out, "\nInstalling the wong plugin failed (%s). Install it by hand:\n%s", strings.TrimSpace(string(result)), manual)
+			return
+		}
+	}
+	fmt.Fprintln(out, "\nInstalled the wong plugin for Claude Code. Restart open sessions to pick everything up.")
 }
