@@ -3,6 +3,7 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -97,6 +98,28 @@ func TestMachineName(t *testing.T) {
 	} {
 		if got := MachineName(in); got != want {
 			t.Errorf("MachineName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestClientIP(t *testing.T) {
+	for _, c := range []struct{ remote, cf, xff, want string }{
+		{"203.0.113.9:4000", "", "", "203.0.113.9"},
+		{"203.0.113.9:4000", "198.51.100.1", "198.51.100.2", "203.0.113.9"},
+		{"127.0.0.1:4000", "198.51.100.1", "198.51.100.2", "198.51.100.1"},
+		{"172.18.0.3:4000", "", "192.0.2.66, 198.51.100.2", "198.51.100.2"},
+		{"[::1]:4000", "not an address", "", "::1"},
+	} {
+		r := httptest.NewRequest("POST", "/api/device", nil)
+		r.RemoteAddr = c.remote
+		if c.cf != "" {
+			r.Header.Set("Cf-Connecting-Ip", c.cf)
+		}
+		if c.xff != "" {
+			r.Header.Set("X-Forwarded-For", c.xff)
+		}
+		if got := ClientIP(r); got != c.want {
+			t.Errorf("ClientIP from %s, %q, %q = %s, want %s", c.remote, c.cf, c.xff, got, c.want)
 		}
 	}
 }

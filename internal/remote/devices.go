@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -216,10 +217,7 @@ func DeviceHandler(devices *Devices, log *slog.Logger) http.Handler {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		from, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			from = r.RemoteAddr
-		}
+		from := ClientIP(r)
 		secret, code, err := devices.Ask(MachineName(req.Name), from)
 		if errors.Is(err, ErrTooManyDevices) {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -261,6 +259,26 @@ func DeviceHandler(devices *Devices, log *slog.Logger) http.Handler {
 		}
 	})
 	return mux
+}
+
+// ClientIP is the address a request comes from. Behind a proxy on this machine or network, such as a Cloudflare
+// tunnel, it is the visitor's as the proxy passes it: Cloudflare's header, or the address the proxy added last.
+func ClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if addr, err := netip.ParseAddr(host); err != nil || !(addr.IsLoopback() || addr.IsPrivate()) {
+		return host
+	}
+	if ip, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip"))); err == nil {
+		return ip.String()
+	}
+	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	if ip, err := netip.ParseAddr(strings.TrimSpace(hops[len(hops)-1])); err == nil {
+		return ip.String()
+	}
+	return host
 }
 
 // MachineName turns a host name into a token name: lower case letters, digits and hyphens.
