@@ -40,7 +40,7 @@ func (d *Dashboard) webhooks(w http.ResponseWriter, r *http.Request, machine str
 	}
 	for _, id := range remote.Hooks {
 		h := hookView{ID: id, Name: map[string]string{"github": "GitHub", "linear": "Linear"}[id], URL: scheme + "://" + r.Host + where + id}
-		env := map[string][2]string{"github": {d.env.GitHubSecret, "WONG_GITHUB_SECRET"}, "linear": {d.env.LinearSecret, "WONG_LINEAR_SECRET"}}[id]
+		env := map[string][2]string{"github": {d.opts.Webhooks.GitHubSecret, "WONG_GITHUB_SECRET"}, "linear": {d.opts.Webhooks.LinearSecret, "WONG_LINEAR_SECRET"}}[id]
 		if d.account == "" && env[0] != "" {
 			h.Env = env[1]
 		} else if h.Secret, err = d.store.HookSecret(id); err != nil {

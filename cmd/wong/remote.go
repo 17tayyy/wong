@@ -24,7 +24,7 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, dir, account, addr, certFile, keyFile string
+	var db, dir, account, addr, certFile, keyFile, signInURL string
 	var admin adminFlags
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -46,8 +46,12 @@ func newServeCmd() *cobra.Command {
 			"Only /hooks/ needs to be reachable from the internet.\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
 			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
-			"The same address serves the dashboard: open it in a browser and sign in with a\n" +
-			"token, for example one made with --new-token browser.",
+			"The same address serves the dashboard. wong open, on a connected machine, opens it\n" +
+			"signed in; a token, such as one made with --new-token browser, signs in too.\n\n" +
+			"With --accounts and WONG_ADMIN_TOKEN set, a sign-up service can create accounts\n" +
+			"and sign people in to them: PUT /admin/accounts/<id>, and POST\n" +
+			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer.\n" +
+			"--sign-in-url sends people without a token to the service's sign-in page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if (certFile == "") != (keyFile == "") {
@@ -84,8 +88,8 @@ func newServeCmd() *cobra.Command {
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
 			api := remote.Handler(brains, log, hooks)
-			devices := remote.NewDevices()
-			web, err := dashboard.Handler(brains, log, hooks, devices)
+			devices, signins := remote.NewDevices(), remote.NewSignIns()
+			web, err := dashboard.Handler(brains, log, dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, SignInURL: signInURL})
 			if err != nil {
 				return err
 			}
@@ -93,6 +97,10 @@ func newServeCmd() *cobra.Command {
 			root.Handle("/api/", api)
 			root.Handle("/api/device", remote.DeviceHandler(devices, log))
 			root.Handle("/api/device/", remote.DeviceHandler(devices, log))
+			root.Handle("/api/signin", remote.SignInHandler(brains, signins, log))
+			if folder, ok := brains.(*remote.Folder); ok {
+				root.Handle("/admin/", remote.AdminHandler(folder, signins, os.Getenv("WONG_ADMIN_TOKEN"), log))
+			}
 			root.Handle("/hooks/", api)
 			root.Handle("/mcp", mcp.Handler(brains, log, version()))
 			root.Handle("/", web)
@@ -118,7 +126,10 @@ func newServeCmd() *cobra.Command {
 					secret, _ := store.HookSecret(hook)
 					where = append(where, hook+"_hook", env[hook] != "" || secret != "")
 				}
-			} else if hooks != (remote.Webhooks{}) {
+			} else {
+				where = append(where, "admin", os.Getenv("WONG_ADMIN_TOKEN") != "")
+			}
+			if _, ok := brains.(*remote.Folder); ok && hooks != (remote.Webhooks{}) {
 				log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
 			}
 			log.Info("serving", append(where, "addr", addr, "tls", certFile != "")...)
@@ -137,6 +148,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dir, "accounts", "", "keep a brain for each account, one SQLite file each, in this folder")
 	cmd.Flags().StringVar(&account, "account", "", "with --accounts: the account whose tokens --new-token, --tokens and --revoke-token act on")
 	cmd.Flags().StringVar(&addr, "addr", ":8787", "address to listen on")
+	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")
 	cmd.Flags().BoolVar(&admin.list, "tokens", false, "list who has a token and when they last used it, and exit")
 	cmd.Flags().StringVar(&admin.revoke, "revoke-token", "", "revoke this machine name's token and exit")

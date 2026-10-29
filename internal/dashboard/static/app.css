@@ -448,6 +448,9 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
 .login input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .login .btn { justify-content: center; height: 38px; }
 .login .callout { margin: 0; }
+.login .token-fields { display: flex; flex-direction: column; gap: 10px; }
+.login .with-token summary { color: var(--muted); font-size: 13px; cursor: pointer; }
+.login .with-token[open] summary { margin-bottom: 10px; }
 
 @media (max-width: 1280px) {
   .panel { display: none; }

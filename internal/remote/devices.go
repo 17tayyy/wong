@@ -228,12 +228,8 @@ func DeviceHandler(devices *Devices, log *slog.Logger) http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
 		log.Info("device asked", "name", MachineName(req.Name), "from", from)
-		writeJSON(w, DeviceStart{Secret: secret, Code: ShowCode(code), URL: scheme + "://" + r.Host + "/device",
+		writeJSON(w, DeviceStart{Secret: secret, Code: ShowCode(code), URL: baseURL(r) + "/device",
 			ExpiresIn: int(deviceTTL.Seconds()), Interval: max(1, int(devices.PollEvery.Seconds()))})
 	})
 	mux.HandleFunc("POST /api/device/token", func(w http.ResponseWriter, r *http.Request) {

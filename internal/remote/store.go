@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 CREATE INDEX IF NOT EXISTS findings_project ON findings(project, machine);
 CREATE INDEX IF NOT EXISTS findings_note ON findings(note);
+CREATE TABLE IF NOT EXISTS sessions (
+	hash       TEXT PRIMARY KEY,
+	via        TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	expires_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS hooks (
 	name       TEXT PRIMARY KEY,
 	secret     TEXT NOT NULL,
@@ -250,18 +256,26 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 // NewToken creates a token for a machine or person and returns it; only its hash is stored.
 // In a Folder, tokens name their account, so the server knows which brain they open.
 func (s *Store) NewToken(name string) (string, error) {
+	token, err := s.newSecret()
+	if err != nil {
+		return "", err
+	}
+	_, err = s.db.Exec(`INSERT INTO tokens (name, hash, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at, last_used = ''`,
+		name, Sha([]byte(token)), time.Now().UTC().Format(time.RFC3339))
+	return token, err
+}
+
+// newSecret makes a token or session for this brain: wong_<secret>, or wong_<account>_<secret> in a Folder.
+func (s *Store) newSecret() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
-	token := "wong_" + hex.EncodeToString(raw)
 	if s.id != "" {
-		token = "wong_" + s.id + "_" + hex.EncodeToString(raw)
+		return "wong_" + s.id + "_" + hex.EncodeToString(raw), nil
 	}
-	_, err := s.db.Exec(`INSERT INTO tokens (name, hash, created_at) VALUES (?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at, last_used = ''`,
-		name, Sha([]byte(token)), time.Now().UTC().Format(time.RFC3339))
-	return token, err
+	return "wong_" + hex.EncodeToString(raw), nil
 }
 
 // Machine returns the name of the token's owner, or "" when the token is unknown, and notes when it was used.

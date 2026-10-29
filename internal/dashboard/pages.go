@@ -22,16 +22,17 @@ import (
 )
 
 type page struct {
-	Title    string
-	Nav      string
-	Machine  string
-	Server   string
-	Edition  *change
-	Next     string
-	Error    string
-	Notice   string
-	Snack    *snack
-	Masthead masthead
+	Title     string
+	Nav       string
+	Machine   string
+	Server    string
+	Edition   *change
+	Next      string
+	Error     string
+	Notice    string
+	SignInURL string
+	Snack     *snack
+	Masthead  masthead
 
 	Filter  string
 	Query   string

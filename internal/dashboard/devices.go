@@ -44,7 +44,7 @@ func (d *Dashboard) approveDevice(w http.ResponseWriter, r *http.Request, machin
 		d.devicePage(w, r, machine, nil, "", "Too many codes that no machine was waiting with. Try again in ten minutes.")
 		return
 	}
-	dev, ok := d.devices.Find(code)
+	dev, ok := d.opts.Devices.Find(code)
 	if !ok {
 		d.guesses.miss(who)
 		w.WriteHeader(http.StatusNotFound)
@@ -53,7 +53,7 @@ func (d *Dashboard) approveDevice(w http.ResponseWriter, r *http.Request, machin
 	}
 	switch r.FormValue("do") {
 	case "deny":
-		d.devices.Deny(code)
+		d.opts.Devices.Deny(code)
 		d.devicePage(w, r, machine, nil, "Turned away. The machine stops waiting.", "")
 		return
 	case "approve":
@@ -67,7 +67,7 @@ func (d *Dashboard) approveDevice(w http.ResponseWriter, r *http.Request, machin
 			d.devicePage(w, r, machine, &dev, "", "")
 			return
 		}
-		if !d.devices.Approve(code, d.store, dev.Name) {
+		if !d.opts.Devices.Approve(code, d.store, dev.Name) {
 			w.WriteHeader(http.StatusNotFound)
 			d.devicePage(w, r, machine, nil, "", "That machine stopped waiting. Run wong setup on it again.")
 			return

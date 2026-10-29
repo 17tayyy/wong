@@ -16,6 +16,8 @@ import (
 type Brains interface {
 	// Auth returns the brain a token opens and whose token it is, or a zero Session when it opens none.
 	Auth(token string) (Session, error)
+	// Visit returns the brain a dashboard session opens, or a zero Session when it opens none.
+	Visit(session string) (Session, error)
 }
 
 // Session is a token's way into a brain: the brain's store, its account in a Folder, and the token's name.
@@ -82,6 +84,21 @@ func (f *Folder) Auth(token string) (Session, error) {
 		return Session{}, err
 	}
 	return s.Auth(token)
+}
+
+func (f *Folder) Visit(session string) (Session, error) {
+	id, ok := accountOf(session)
+	if !ok {
+		return Session{}, nil
+	}
+	s, err := f.Store(id)
+	if errors.Is(err, ErrNoAccount) {
+		return Session{}, nil
+	}
+	if err != nil {
+		return Session{}, err
+	}
+	return s.Visit(session)
 }
 
 // Store opens the brain of an account the folder has.

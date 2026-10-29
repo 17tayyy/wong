@@ -73,7 +73,7 @@ func setup(t *testing.T) (*remote.Store, browser, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, remote.NewDevices())
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestEachTokenSignsInToItsBrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, remote.NewDevices())
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestWebhooksPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"}, remote.NewDevices())
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Webhooks: remote.Webhooks{GitHubSecret: "the server's"}, Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestWebhooksPageOfASingleBrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"}, remote.NewDevices())
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Webhooks: remote.Webhooks{GitHubSecret: "the server's"}, Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestConnectAMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 	devices := remote.NewDevices()
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, devices)
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: devices, SignIns: remote.NewSignIns()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,4 +435,51 @@ func TestConnectAMachine(t *testing.T) {
 	if code, body := b.post("/device", url.Values{"code": {last}, "do": {"find"}}, srv.URL); code != http.StatusTooManyRequests || strings.Contains(body, "192.0.2.9") {
 		t.Errorf("a code after too many wrong ones: %d", code)
 	}
+}
+
+func TestSignInLinksAndSigningOut(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	links := remote.NewSignIns()
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: links, SignInURL: "https://signup.example/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+
+	if _, body := b.get("/login"); !strings.Contains(body, `href="https://signup.example/login"`) || !strings.Contains(body, "Sign in with a token") {
+		t.Errorf("the sign-in page does not send people to the sign-up service:\n%s", body)
+	}
+	code, _ := links.Issue(store, "desktop")
+	if status, body := b.get("/signin/" + code); status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
+		t.Fatalf("a sign-in link did not land on the library: %d", status)
+	}
+	if status, body := b.get("/signin/" + code); status != http.StatusGone || !strings.Contains(body, "used or expired") {
+		t.Errorf("a link used twice: %d", status)
+	}
+	session := jar.Cookies(mustURL(t, srv.URL))[0].Value
+	if s, _ := store.Visit(session); s.Store == nil {
+		t.Fatal("the cookie holds no session")
+	}
+	if code, _ := b.post("/logout", url.Values{}, srv.URL); code != http.StatusOK {
+		t.Errorf("sign out: %d", code)
+	}
+	if s, _ := store.Visit(session); s.Store != nil {
+		t.Error("signing out left the session open")
+	}
+}
+
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }

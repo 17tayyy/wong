@@ -2,11 +2,21 @@
 <form class="login" method="post" action="/login">
   <span class="logo big" aria-hidden="true">w</span>
   <h1>Sign in to wong</h1>
-  <p class="desc">Use any token this server issued. To make one for this browser, run on the server <code class="chip">wong serve --new-token browser</code>. It stays in a cookie on this browser only.</p>
   {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
-  <input type="hidden" name="next" value="{{.Next}}">
-  <label for="token">Token</label>
-  <input id="token" name="token" type="password" autocomplete="current-password" required autofocus placeholder="wong_…">
-  <button class="btn primary" type="submit">Continue</button>
+  {{if .SignInURL}}
+  <a class="btn primary" href="{{.SignInURL}}">Continue</a>
+  <p class="desc">From a machine connected to wong, <code class="chip">wong open</code> opens this dashboard signed in.</p>
+  <details class="with-token">
+    <summary>Sign in with a token</summary>
+  {{else}}
+  <p class="desc">From a machine connected to this server, <code class="chip">wong open</code> opens the dashboard signed in. Or use a token this server issued: to make one, run on the server <code class="chip">wong serve --new-token browser</code>.</p>
+  {{end}}
+  <div class="token-fields">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label for="token">Token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" required {{if not .SignInURL}}autofocus{{end}} placeholder="wong_…">
+    <button class="btn{{if not .SignInURL}} primary{{end}}" type="submit">Sign in</button>
+  </div>
+  {{if .SignInURL}}</details>{{end}}
 </form>
 {{end}}

@@ -94,6 +94,13 @@ func (c *Client) PollDevice(ctx context.Context, secret string) (DeviceStatus, D
 	return DeviceGone, out, failed(resp)
 }
 
+// SignIn makes a link that opens the dashboard signed in to this machine's brain, once.
+func (c *Client) SignIn(ctx context.Context) (SignInLink, error) {
+	var out SignInLink
+	err := c.do(ctx, http.MethodPost, "/api/signin", nil, &out)
+	return out, err
+}
+
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
 	resp, err := c.send(ctx, method, path, in)
 	if err != nil {

@@ -26,11 +26,20 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
-// Dashboard serves the brains a server keeps; each request sees the one its token opens, as store.
+// Options are what the dashboard shares with the rest of the server: the webhook secrets it sets for a single brain,
+// which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, and where
+// people without a token sign in, such as wong cloud's sign-in with GitHub.
+type Options struct {
+	Webhooks  remote.Webhooks
+	Devices   *remote.Devices
+	SignIns   *remote.SignIns
+	SignInURL string
+}
+
+// Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.
 type Dashboard struct {
 	brains  remote.Brains
-	env     remote.Webhooks
-	devices *remote.Devices
+	opts    Options
 	guesses *guesses
 	store   *remote.Store
 	account string
@@ -38,11 +47,10 @@ type Dashboard struct {
 	pages   map[string]*template.Template
 }
 
-// Handler serves the dashboard; every page but the login asks for a machine token, kept in a cookie.
-// env holds the webhook secrets the server sets for a single brain, which the dashboard shows but cannot change;
-// devices, the machines waiting for someone signed in to let them in.
-func Handler(brains remote.Brains, log *slog.Logger, env remote.Webhooks, devices *remote.Devices) (http.Handler, error) {
-	d := &Dashboard{brains: brains, env: env, devices: devices, guesses: &guesses{wrong: map[string][]time.Time{}}, log: log, pages: map[string]*template.Template{}}
+// Handler serves the dashboard; every page but the sign-in asks for a session, opened with a token or a sign-in link
+// and kept in a cookie.
+func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler, error) {
+	d := &Dashboard{brains: brains, opts: opts, guesses: &guesses{wrong: map[string][]time.Time{}}, log: log, pages: map[string]*template.Template{}}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html")
 	if err != nil {
 		return nil, err
@@ -67,6 +75,7 @@ func Handler(brains remote.Brains, log *slog.Logger, env remote.Webhooks, device
 	mux.HandleFunc("GET /login", d.login)
 	mux.HandleFunc("POST /login", d.loginSubmit)
 	mux.HandleFunc("POST /logout", d.logout)
+	mux.HandleFunc("GET /signin/{code}", d.signIn)
 	mux.HandleFunc("GET /{$}", d.session((*Dashboard).library))
 	mux.HandleFunc("GET /notes/{path...}", d.session((*Dashboard).note))
 	mux.HandleFunc("POST /notes/{path...}", d.session((*Dashboard).save))
@@ -94,7 +103,7 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var s remote.Session
 		if c, err := r.Cookie(cookieName); err == nil {
-			if s, err = d.brains.Auth(c.Value); err != nil {
+			if s, err = d.brains.Visit(c.Value); err != nil {
 				d.fail(w, err)
 				return
 			}
@@ -107,7 +116,7 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
-		next(&Dashboard{brains: d.brains, env: d.env, devices: d.devices, guesses: d.guesses, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
+		next(&Dashboard{brains: d.brains, opts: d.opts, guesses: d.guesses, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
 	}
 }
 
@@ -121,7 +130,7 @@ func sameOrigin(r *http.Request) bool {
 }
 
 func (d *Dashboard) login(w http.ResponseWriter, r *http.Request) {
-	d.render(w, "login", page{Title: "Sign in", Next: safeNext(r.URL.Query().Get("next"))})
+	d.render(w, "login", page{Title: "Sign in", Next: safeNext(r.URL.Query().Get("next")), SignInURL: d.opts.SignInURL})
 }
 
 func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -138,11 +147,31 @@ func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if token == "" || s.Store == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		d.render(w, "login", page{Title: "Sign in", Next: next, Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
+		d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.opts.SignInURL, Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, Secure: secure(r),
-		SameSite: http.SameSiteStrictMode, MaxAge: 30 * 24 * 3600})
+	d.openSession(w, r, s.Store, s.Machine, next)
+}
+
+// signIn spends a one-time link, made by wong open or a sign-up service, and opens a session on its brain.
+func (d *Dashboard) signIn(w http.ResponseWriter, r *http.Request) {
+	store, via, ok := d.opts.SignIns.Redeem(r.PathValue("code"))
+	if !ok {
+		w.WriteHeader(http.StatusGone)
+		d.render(w, "login", page{Title: "Sign in", Next: "/", SignInURL: d.opts.SignInURL, Error: "That sign-in link was used or expired. Links work once, for two minutes."})
+		return
+	}
+	d.openSession(w, r, store, via, "/")
+}
+
+func (d *Dashboard) openSession(w http.ResponseWriter, r *http.Request, store *remote.Store, via, next string) {
+	session, err := store.NewSession(via)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: session, Path: "/", HttpOnly: true, Secure: secure(r),
+		SameSite: http.SameSiteLaxMode, MaxAge: int(remote.SessionTTL.Seconds())})
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
@@ -151,8 +180,16 @@ func (d *Dashboard) logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-site request refused", http.StatusForbidden)
 		return
 	}
+	if c, err := r.Cookie(cookieName); err == nil {
+		if s, err := d.brains.Visit(c.Value); err == nil && s.Store != nil {
+			if err := s.Store.EndSession(c.Value); err != nil {
+				d.fail(w, err)
+				return
+			}
+		}
+	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: secure(r),
-		SameSite: http.SameSiteStrictMode, MaxAge: -1})
+		SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
