@@ -71,8 +71,12 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("POST /rename/{path...}", d.session((*Dashboard).rename))
 	mux.HandleFunc("POST /move/{path...}", d.session((*Dashboard).move))
 	mux.HandleFunc("POST /delete/{path...}", d.session((*Dashboard).deleteNote))
-	mux.HandleFunc("POST /archive/{path...}", d.session(func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string) { d.archive(w, r, machine, false) }))
-	mux.HandleFunc("POST /unarchive/{path...}", d.session(func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string) { d.archive(w, r, machine, true) }))
+	mux.HandleFunc("POST /archive/{path...}", d.session(func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string) {
+		d.archive(w, r, machine, false)
+	}))
+	mux.HandleFunc("POST /unarchive/{path...}", d.session(func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string) {
+		d.archive(w, r, machine, true)
+	}))
 	mux.HandleFunc("POST /ops/{op}/undo", d.session((*Dashboard).undoOp))
 	mux.HandleFunc("GET /login", d.login)
 	mux.HandleFunc("POST /login", d.loginSubmit)
