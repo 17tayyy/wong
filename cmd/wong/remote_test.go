@@ -157,6 +157,27 @@ func TestServeAccountTokens(t *testing.T) {
 	if out, err := run(t, "serve", "--accounts", dir, "--account", "bob", "--tokens"); err != nil || strings.Contains(out, "alice") {
 		t.Errorf("tokens of one account: %v\n%s", err, out)
 	}
+	if out, err := runWithInput(t, "a-secret\n", "serve", "--accounts", dir, "--account", "bob", "--hook-secret", "github"); err != nil || out != "saved the secret of the github webhook\n" {
+		t.Errorf("hook secret: %v\n%s", err, out)
+	}
+	if _, err := runWithInput(t, "a-secret\n", "serve", "--accounts", dir, "--account", "carol", "--hook-secret", "github"); err == nil || !strings.Contains(err.Error(), "no such account") {
+		t.Errorf("a hook secret for an account the folder lacks: %v", err)
+	}
+	if _, err := runWithInput(t, "a-secret\n", "serve", "--accounts", dir, "--account", "bob", "--hook-secret", "gitlab"); err == nil {
+		t.Error("a secret for a webhook wong does not take was saved")
+	}
+	folder, err := remote.OpenFolder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	bob, _ := folder.Store("bob")
+	if secret, _ := bob.HookSecret("github"); secret != "a-secret" {
+		t.Errorf("bob's github secret = %q", secret)
+	}
+	if out, err := runWithInput(t, "", "serve", "--accounts", dir, "--account", "bob", "--hook-secret", "github"); err != nil || out != "turned the github webhook off\n" {
+		t.Errorf("turn off: %v\n%s", err, out)
+	}
 }
 
 func TestApprovedToken(t *testing.T) {
