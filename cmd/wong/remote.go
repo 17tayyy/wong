@@ -83,12 +83,15 @@ func newServeCmd() *cobra.Command {
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
 			api := remote.Handler(brains, log, hooks)
-			web, err := dashboard.Handler(brains, log, hooks)
+			devices := remote.NewDevices()
+			web, err := dashboard.Handler(brains, log, hooks, devices)
 			if err != nil {
 				return err
 			}
 			root := http.NewServeMux()
 			root.Handle("/api/", api)
+			root.Handle("/api/device", remote.DeviceHandler(devices, log))
+			root.Handle("/api/device/", remote.DeviceHandler(devices, log))
 			root.Handle("/hooks/", api)
 			root.Handle("/mcp", mcp.Handler(brains, log, version()))
 			root.Handle("/", web)
@@ -237,7 +240,7 @@ func lastUsed(t remote.TokenInfo) string {
 func newRemoteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remote <url>",
-		Short: "Set this machine's wong server; the token is read from stdin",
+		Short: "Connect this machine to a wong server, approved in a browser or with a token on stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := setRemote(cmd, args[0])
@@ -246,23 +249,26 @@ func newRemoteCmd() *cobra.Command {
 	}
 }
 
-// setRemote saves the server at url with the token read from stdin, asking for it on a terminal.
+// setRemote saves the server at url with this machine's token: read from stdin, or on a terminal, pasted or got by approving the machine in a browser.
 func setRemote(cmd *cobra.Command, url string) (*remote.Client, error) {
 	if err := remote.CheckURL(url); err != nil {
 		return nil, err
 	}
-	if f, ok := cmd.InOrStdin().(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
-			fmt.Fprint(cmd.ErrOrStderr(), "Token for this machine (on the server: wong serve --new-token <name>): ")
+	var token string
+	if f, ok := cmd.InOrStdin().(*os.File); ok && isTerminal(f) {
+		name, _ := os.Hostname()
+		var err error
+		if token, err = approvedToken(cmd.Context(), remote.NewClient(url, "", 30*time.Second), name, cmd.ErrOrStderr(), typedLine(f)); err != nil {
+			return nil, err
 		}
-	}
-	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	token := strings.TrimSpace(line)
-	if token == "" {
-		return nil, errors.New("pass the token on stdin, e.g. wong remote <url> < token.txt")
+	} else {
+		line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if token = strings.TrimSpace(line); token == "" {
+			return nil, errors.New("pass the token on stdin, e.g. wong remote <url> < token.txt")
+		}
 	}
 	path, err := remote.ConfigPath()
 	if err != nil {
@@ -273,6 +279,82 @@ func setRemote(cmd *cobra.Command, url string) (*remote.Client, error) {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "server set in %s\n", path)
 	return remote.NewClient(url, token, 30*time.Second), nil
+}
+
+// approvedToken asks the server to let this machine in once someone signed in to the dashboard enters the code it shows,
+// and waits for that or for a token typed instead; with a server that cannot do that, it waits for the token alone.
+func approvedToken(ctx context.Context, client *remote.Client, name string, out io.Writer, typed <-chan string) (string, error) {
+	start, err := client.AskDevice(ctx, name)
+	if errors.Is(err, remote.ErrNoDevices) {
+		fmt.Fprint(out, "Token for this machine (on the server: wong serve --new-token <name>): ")
+		select {
+		case token, ok := <-typed:
+			if !ok {
+				return "", errors.New("no token was entered")
+			}
+			return token, nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(out, "To connect this machine, open %s in a browser signed in to wong and enter\n\n    %s\n\n"+
+		"or paste a token made on the server with wong serve --new-token <name>.\n", start.URL, start.Code)
+	poll := time.NewTicker(time.Duration(start.Interval) * time.Second)
+	defer poll.Stop()
+	expired := time.After(time.Duration(start.ExpiresIn) * time.Second)
+	for {
+		select {
+		case token, ok := <-typed:
+			if ok {
+				return token, nil
+			}
+			typed = nil
+		case <-poll.C:
+			status, got, err := client.PollDevice(ctx, start.Secret)
+			switch {
+			case err != nil:
+				return "", err
+			case status == remote.DeviceApproved && got.Account != "":
+				fmt.Fprintf(out, "approved: this machine is %s in the account %s\n", got.Name, got.Account)
+				return got.Token, nil
+			case status == remote.DeviceApproved:
+				fmt.Fprintf(out, "approved: this machine is %s\n", got.Name)
+				return got.Token, nil
+			case status == remote.DeviceDenied:
+				return "", errors.New("the machine was turned away in the dashboard")
+			case status == remote.DeviceGone:
+				return "", errors.New("the code expired: run the command again for a new one")
+			}
+		case <-expired:
+			return "", errors.New("the code expired: run the command again for a new one")
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+// typedLine hands over the first line typed that is not blank, and closes when the input ends without one.
+func typedLine(in io.Reader) <-chan string {
+	lines := make(chan string, 1)
+	go func() {
+		defer close(lines)
+		scan := bufio.NewScanner(in)
+		for scan.Scan() {
+			if line := strings.TrimSpace(scan.Text()); line != "" {
+				lines <- line
+				return
+			}
+		}
+	}()
+	return lines
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // syncBrain pulls from and pushes to the server, as asked, and lists the conflicts left.

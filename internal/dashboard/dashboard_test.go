@@ -73,7 +73,7 @@ func setup(t *testing.T) (*remote.Store, browser, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{})
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, remote.NewDevices())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestEachTokenSignsInToItsBrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{})
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, remote.NewDevices())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestWebhooksPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"})
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"}, remote.NewDevices())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestWebhooksPageOfASingleBrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"})
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"}, remote.NewDevices())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,5 +368,71 @@ func TestWebhooksPageOfASingleBrain(t *testing.T) {
 	_, body := b.get("/webhooks")
 	if !strings.Contains(body, srv.URL+"/hooks/github") || !strings.Contains(body, "<code>WONG_GITHUB_SECRET</code>") || strings.Contains(body, `action="/webhooks/github"`) || !strings.Contains(body, `action="/webhooks/linear"`) {
 		t.Errorf("a single brain's webhooks page:\n%s", body)
+	}
+}
+
+func TestConnectAMachine(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices := remote.NewDevices()
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}, devices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+
+	if code, body := b.post("/device", url.Values{"code": {"BCDF-GHJK"}, "do": {"find"}}, srv.URL); code != http.StatusNotFound || !strings.Contains(body, "No machine is waiting") {
+		t.Errorf("an unknown code: %d", code)
+	}
+	secret, code, err := devices.Ask("browser", "192.0.2.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed := strings.ToLower(remote.ShowCode(code))
+	_, body := b.post("/device", url.Values{"code": {typed}, "do": {"find"}}, srv.URL)
+	if !strings.Contains(body, "192.0.2.7") || !strings.Contains(body, "already has a token") || !strings.Contains(body, "Connect and replace") {
+		t.Fatalf("a machine asking for a name in use:\n%s", body)
+	}
+	_, body = b.post("/device", url.Values{"code": {typed}, "do": {"approve"}, "name": {"browser"}}, srv.URL)
+	if !strings.Contains(body, "Connect and replace") {
+		t.Error("a name in use was replaced without saying so")
+	}
+	if status, _, _, _ := devices.Poll(secret); status != remote.DeviceWaiting {
+		t.Errorf("the machine was let in before replacing was confirmed: %v", status)
+	}
+	if _, body := b.post("/device", url.Values{"code": {typed}, "do": {"approve"}, "name": {"Work Laptop"}}, srv.URL); !strings.Contains(body, "Connected. work-laptop carries on") {
+		t.Errorf("approve:\n%s", body)
+	}
+	if status, _, token, _ := devices.Poll(secret); status != remote.DeviceApproved || token == "" {
+		t.Errorf("the machine got no token: %v", status)
+	}
+
+	_, other, _ := devices.Ask("phone", "192.0.2.8")
+	if _, body := b.post("/device", url.Values{"code": {other}, "do": {"deny"}}, srv.URL); !strings.Contains(body, "Turned away") {
+		t.Error("deny")
+	}
+	if code, _ := b.post("/device", url.Values{"code": {other}, "do": {"approve"}, "name": {"phone"}}, "https://evil.example"); code != http.StatusForbidden {
+		t.Errorf("a cross-site approval: %d", code)
+	}
+
+	_, last, _ := devices.Ask("tablet", "192.0.2.9")
+	for range maxWrongCodes - 1 {
+		b.post("/device", url.Values{"code": {"BCDF-BCDF"}, "do": {"find"}}, srv.URL)
+	}
+	if code, body := b.post("/device", url.Values{"code": {last}, "do": {"find"}}, srv.URL); code != http.StatusTooManyRequests || strings.Contains(body, "192.0.2.9") {
+		t.Errorf("a code after too many wrong ones: %d", code)
 	}
 }

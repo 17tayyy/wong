@@ -22,8 +22,9 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 		Use:   "setup [server-url]",
 		Short: "Make the brain this machine's memory, connected to a wong server or on its own",
 		Long: "Make the brain this machine's memory, in one go:\n\n" +
-			"  1. with a server, saves it and this machine's token, made on the server with\n" +
-			"     wong serve --new-token <name> and pasted when asked or read from stdin,\n" +
+			"  1. with a server, connects this machine: it shows a code to enter in the\n" +
+			"     dashboard, in a browser signed in to wong, or takes a token made on the\n" +
+			"     server with wong serve --new-token <name>, pasted or read from stdin;\n" +
 			"     then pulls the brain, which is empty until the first machine pushes;\n" +
 			"  2. imports this machine's Claude Code memory into it, as wong import does;\n" +
 			"  3. with a server, pushes it, so the server holds the memory of every machine;\n" +

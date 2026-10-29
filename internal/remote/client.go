@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,29 +50,87 @@ func (c *Client) ReportFindings(ctx context.Context, project string, findings []
 	return c.do(ctx, http.MethodPost, "/api/findings", findingsRequest{Project: project, Findings: findings}, &struct{}{})
 }
 
+// ErrNoDevices marks a server too old to let machines in by approving a code.
+var ErrNoDevices = errors.New("the server takes tokens only")
+
+// AskDevice asks the server to let this machine in once someone signed in approves the code it returns.
+func (c *Client) AskDevice(ctx context.Context, name string) (DeviceStart, error) {
+	var out DeviceStart
+	resp, err := c.send(ctx, http.MethodPost, "/api/device", deviceAsk{Name: name})
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		err = json.NewDecoder(resp.Body).Decode(&out)
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		err = ErrNoDevices
+	default:
+		err = failed(resp)
+	}
+	return out, err
+}
+
+// PollDevice asks whether the machine was approved, and returns its token once it was.
+func (c *Client) PollDevice(ctx context.Context, secret string) (DeviceStatus, DeviceToken, error) {
+	var out DeviceToken
+	resp, err := c.send(ctx, http.MethodPost, "/api/device/token", devicePoll{Secret: secret})
+	if err != nil {
+		return DeviceGone, out, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return DeviceWaiting, out, nil
+	case http.StatusForbidden:
+		return DeviceDenied, out, nil
+	case http.StatusGone:
+		return DeviceGone, out, nil
+	case http.StatusOK:
+		err := json.NewDecoder(resp.Body).Decode(&out)
+		return DeviceApproved, out, err
+	}
+	return DeviceGone, out, failed(resp)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	resp, err := c.send(ctx, method, path, in)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return failed(resp)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (c *Client) send(ctx context.Context, method, path string, in any) (*http.Response, error) {
 	var body io.Reader
 	if in != nil {
 		data, err := json.Marshal(in)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body = bytes.NewReader(data)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("wong server: %w", err)
+		return nil, fmt.Errorf("wong server: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("wong server: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return resp, nil
+}
+
+func failed(resp *http.Response) error {
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return fmt.Errorf("wong server: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
 }

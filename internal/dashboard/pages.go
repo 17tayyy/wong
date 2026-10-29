@@ -59,6 +59,8 @@ type page struct {
 	Older  int64
 	Skills []skillRow
 	Hooks  []hookView
+	Device *remote.Device
+	Taken  bool
 
 	Form    newNote
 	Folders []string

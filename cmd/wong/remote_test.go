@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/17tayyy/wong/internal/remote"
 )
@@ -152,4 +157,79 @@ func TestServeAccountTokens(t *testing.T) {
 	if out, err := run(t, "serve", "--accounts", dir, "--account", "bob", "--tokens"); err != nil || strings.Contains(out, "alice") {
 		t.Errorf("tokens of one account: %v\n%s", err, out)
 	}
+}
+
+func TestApprovedToken(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	devices := remote.NewDevices()
+	devices.PollEvery = time.Second
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	root := http.NewServeMux()
+	root.Handle("/api/", remote.Handler(store, log, remote.Webhooks{}))
+	root.Handle("/api/device", remote.DeviceHandler(devices, log))
+	root.Handle("/api/device/", remote.DeviceHandler(devices, log))
+	srv := httptest.NewServer(root)
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	var out lockedBuffer
+	done := make(chan struct{})
+	var token string
+	go func() {
+		defer close(done)
+		token, err = approvedToken(ctx, remote.NewClient(srv.URL, "", 5*time.Second), "Laptop.local", &out, make(chan string))
+	}()
+	var code string
+	for range 100 {
+		if _, after, ok := strings.Cut(out.String(), "enter\n\n    "); ok {
+			code, _, _ = strings.Cut(after, "\n")
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), srv.URL+"/device") || !devices.Approve(code, store, "laptop") {
+		t.Fatalf("no code to approve was shown:\n%s", out.String())
+	}
+	<-done
+	if s, _ := store.Auth(token); err != nil || s.Machine != "laptop" {
+		t.Fatalf("approvedToken = %v; the token opens %+v", err, s)
+	}
+	if !strings.Contains(out.String(), "approved: this machine is laptop\n") {
+		t.Errorf("the machine was not told its name:\n%s", out.String())
+	}
+
+	typed := make(chan string, 1)
+	typed <- "wong_pasted"
+	if token, err := approvedToken(ctx, remote.NewClient(srv.URL, "", 5*time.Second), "laptop", io.Discard, typed); err != nil || token != "wong_pasted" {
+		t.Errorf("a pasted token: %q, %v", token, err)
+	}
+
+	old := httptest.NewServer(remote.Handler(store, log, remote.Webhooks{}))
+	t.Cleanup(old.Close)
+	out = lockedBuffer{}
+	typed <- "wong_pasted"
+	if token, err := approvedToken(ctx, remote.NewClient(old.URL, "", 5*time.Second), "laptop", &out, typed); err != nil || token != "wong_pasted" || !strings.Contains(out.String(), "Token for this machine") {
+		t.Errorf("a server without approvals: %q, %v\n%s", token, err, out.String())
+	}
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
