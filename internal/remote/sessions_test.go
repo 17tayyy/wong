@@ -122,6 +122,12 @@ func TestAdminMakesAccountsAndSignsPeopleIn(t *testing.T) {
 	if code, _ := call(srv.URL, http.MethodPut, "/admin/accounts/Alice_1", "admin-secret"); code != http.StatusBadRequest {
 		t.Errorf("an invalid account: %d", code)
 	}
+	if code, body := call(srv.URL, http.MethodGet, "/admin/accounts", "admin-secret"); code != http.StatusOK || !strings.Contains(body, `{"account":"alice","size":`) {
+		t.Errorf("list accounts: %d %s", code, body)
+	}
+	if code, _ := call(srv.URL, http.MethodGet, "/admin/accounts", "guess"); code != http.StatusNotFound {
+		t.Errorf("list accounts with a wrong token: %d", code)
+	}
 	code, body := call(srv.URL, http.MethodPost, "/admin/accounts/alice/signin", "admin-secret")
 	var link SignInLink
 	json.Unmarshal([]byte(body), &link)

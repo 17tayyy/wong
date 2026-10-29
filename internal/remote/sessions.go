@@ -142,14 +142,17 @@ type adminAccount struct {
 	Created bool   `json:"created"`
 }
 
-// AdminHandler lets a sign-up service, such as wong cloud's, make accounts and sign people in to them.
+// AdminHandler lets a sign-up service, such as wong cloud's, make accounts, sign people in to them and see how they are.
 // It holds the admin token; with none, it answers nothing.
 func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
+	admitted := func(r *http.Request) bool {
+		token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		return adminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) == 1
+	}
 	admin := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if adminToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+			if !admitted(r) {
 				http.NotFound(w, r)
 				return
 			}
@@ -177,6 +180,21 @@ func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog
 		}
 		writeJSON(w, adminAccount{Account: account})
 	}))
+	mux.HandleFunc("GET /admin/accounts", func(w http.ResponseWriter, r *http.Request) {
+		if !admitted(r) {
+			http.NotFound(w, r)
+			return
+		}
+		accounts, err := folder.Accounts()
+		if err != nil {
+			log.Error("admin", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, struct {
+			Accounts []AccountInfo `json:"accounts"`
+		}{accounts})
+	})
 	mux.HandleFunc("POST /admin/accounts/{account}/signin", admin(func(w http.ResponseWriter, r *http.Request) {
 		store, err := folder.Store(r.PathValue("account"))
 		if errors.Is(err, ErrNoAccount) {

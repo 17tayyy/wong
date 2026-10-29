@@ -51,7 +51,8 @@ func newServeCmd() *cobra.Command {
 			"signed in; a token, such as one made with --new-token browser, signs in too.\n\n" +
 			"With --accounts and WONG_ADMIN_TOKEN set, a sign-up service can create accounts\n" +
 			"and sign people in to them: PUT /admin/accounts/<id>, and POST\n" +
-			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer.\n" +
+			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer;\n" +
+			"GET /admin/accounts lists every account with its size and last change.\n" +
 			"--sign-in-url sends people without a token to the service's sign-in page.\n\n" +
 			"--max-size, --max-file and --max-requests bound what each brain may take: its\n" +
 			"size on disk with its history, the size of one file, and API requests a minute.",

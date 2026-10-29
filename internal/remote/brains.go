@@ -150,6 +150,37 @@ func (f *Folder) SetLimits(l Limits) {
 	}
 }
 
+// AccountInfo is what a sign-up or monitoring service needs to know of an account.
+type AccountInfo struct {
+	Account    string `json:"account"`
+	Size       int64  `json:"size"`
+	LastChange string `json:"last_change,omitempty"`
+}
+
+// Accounts lists the folder's accounts with the room each takes and when it last changed.
+func (f *Folder) Accounts() ([]AccountInfo, error) {
+	ids, err := f.IDs()
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]AccountInfo, 0, len(ids))
+	for _, id := range ids {
+		s, err := f.Store(id)
+		if err != nil {
+			return nil, err
+		}
+		info := AccountInfo{Account: id}
+		if info.Size, err = s.Size(); err != nil {
+			return nil, err
+		}
+		if info.LastChange, err = s.LastChange(); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, info)
+	}
+	return accounts, nil
+}
+
 // IDs lists the folder's accounts.
 func (f *Folder) IDs() ([]string, error) {
 	entries, err := os.ReadDir(f.dir)

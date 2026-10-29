@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -32,6 +33,13 @@ func (s *Store) Size() (int64, error) {
 		return 0, err
 	}
 	return pages * size, nil
+}
+
+// LastChange is when a file of the brain last changed, "" when none ever did.
+func (s *Store) LastChange() (string, error) {
+	var at sql.NullString
+	err := s.db.QueryRow(`SELECT MAX(created_at) FROM history`).Scan(&at)
+	return at.String, err
 }
 
 // room refuses changes with a file larger than a file may be, or that would grow the brain past its size.
