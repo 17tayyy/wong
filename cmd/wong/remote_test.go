@@ -125,3 +125,31 @@ func TestServeTokens(t *testing.T) {
 		t.Errorf("--tls-cert without --tls-key: %v", err)
 	}
 }
+
+func TestServeAccountTokens(t *testing.T) {
+	dir := t.TempDir()
+	for _, a := range [][2]string{{"alice", "laptop"}, {"alice", "desktop"}, {"bob", "laptop"}} {
+		if out, err := run(t, "serve", "--accounts", dir, "--account", a[0], "--new-token", a[1]); err != nil || !strings.Contains(out, "wong_"+a[0]+"_") {
+			t.Fatalf("new token for %s: %v\n%s", a[0], err, out)
+		}
+	}
+	if _, err := run(t, "serve", "--accounts", dir, "--new-token", "phone"); err == nil || !strings.Contains(err.Error(), "--account <id>") {
+		t.Errorf("a token without an account: %v", err)
+	}
+	if _, err := run(t, "serve", "--accounts", dir, "--account", "carol", "--revoke-token", "laptop"); err == nil || !strings.Contains(err.Error(), "no such account") {
+		t.Errorf("revoking in an account the folder lacks: %v", err)
+	}
+	if _, err := run(t, "serve", "--account", "alice", "--tokens"); err == nil || !strings.Contains(err.Error(), "goes with --accounts") {
+		t.Errorf("--account without --accounts: %v", err)
+	}
+	if out, err := run(t, "serve", "--accounts", dir, "--account", "alice", "--revoke-token", "laptop"); err != nil || out != "revoked the token of laptop\n" {
+		t.Errorf("revoke: %v\n%s", err, out)
+	}
+	out, err := run(t, "serve", "--accounts", dir, "--tokens")
+	if err != nil || !strings.Contains(out, "ACCOUNT") || strings.Count(out, "\n") != 3 || !strings.Contains(out, "alice    desktop") || !strings.Contains(out, "bob      laptop") {
+		t.Errorf("tokens of every account: %v\n%s", err, out)
+	}
+	if out, err := run(t, "serve", "--accounts", dir, "--account", "bob", "--tokens"); err != nil || strings.Contains(out, "alice") {
+		t.Errorf("tokens of one account: %v\n%s", err, out)
+	}
+}

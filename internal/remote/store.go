@@ -93,6 +93,7 @@ var ErrBadPush = errors.New("bad push")
 
 type Store struct {
 	db *sql.DB
+	id string
 }
 
 func Open(file string) (*Store, error) {
@@ -242,12 +243,16 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 }
 
 // NewToken creates a token for a machine or person and returns it; only its hash is stored.
+// In a Folder, tokens name their account, so the server knows which brain they open.
 func (s *Store) NewToken(name string) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	token := "wong_" + hex.EncodeToString(raw)
+	if s.id != "" {
+		token = "wong_" + s.id + "_" + hex.EncodeToString(raw)
+	}
 	_, err := s.db.Exec(`INSERT INTO tokens (name, hash, created_at) VALUES (?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET hash = excluded.hash, created_at = excluded.created_at, last_used = ''`,
 		name, Sha([]byte(token)), time.Now().UTC().Format(time.RFC3339))

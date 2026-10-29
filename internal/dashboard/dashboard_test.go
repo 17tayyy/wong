@@ -244,3 +244,44 @@ func TestGraph(t *testing.T) {
 		t.Error("a note without links got a local graph")
 	}
 }
+
+func TestEachTokenSignsInToItsBrain(t *testing.T) {
+	folder, err := remote.OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	tokens := map[string]string{}
+	for brain, name := range map[string]string{"alice": "deploy-runbook", "bob": "use-uv"} {
+		store, _, err := folder.Create(brain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := "---\nname: " + name + "\ndescription: A note of " + brain + "\nkind: reference\nscope: global\n---\nBody.\n"
+		if _, _, err := store.Apply("desktop", []remote.Upload{{Path: "me/" + name + ".md", Sha: remote.Sha([]byte(content)), Content: []byte(content)}}); err != nil {
+			t.Fatal(err)
+		}
+		if tokens[brain], err = store.NewToken("browser"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+
+	code, body := b.post("/login", url.Values{"token": {tokens["bob"]}}, srv.URL)
+	if code != http.StatusOK || !strings.Contains(body, "use-uv") || strings.Contains(body, "deploy-runbook") {
+		t.Fatalf("bob's library shows another brain or none: %d", code)
+	}
+	if !strings.Contains(body, `<span class="ws-host">bob</span>`) {
+		t.Error("the sidebar does not name the brain")
+	}
+	if _, body := b.get("/notes/me/deploy-runbook.md"); strings.Contains(body, "A note of alice") {
+		t.Error("bob's session opened a note of alice's brain")
+	}
+}

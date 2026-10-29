@@ -151,6 +151,9 @@ var snacks = map[string]string{
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
 	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host}
+	if d.account != "" {
+		p.Server = d.account
+	}
 	q := r.URL.Query()
 	if format, ok := snacks[q.Get("done")]; ok {
 		p.Snack = &snack{Text: format}

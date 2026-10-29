@@ -24,7 +24,7 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, addr, newToken, revoke, certFile, keyFile string
+	var db, dir, account, addr, newToken, revoke, certFile, keyFile string
 	var list bool
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -33,6 +33,11 @@ func newServeCmd() *cobra.Command {
 			"Every file of the brain is stored with its history in a SQLite database. Each\n" +
 			"machine uses its own token: create one with --new-token <name>, see them with\n" +
 			"--tokens and revoke a lost machine's with --revoke-token <name>.\n\n" +
+			"One server can keep a brain for each person or team: with --accounts <dir>, the\n" +
+			"brain of each account is a SQLite file in that folder, and its tokens open it\n" +
+			"alone, in the API, the dashboard and MCP. --account <id> --new-token <name>\n" +
+			"creates the account with its first token; machines connect with it as to any\n" +
+			"other server.\n\n" +
 			"Webhooks leave tasks on the notes they make outdated: POST /hooks/github (push\n" +
 			"events) with WONG_GITHUB_SECRET set, and POST /hooks/linear (issue events) with\n" +
 			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.\n" +
@@ -45,50 +50,45 @@ func newServeCmd() *cobra.Command {
 			if (certFile == "") != (keyFile == "") {
 				return errors.New("--tls-cert and --tls-key go together")
 			}
-			store, err := remote.Open(db)
-			if err != nil {
-				return err
+			if account != "" && dir == "" {
+				return errors.New("--account goes with --accounts")
 			}
-			defer store.Close()
-			out := cmd.OutOrStdout()
-			switch {
-			case newToken != "":
-				token, err := store.NewToken(newToken)
+			var brains remote.Brains
+			var done bool
+			if dir == "" {
+				store, err := remote.Open(db)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(out, token)
-				return nil
-			case revoke != "":
-				found, err := store.RevokeToken(revoke)
+				defer store.Close()
+				if done, err = tokenCmds(cmd, store, newToken, revoke, list); done || err != nil {
+					return err
+				}
+				brains = store
+			} else {
+				folder, err := remote.OpenFolder(dir)
 				if err != nil {
 					return err
 				}
-				if !found {
-					return fmt.Errorf("no token named %q", revoke)
-				}
-				fmt.Fprintf(out, "revoked the token of %s\n", revoke)
-				return nil
-			case list:
-				tokens, err := store.Tokens()
-				if err != nil {
+				defer folder.Close()
+				if done, err = folderTokenCmds(cmd, folder, account, newToken, revoke, list); done || err != nil {
 					return err
 				}
-				return printTokens(out, tokens)
+				brains = folder
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
-			api := remote.Handler(store, log, hooks)
-			web, err := dashboard.Handler(store, log)
+			api := remote.Handler(brains, log, hooks)
+			web, err := dashboard.Handler(brains, log)
 			if err != nil {
 				return err
 			}
 			root := http.NewServeMux()
 			root.Handle("/api/", api)
 			root.Handle("/hooks/", api)
-			root.Handle("/mcp", mcp.Handler(store, log, version()))
+			root.Handle("/mcp", mcp.Handler(brains, log, version()))
 			root.Handle("/", web)
 			srv := &http.Server{
 				Addr:              addr,
@@ -104,7 +104,11 @@ func newServeCmd() *cobra.Command {
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
 			}()
-			log.Info("serving", "addr", addr, "db", db, "tls", certFile != "", "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != "")
+			where := []any{"db", db, "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != ""}
+			if dir != "" {
+				where = []any{"accounts", dir}
+			}
+			log.Info("serving", append(where, "addr", addr, "tls", certFile != "")...)
 			if certFile != "" {
 				err = srv.ListenAndServeTLS(certFile, keyFile)
 			} else {
@@ -117,6 +121,8 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&db, "db", "wong.db", "SQLite database file")
+	cmd.Flags().StringVar(&dir, "accounts", "", "keep a brain for each account, one SQLite file each, in this folder")
+	cmd.Flags().StringVar(&account, "account", "", "with --accounts: the account whose tokens --new-token, --tokens and --revoke-token act on")
 	cmd.Flags().StringVar(&addr, "addr", ":8787", "address to listen on")
 	cmd.Flags().StringVar(&newToken, "new-token", "", "create a token for this machine name, print it and exit")
 	cmd.Flags().BoolVar(&list, "tokens", false, "list who has a token and when they last used it, and exit")
@@ -124,20 +130,103 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&certFile, "tls-cert", "", "serve https with this certificate file")
 	cmd.Flags().StringVar(&keyFile, "tls-key", "", "and this key file")
 	cmd.MarkFlagsMutuallyExclusive("new-token", "tokens", "revoke-token")
+	cmd.MarkFlagsMutuallyExclusive("db", "accounts")
 	return cmd
+}
+
+// tokenCmds runs --new-token, --revoke-token or --tokens on a brain, and reports whether one was asked for.
+func tokenCmds(cmd *cobra.Command, store *remote.Store, newToken, revoke string, list bool) (bool, error) {
+	out := cmd.OutOrStdout()
+	switch {
+	case newToken != "":
+		token, err := store.NewToken(newToken)
+		if err != nil {
+			return true, err
+		}
+		fmt.Fprintln(out, token)
+	case revoke != "":
+		found, err := store.RevokeToken(revoke)
+		if err != nil {
+			return true, err
+		}
+		if !found {
+			return true, fmt.Errorf("no token named %q", revoke)
+		}
+		fmt.Fprintf(out, "revoked the token of %s\n", revoke)
+	case list:
+		tokens, err := store.Tokens()
+		if err != nil {
+			return true, err
+		}
+		return true, printTokens(out, tokens)
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+// folderTokenCmds is tokenCmds on an account of a folder: --new-token creates the account, and --tokens lists every account's without --account.
+func folderTokenCmds(cmd *cobra.Command, folder *remote.Folder, account, newToken, revoke string, list bool) (bool, error) {
+	switch {
+	case (newToken != "" || revoke != "") && account == "":
+		return true, errors.New("with --accounts, say which account with --account <id>")
+	case newToken != "":
+		store, created, err := folder.Create(account)
+		if err != nil {
+			return true, err
+		}
+		if created {
+			fmt.Fprintf(cmd.ErrOrStderr(), "created the account %s\n", account)
+		}
+		return tokenCmds(cmd, store, newToken, "", false)
+	case revoke != "":
+		store, err := folder.Store(account)
+		if err != nil {
+			return true, err
+		}
+		return tokenCmds(cmd, store, "", revoke, false)
+	case list:
+		ids := []string{account}
+		if account == "" {
+			var err error
+			if ids, err = folder.IDs(); err != nil {
+				return true, err
+			}
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ACCOUNT\tNAME\tCREATED\tLAST USED")
+		for _, id := range ids {
+			store, err := folder.Store(id)
+			if err != nil {
+				return true, err
+			}
+			tokens, err := store.Tokens()
+			if err != nil {
+				return true, err
+			}
+			for _, t := range tokens {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, t.Name, t.Created, lastUsed(t))
+			}
+		}
+		return true, w.Flush()
+	}
+	return false, nil
 }
 
 func printTokens(out io.Writer, tokens []remote.TokenInfo) error {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tCREATED\tLAST USED")
 	for _, t := range tokens {
-		last := t.LastUsed
-		if last == "" {
-			last = "never"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.Created, last)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", t.Name, t.Created, lastUsed(t))
 	}
 	return w.Flush()
+}
+
+func lastUsed(t remote.TokenInfo) string {
+	if t.LastUsed == "" {
+		return "never"
+	}
+	return t.LastUsed
 }
 
 func newRemoteCmd() *cobra.Command {

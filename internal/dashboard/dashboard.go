@@ -26,15 +26,18 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// Dashboard serves the brains a server keeps; each request sees the one its token opens, as store.
 type Dashboard struct {
-	store *remote.Store
-	log   *slog.Logger
-	pages map[string]*template.Template
+	brains  remote.Brains
+	store   *remote.Store
+	account string
+	log     *slog.Logger
+	pages   map[string]*template.Template
 }
 
 // Handler serves the dashboard; every page but the login asks for a machine token, kept in a cookie.
-func Handler(store *remote.Store, log *slog.Logger) (http.Handler, error) {
-	d := &Dashboard{store: store, log: log, pages: map[string]*template.Template{}}
+func Handler(brains remote.Brains, log *slog.Logger) (http.Handler, error) {
+	d := &Dashboard{brains: brains, log: log, pages: map[string]*template.Template{}}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html")
 	if err != nil {
 		return nil, err
@@ -50,46 +53,44 @@ func Handler(store *remote.Store, log *slog.Logger) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheFor(http.FileServerFS(static))))
-	mux.HandleFunc("POST /blocks/{path...}", d.session(d.saveBlock))
-	mux.HandleFunc("POST /description/{path...}", d.session(d.saveDescription))
-	mux.HandleFunc("POST /rename/{path...}", d.session(d.rename))
-	mux.HandleFunc("POST /move/{path...}", d.session(d.move))
-	mux.HandleFunc("POST /delete/{path...}", d.session(d.deleteNote))
-	mux.HandleFunc("POST /ops/{op}/undo", d.session(d.undoOp))
+	mux.HandleFunc("POST /blocks/{path...}", d.session((*Dashboard).saveBlock))
+	mux.HandleFunc("POST /description/{path...}", d.session((*Dashboard).saveDescription))
+	mux.HandleFunc("POST /rename/{path...}", d.session((*Dashboard).rename))
+	mux.HandleFunc("POST /move/{path...}", d.session((*Dashboard).move))
+	mux.HandleFunc("POST /delete/{path...}", d.session((*Dashboard).deleteNote))
+	mux.HandleFunc("POST /ops/{op}/undo", d.session((*Dashboard).undoOp))
 	mux.HandleFunc("GET /login", d.login)
 	mux.HandleFunc("POST /login", d.loginSubmit)
 	mux.HandleFunc("POST /logout", d.logout)
-	mux.HandleFunc("GET /{$}", d.session(d.library))
-	mux.HandleFunc("GET /notes/{path...}", d.session(d.note))
-	mux.HandleFunc("POST /notes/{path...}", d.session(d.save))
-	mux.HandleFunc("GET /edit/{path...}", d.session(d.edit))
-	mux.HandleFunc("GET /new", d.session(d.newForm))
-	mux.HandleFunc("POST /new", d.session(d.create))
-	mux.HandleFunc("GET /graph", d.session(d.graph))
-	mux.HandleFunc("GET /corrections", d.session(d.corrections))
-	mux.HandleFunc("GET /history", d.session(d.history))
-	mux.HandleFunc("GET /changes/{seq}", d.session(d.change))
-	mux.HandleFunc("POST /changes/{seq}/undo", d.session(d.undo))
-	mux.HandleFunc("POST /changes/{seq}/restore", d.session(d.restore))
-	mux.HandleFunc("GET /skills", d.session(d.skills))
+	mux.HandleFunc("GET /{$}", d.session((*Dashboard).library))
+	mux.HandleFunc("GET /notes/{path...}", d.session((*Dashboard).note))
+	mux.HandleFunc("POST /notes/{path...}", d.session((*Dashboard).save))
+	mux.HandleFunc("GET /edit/{path...}", d.session((*Dashboard).edit))
+	mux.HandleFunc("GET /new", d.session((*Dashboard).newForm))
+	mux.HandleFunc("POST /new", d.session((*Dashboard).create))
+	mux.HandleFunc("GET /graph", d.session((*Dashboard).graph))
+	mux.HandleFunc("GET /corrections", d.session((*Dashboard).corrections))
+	mux.HandleFunc("GET /history", d.session((*Dashboard).history))
+	mux.HandleFunc("GET /changes/{seq}", d.session((*Dashboard).change))
+	mux.HandleFunc("POST /changes/{seq}/undo", d.session((*Dashboard).undo))
+	mux.HandleFunc("POST /changes/{seq}/restore", d.session((*Dashboard).restore))
+	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
 	return securityHeaders(mux), nil
 }
 
-type handler func(w http.ResponseWriter, r *http.Request, machine string)
+type handler func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string)
 
-// session lets a request through when its cookie holds a known token, and refuses cross-site form posts.
+// session lets a request through to the brain its cookie's token opens, and refuses cross-site form posts.
 func (d *Dashboard) session(next handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var machine string
+		var s remote.Session
 		if c, err := r.Cookie(cookieName); err == nil {
-			m, err := d.store.Machine(c.Value)
-			if err != nil {
+			if s, err = d.brains.Auth(c.Value); err != nil {
 				d.fail(w, err)
 				return
 			}
-			machine = m
 		}
-		if machine == "" {
+		if s.Store == nil {
 			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 			return
 		}
@@ -97,7 +98,7 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
-		next(w, r, machine)
+		next(&Dashboard{brains: d.brains, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
 	}
 }
 
@@ -121,12 +122,12 @@ func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	token := strings.TrimSpace(r.FormValue("token"))
 	next := safeNext(r.FormValue("next"))
-	machine, err := d.store.Machine(token)
+	s, err := d.brains.Auth(token)
 	if err != nil {
 		d.fail(w, err)
 		return
 	}
-	if token == "" || machine == "" {
+	if token == "" || s.Store == nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		d.render(w, "login", page{Title: "Sign in", Next: next, Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
 		return

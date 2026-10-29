@@ -71,8 +71,9 @@ type response struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-// Server answers MCP requests for the machines that hold a token.
+// Server answers MCP requests for the machines that hold a token, each on the brain its token opens, as store.
 type Server struct {
+	brains  remote.Brains
 	store   *remote.Store
 	log     *slog.Logger
 	version string
@@ -80,8 +81,8 @@ type Server struct {
 }
 
 // Handler serves the MCP endpoint over Streamable HTTP to modern and legacy clients alike.
-func Handler(store *remote.Store, log *slog.Logger, version string) http.Handler {
-	return &Server{store: store, log: log, version: version, limits: &limiter{buckets: map[string]*bucket{}}}
+func Handler(brains remote.Brains, log *slog.Logger, version string) http.Handler {
+	return &Server{brains: brains, log: log, version: version, limits: &limiter{buckets: map[string]*bucket{}}}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -97,18 +98,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	machine, err := s.store.Machine(token)
+	session, err := s.brains.Auth(token)
 	if err != nil {
 		s.log.Error("mcp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if token == "" || machine == "" {
+	if token == "" || session.Store == nil {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="wong"`)
 		http.Error(w, "send a wong token: Authorization: Bearer <token>", http.StatusUnauthorized)
 		return
 	}
-	if !s.limits.allow(machine) {
+	if !s.limits.allow(session.Who()) {
 		w.Header().Set("Retry-After", "1")
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
@@ -134,11 +135,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	brain := &Server{brains: s.brains, store: session.Store, log: s.log, version: s.version, limits: s.limits}
 	if _, modern := p.Meta[metaVersion]; modern {
-		s.modern(w, r, machine, msg, p)
+		brain.modern(w, r, session.Machine, msg, p)
 		return
 	}
-	s.legacy(w, r, machine, msg, p)
+	brain.legacy(w, r, session.Machine, msg, p)
 }
 
 // modern serves a request that carries its protocol version, after checking the headers mirror its body.

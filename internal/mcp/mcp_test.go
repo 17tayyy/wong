@@ -299,3 +299,35 @@ func TestAgentsKeepTagsLinksAndNotesTidy(t *testing.T) {
 		t.Errorf("get_context does not list the tags:\n%s", text)
 	}
 }
+
+func TestEachTokenReachesItsBrain(t *testing.T) {
+	folder, err := remote.OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	tokens := map[string]string{}
+	for _, brain := range []string{"alice", "bob"} {
+		store, _, err := folder.Create(brain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if brain == "alice" {
+			if _, _, err := store.Apply("desktop", []remote.Upload{{Path: "projects/acme/deploy-runbook.md", Sha: remote.Sha([]byte(deploy)), Content: []byte(deploy)}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if tokens[brain], err = store.NewToken("codex"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := httptest.NewServer(Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), "test"))
+	t.Cleanup(srv.Close)
+
+	if text, failed := (client{t, srv.URL, tokens["alice"]}).tool("read_note", `{"note":"deploy-runbook"}`); failed || !strings.Contains(text, "Merge to `main`") {
+		t.Errorf("alice's token did not read her note:\n%s", text)
+	}
+	if text, failed := (client{t, srv.URL, tokens["bob"]}).tool("read_note", `{"note":"deploy-runbook"}`); !failed || strings.Contains(text, "Merge to `main`") {
+		t.Errorf("bob's token read alice's note:\n%s", text)
+	}
+}
