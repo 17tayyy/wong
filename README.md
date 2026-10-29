@@ -46,8 +46,11 @@ On any machine your others can reach:
 
 ```sh
 docker run -d --name wong --restart unless-stopped -p 8787:8787 -v wong:/data ghcr.io/17tayyy/wong
-docker exec wong /wong serve --new-token laptop    # one token per machine
+docker exec wong /wong serve --new-token browser    # signs you in to the dashboard
 ```
+
+Open the server's address in a browser and sign in with that token. Machines are let in
+from there.
 
 <details>
 <summary>With Docker Compose, or without Docker</summary>
@@ -78,8 +81,9 @@ On macOS or Linux, one line:
 curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787
 ```
 
-The script installs wong, asks for the token you made for this machine, and runs
-`wong setup`. That command:
+The script installs wong and runs `wong setup`, which shows a code. Enter it on the
+dashboard's **Connect a machine** page, and the machine gets a token of its own. Then
+`wong setup`:
 
 1. Pulls the brain from the server.
 2. Imports this machine's Claude Code memory and pushes it.
@@ -244,9 +248,14 @@ not "ENG-15 is in progress".
 
 ## The server
 
-Each machine has its own token. `wong serve --tokens` lists them, and
-`--revoke-token <name>` revokes a lost machine's. With Docker, run them as
-`docker exec wong /wong serve --tokens`.
+Each machine has its own token, which it gets when you let it in. `wong serve --tokens`
+lists them, and `--revoke-token <name>` revokes a lost machine's. With Docker, run them
+as `docker exec wong /wong serve --tokens`. A token piped to `wong setup <url>` or set in
+`WONG_TOKEN` connects a machine without the dashboard, for scripts.
+
+One server can keep a brain for each person or team: `wong serve --accounts <dir>` keeps
+each account's brain in a SQLite file of its own, and `--account <id> --new-token browser`
+creates an account. Its tokens open that brain alone, in the API, the dashboard and MCP.
 
 A note changed on two machines at once is never overwritten. The server's version goes
 to `~/.wong/.wong/conflicts`, and `wong resolve <path> --keep local|server` settles it.
@@ -257,12 +266,13 @@ http to an address on your own network.
 
 ### Dashboard
 
-Open the server's address in a browser and sign in with a token, for example one made
-with `--new-token browser`. You can:
+Open the server's address in a browser and sign in with a token, or run `wong open` on a
+connected machine to open it signed in. You can:
 
 - read and edit notes in place, then rename, move or delete them;
 - undo any change, and see what every machine and agent changed;
-- browse the brain as a graph, coloured by project, kind or tag.
+- browse the brain as a graph, coloured by project, kind or tag;
+- let machines in, and set up the webhooks.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/note-dark.png">
@@ -274,17 +284,19 @@ with `--new-token browser`. You can:
 Webhooks turn changes elsewhere into tasks on the notes they affect. Each task closes by
 itself once the fixed note reaches the server.
 
-- **GitHub:** `POST /hooks/github` for push events, with `WONG_GITHUB_SECRET` set on the
-  server. A task is left by a push to the default branch that removes a file a note
-  cites. A new `v*` tag or a push to the main branch also leaves one on the notes marked
-  `pending` for it.
-- **Linear:** `POST /hooks/linear` for issue events, with `WONG_LINEAR_SECRET` set. An
-  issue that a note cites leaves a task when it is completed or canceled.
+- **GitHub:** push events at `/hooks/github`. A task is left by a push to the default
+  branch that removes a file a note cites. A new `v*` tag or a push to the main branch
+  also leaves one on the notes marked `pending` for it.
+- **Linear:** issue events at `/hooks/linear`. An issue that a note cites leaves a task
+  when it is completed or canceled.
 
-With Docker, pass them with `-e`, or under `environment:` in `compose.yaml`. The plugin records
-which GitHub repo belongs to which project. Only `/hooks/*` needs to be reachable from
-the internet. To check Linear issues locally with `wong check`, set
-`LINEAR_API_KEY` to a personal API key.
+The dashboard's **Webhooks** page shows each URL and the events to pick, makes a secret
+for GitHub and keeps the one Linear shows. `WONG_GITHUB_SECRET` and `WONG_LINEAR_SECRET`
+on the server set them too. With `--accounts`, each account has its own, at
+`/hooks/<account>/github` and `/hooks/<account>/linear`. The plugin records which GitHub
+repo belongs to which project. Only `/hooks/*` needs to be reachable from the internet.
+To check Linear issues locally with `wong check`, set `LINEAR_API_KEY` to a personal API
+key.
 
 ### MCP
 
@@ -328,6 +340,7 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 | `wong skills save` | Record where your skills come from, and keep the ones that have no source |
 | `wong serve` | Run the server |
 | `wong remote`, `pull`, `push`, `sync`, `resolve` | Sync with the server |
+| `wong open` | Open the dashboard in a browser, signed in |
 | `wong tasks` | List the tasks that webhooks left |
 | `wong mcp` | Serve the brain over MCP on stdio |
 | `wong obsidian export/import` | Move notes between the brain and an Obsidian vault |
