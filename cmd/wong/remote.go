@@ -109,12 +109,16 @@ func newServeCmd() *cobra.Command {
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
 			}()
-			where := []any{"db", db}
-			if dir != "" {
-				where = []any{"accounts", dir}
-				if hooks != (remote.Webhooks{}) {
-					log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
+			where := []any{"accounts", dir}
+			if store, ok := brains.(*remote.Store); ok {
+				where = []any{"db", db}
+				env := map[string]string{"github": hooks.GitHubSecret, "linear": hooks.LinearSecret}
+				for _, hook := range remote.Hooks {
+					secret, _ := store.HookSecret(hook)
+					where = append(where, hook+"_hook", env[hook] != "" || secret != "")
 				}
+			} else if hooks != (remote.Webhooks{}) {
+				log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
 			}
 			log.Info("serving", append(where, "addr", addr, "tls", certFile != "")...)
 			if certFile != "" {
