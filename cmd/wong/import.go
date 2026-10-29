@@ -20,59 +20,65 @@ func newImportCmd(home string, brain *string) *cobra.Command {
 		Use:   "import",
 		Short: "Import Claude Code's memory folders into the brain",
 		Long: "Import Claude Code's memory folders into the brain.\n\n" +
-			"Repos that share a parent directory become one project (~/acme/* -> acme),\n" +
-			"a repo directly under home is its own project, and home itself goes to me/.\n" +
+			"Repos that share a parent directory become one project (~/acme/* -> acme), unless\n" +
+			"it is a folder of unrelated repos such as ~/code or ~/projects; a repo directly\n" +
+			"under home is its own project, and home itself goes to me/.\n" +
 			"Run it again to bring what changed in Claude Code since: notes the brain has not\n" +
 			"touched are updated, notes changed in the brain are kept, and notes changed on both\n" +
 			"sides are reported. Nothing in ~/.claude is changed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			overrides, err := parseMaps(maps)
-			if err != nil {
-				return err
-			}
-			sources, err := importer.Plan(from, home, overrides)
-			if err != nil {
-				return err
-			}
-			out := cmd.OutOrStdout()
-			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			for _, s := range sources {
-				path := s.Path
-				if path == "" {
-					path = s.Folder
-				}
-				fmt.Fprintf(w, "%s\t-> %s\t%s\n", path, s.Target, notes(len(s.Notes)))
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			res, err := importer.Apply(*brain, sources, dryRun)
-			for _, warning := range res.Warnings {
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
-			}
-			if err != nil {
-				return err
-			}
-			verb := "dry run: would import"
-			if !dryRun {
-				verb = "imported"
-				if err := recordRepos(sources); err != nil {
-					return err
-				}
-			}
-			fmt.Fprintf(out, "%s %s into %s: %d updated, %d unchanged, %d changed in the brain and kept\n",
-				verb, notes(res.Written), *brain, res.Updated, res.Unchanged, res.Kept)
-			for _, rel := range res.Conflicts {
-				fmt.Fprintf(cmd.ErrOrStderr(), "conflict: %s changed both in the brain and in Claude Code; left as it is\n", rel)
-			}
-			return nil
+			return runImport(cmd, home, *brain, from, maps, dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&from, "from", filepath.Join(home, ".claude", "projects"), "Claude Code projects directory")
 	cmd.Flags().StringArrayVar(&maps, "map", nil, "send a directory or memory folder to a project: PATH=ID (ID \"me\" for global notes)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the plan and check for conflicts without writing")
 	return cmd
+}
+
+// runImport imports the memory folders under from into brain, printing the plan and what happened.
+func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryRun bool) error {
+	overrides, err := parseMaps(maps)
+	if err != nil {
+		return err
+	}
+	sources, err := importer.Plan(from, home, overrides)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, s := range sources {
+		path := s.Path
+		if path == "" {
+			path = s.Folder
+		}
+		fmt.Fprintf(w, "%s\t-> %s\t%s\n", path, s.Target, notes(len(s.Notes)))
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	res, err := importer.Apply(brain, sources, dryRun)
+	for _, warning := range res.Warnings {
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+	}
+	if err != nil {
+		return err
+	}
+	verb := "dry run: would import"
+	if !dryRun {
+		verb = "imported"
+		if err := recordRepos(sources); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(out, "%s %s into %s: %d updated, %d unchanged, %d changed in the brain and kept\n",
+		verb, notes(res.Written), brain, res.Updated, res.Unchanged, res.Kept)
+	for _, rel := range res.Conflicts {
+		fmt.Fprintf(cmd.ErrOrStderr(), "conflict: %s changed both in the brain and in Claude Code; left as it is\n", rel)
+	}
+	return nil
 }
 
 func recordRepos(sources []importer.Source) error {

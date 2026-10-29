@@ -146,25 +146,69 @@ func newRemoteCmd() *cobra.Command {
 		Short: "Set this machine's wong server; the token is read from stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-			if err != nil && !errors.Is(err, io.EOF) {
-				return err
-			}
-			token := strings.TrimSpace(line)
-			if token == "" {
-				return errors.New("pass the token on stdin, e.g. wong remote <url> < token.txt")
-			}
-			path, err := remote.ConfigPath()
-			if err != nil {
-				return err
-			}
-			if err := remote.SaveConfig(path, remote.Config{URL: args[0], Token: token}); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "server set in %s\n", path)
-			return nil
+			_, err := setRemote(cmd, args[0])
+			return err
 		},
 	}
+}
+
+// setRemote saves the server at url with the token read from stdin, asking for it on a terminal.
+func setRemote(cmd *cobra.Command, url string) (*remote.Client, error) {
+	if err := remote.CheckURL(url); err != nil {
+		return nil, err
+	}
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		if info, err := f.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+			fmt.Fprint(cmd.ErrOrStderr(), "Token for this machine (on the server: wong serve --new-token <name>): ")
+		}
+	}
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	token := strings.TrimSpace(line)
+	if token == "" {
+		return nil, errors.New("pass the token on stdin, e.g. wong remote <url> < token.txt")
+	}
+	path, err := remote.ConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	if err := remote.SaveConfig(path, remote.Config{URL: url, Token: token}); err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "server set in %s\n", path)
+	return remote.NewClient(url, token, 30*time.Second), nil
+}
+
+// syncBrain pulls from and pushes to the server, as asked, and lists the conflicts left.
+func syncBrain(cmd *cobra.Command, client *remote.Client, brain string, pull, push bool) error {
+	out := cmd.OutOrStdout()
+	if pull {
+		res, err := remote.Pull(cmd.Context(), client, brain)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "pulled: %d updated, %d deleted\n", len(res.Updated), len(res.Deleted))
+	}
+	if push {
+		res, err := remote.Push(cmd.Context(), client, brain)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "pushed: %d\n", len(res.Pushed))
+	}
+	st, err := remote.LoadState(brain)
+	if err != nil {
+		return err
+	}
+	if len(st.Conflicts) > 0 {
+		fmt.Fprintf(out, "%d files changed both here and on the server; compare with %s and run wong resolve:\n", len(st.Conflicts), filepath.Join(brain, ".wong", "conflicts"))
+		for path := range st.Conflicts {
+			fmt.Fprintln(out, "  ", path)
+		}
+	}
+	return nil
 }
 
 func newSyncCmds(brain *string) []*cobra.Command {
@@ -174,32 +218,7 @@ func newSyncCmds(brain *string) []*cobra.Command {
 			if err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			if pull {
-				res, err := remote.Pull(cmd.Context(), client, *brain)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "pulled: %d updated, %d deleted\n", len(res.Updated), len(res.Deleted))
-			}
-			if push {
-				res, err := remote.Push(cmd.Context(), client, *brain)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(out, "pushed: %d\n", len(res.Pushed))
-			}
-			st, err := remote.LoadState(*brain)
-			if err != nil {
-				return err
-			}
-			if len(st.Conflicts) > 0 {
-				fmt.Fprintf(out, "%d files changed both here and on the server; compare with %s and run wong resolve:\n", len(st.Conflicts), filepath.Join(*brain, ".wong", "conflicts"))
-				for path := range st.Conflicts {
-					fmt.Fprintln(out, "  ", path)
-				}
-			}
-			return nil
+			return syncBrain(cmd, client, *brain, pull, push)
 		}
 	}
 	var keep string
