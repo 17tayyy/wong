@@ -70,7 +70,7 @@ func TestSessionStartInALinkedRepo(t *testing.T) {
 		`wong: this session's memory is the brain's project "acme" (~/.wong/projects/acme).`,
 		"the notes are in ~/.wong/me",
 		"- [Use uv](use-uv.md) — uv run, never pip",
-		"1 findings say notes of this project's memory contradict their sources",
+		"1 finding says notes of this project's memory contradict their sources",
 		"wong:maintain-brain",
 		"- projects/acme/a.md: [[gone]] links to a note that does not exist",
 	} {
@@ -275,7 +275,7 @@ func TestSessionStartPutsWorkLeftForADeployFirst(t *testing.T) {
 	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
 	deploy := strings.Index(got, "leave work for a deploy that has happened")
 	if deploy < 0 || !strings.Contains(got, "- projects/acme/prod-steps.md: acme-api released v1.0.0 on ") ||
-		strings.Count(got, "prod-steps") != 1 || deploy > strings.Index(got, "1 findings say") {
+		strings.Count(got, "prod-steps") != 1 || deploy > strings.Index(got, "1 finding says") {
 		t.Errorf("session start:\n%s", got)
 	}
 }

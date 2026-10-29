@@ -129,9 +129,13 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		}
 	}
 	if len(stale) > 0 {
-		fmt.Fprintf(&b, "\nwong check: %d findings say notes of this project's memory contradict their sources. "+
+		says := fmt.Sprintf("%d findings say", len(stale))
+		if len(stale) == 1 {
+			says = "1 finding says"
+		}
+		fmt.Fprintf(&b, "\nwong check: %s notes of this project's memory contradict their sources. "+
 			"When you have finished what the user asked, fix them with the wong:maintain-brain skill, one note at a time "+
-			"(%s):\n", len(stale), list)
+			"(%s):\n", says, list)
 		for i, f := range stale {
 			if i == maxFindings {
 				fmt.Fprintf(&b, "- and %d more\n", len(stale)-maxFindings)
@@ -149,9 +153,15 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		if len(names) > maxReview {
 			names, more = names[:maxReview], fmt.Sprintf(" and %d more", len(names)-maxReview)
 		}
-		fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated: %s%s. If one bears on your task, check it against "+
-			"its sources and fix it before relying on it. When you have finished what the user asked, maintain up to %d of the others "+
-			"with the wong:maintain-brain skill.\n", len(review), strings.Join(names, ", "), more, maxMaintain)
+		if len(review) == 1 {
+			fmt.Fprintf(&b, "\nwong check: this note of this project may be outdated: %s. If it bears on your task, check it against its "+
+				"sources and fix it before relying on it; otherwise maintain it with the wong:maintain-brain skill when you have finished "+
+				"what the user asked.\n", names[0])
+		} else {
+			fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated: %s%s. If one bears on your task, check it against "+
+				"its sources and fix it before relying on it. When you have finished what the user asked, maintain up to %d of the others "+
+				"with the wong:maintain-brain skill.\n", len(review), strings.Join(names, ", "), more, maxMaintain)
+		}
 	}
 	return b.String()
 }
