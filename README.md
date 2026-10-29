@@ -163,12 +163,20 @@ not "ENG-15 is in progress".
 ## Install
 
 wong has two parts: the **server**, which keeps the brain and its history, and **wong on
-each machine**, which keeps a copy that Claude Code reads and writes. Set up the server
-first. It starts empty, and the first machine you connect fills it with its memory.
+each machine**, which keeps a copy that Claude Code reads and writes. The server starts
+empty, and the first machine you connect fills it with its memory.
 
-### 1. The server
+### 1. Start the server
 
-On any machine your others can reach, with Docker:
+On any machine your others can reach:
+
+```sh
+docker run -d --name wong --restart unless-stopped -p 8787:8787 -v wong:/data ghcr.io/17tayyy/wong
+docker exec wong /wong serve --new-token laptop    # one token per machine
+```
+
+<details>
+<summary>With Docker Compose, or without Docker</summary>
 
 ```yaml
 # compose.yaml
@@ -182,71 +190,57 @@ volumes:
   wong-data:
 ```
 
-```sh
-docker compose up -d
-docker compose exec wong /wong serve --new-token laptop   # one token per machine
-```
-
 Without Docker, download the binary for your platform from the
 [releases](https://github.com/17tayyy/wong/releases) and run
-`wong serve --db /var/lib/wong/wong.db` under systemd or any supervisor. It listens on
-`:8787`.
+`wong serve --db /var/lib/wong/wong.db` under systemd or any supervisor.
 
-### 2. Each machine
+</details>
 
-Install wong, on macOS or Linux:
+### 2. Connect each machine
 
-```sh
-os=$(uname -s | tr A-Z a-z); arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -fsSLo wong "https://github.com/17tayyy/wong/releases/latest/download/wong-$os-$arch"
-chmod +x wong && sudo mv wong /usr/local/bin/
-```
-
-On Windows, download `wong-windows-amd64.exe` from the releases. With Go 1.27 or later,
-`go install github.com/17tayyy/wong/cmd/wong@latest` works anywhere.
-
-Then connect the machine and install the Claude Code plugin:
+On macOS or Linux, one line:
 
 ```sh
-wong setup http://wong.lan:8787     # paste the token made for this machine
-claude plugin marketplace add 17tayyy/wong
-claude plugin install wong@wong
+curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh -s -- http://wong.lan:8787
 ```
 
-`wong setup` does five things:
+The script installs wong, asks for the token you made for this machine, and runs
+`wong setup`. That command:
 
-1. Saves the server and this machine's token.
-2. Pulls the brain.
-3. Imports this machine's Claude Code memory into it.
-4. Pushes the result.
-5. Points Claude Code at the brain: every repo to its project, every other folder to
+1. Pulls the brain from the server.
+2. Imports this machine's Claude Code memory and pushes it.
+3. Points Claude Code at the brain: every repo to its project, every other folder to
    `me/`.
+4. Installs the wong plugin for Claude Code.
 
-On the first machine the server is empty, so `wong setup` uploads your memory. On the
-others it brings the brain down and adds whatever memory that machine had. From then on,
-the plugin pulls when a session starts and pushes when it ends.
+On the first machine the server is empty, so your memory goes up. On the others the
+brain comes down, and whatever memory that machine had is added. From then on, the
+plugin pulls when a session starts and pushes when it ends.
 
-Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). The
-exception is a folder of unrelated repos such as `~/code`, where each repo is its own
-project. Run `wong import --dry-run` first to see the grouping, and pass `--map PATH=ID`
-to `wong setup` to change it. Nothing in `~/.claude` is changed, and
-`wong link --remove` undoes the links.
+On Windows, download `wong-windows-amd64.exe` from the
+[releases](https://github.com/17tayyy/wong/releases), save it as `wong.exe` in a folder
+on your PATH, and run `wong setup http://wong.lan:8787`.
+
+Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). A
+folder of unrelated repos such as `~/code` is the exception: each repo there is its own
+project. `wong import --dry-run` shows the grouping first, and `wong setup --map PATH=ID`
+changes it. Nothing in `~/.claude` is changed, and `wong link --remove` undoes the links.
 
 ### Without a server
 
-To try wong on a single machine, skip the server:
+To try wong on a single machine, run the script without a url:
 
 ```sh
-wong import && wong link --all && wong link --global
+curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh
 ```
 
-Then install the plugin. `wong setup` connects that machine to a server later.
+`wong setup <url>` connects that machine to a server later.
 
 ## The server
 
 Each machine has its own token. `wong serve --tokens` lists them, and
-`--revoke-token <name>` revokes a lost machine's. With Docker, prefix these with
-`docker compose exec wong /wong`.
+`--revoke-token <name>` revokes a lost machine's. With Docker, run them as
+`docker exec wong /wong serve --tokens`.
 
 A note changed on two machines at once is never overwritten. The server's version goes
 to `~/.wong/.wong/conflicts`, and `wong resolve <path> --keep local|server` settles it.
@@ -281,7 +275,7 @@ itself once the fixed note reaches the server.
 - **Linear:** `POST /hooks/linear` for issue events, with `WONG_LINEAR_SECRET` set. An
   issue that a note cites leaves a task when it is completed or canceled.
 
-With Docker, set the secrets under `environment:` in `compose.yaml`. The plugin records
+With Docker, pass them with `-e`, or under `environment:` in `compose.yaml`. The plugin records
 which GitHub repo belongs to which project. Only `/hooks/*` needs to be reachable from
 the internet. To check Linear issues locally with `wong check`, set
 `LINEAR_API_KEY` to a personal API key.
@@ -318,7 +312,7 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 
 | Command | What it does |
 | --- | --- |
-| `wong setup` | Connect a machine to the server, bring its memory in and point Claude Code at the brain |
+| `wong setup` | Make the brain this machine's memory, with a server or on its own, and install the plugin |
 | `wong import` | Bring Claude Code's memory folders into the brain |
 | `wong link` | Make Claude Code keep its memory in the brain |
 | `wong check` | Check every note against what it cites |
