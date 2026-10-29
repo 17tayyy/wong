@@ -567,6 +567,14 @@ func TestConnectAnApp(t *testing.T) {
 	if code, body := b.post("/login", url.Values{"token": {token}, "next": {"/oauth/authorize?" + params.Encode()}}, web.URL); code != http.StatusOK || !strings.Contains(body, "<h1>Connect Claude</h1>") || !strings.Contains(body, "<code>claude.example</code>") {
 		t.Fatalf("signing in did not come back to the approval: %d", code)
 	}
+	resp, err = b.client.Get(web.URL + "/oauth/authorize?" + params.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if policy := resp.Header.Get("Content-Security-Policy"); !strings.Contains(policy, "form-action 'self' https://claude.example;") {
+		t.Errorf("the approval's form cannot send the browser back to the app: %s", policy)
+	}
 
 	approve := func(do string) *url.URL {
 		t.Helper()

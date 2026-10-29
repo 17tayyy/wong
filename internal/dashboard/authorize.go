@@ -70,6 +70,7 @@ func (d *Dashboard) authorize(w http.ResponseWriter, r *http.Request, machine st
 		return
 	}
 	u, _ := url.Parse(redirect)
+	w.Header().Set("Content-Security-Policy", csp(u.Scheme+"://"+u.Host))
 	c := &connection{Client: client.Name, Host: u.Host, Name: remote.MachineName(client.Name), ClientID: clientID, Redirect: redirect,
 		State: state, Challenge: f.Get("code_challenge")}
 	var err error

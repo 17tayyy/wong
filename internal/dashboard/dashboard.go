@@ -245,10 +245,16 @@ func (d *Dashboard) fail(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
+// csp is the dashboard's content security policy; forms may also go to formTarget, an origin, when one is given.
+func csp(formTarget string) string {
+	return "default-src 'self'; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; " +
+		"frame-ancestors 'none'; form-action 'self'" + strings.TrimRight(" "+formTarget, " ") + "; base-uri 'none'"
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		h.Set("Content-Security-Policy", csp(""))
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
