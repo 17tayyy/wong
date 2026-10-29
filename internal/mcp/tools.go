@@ -75,10 +75,11 @@ var tools = []tool{
 	{
 		Name:        "search_notes",
 		Title:       "Search notes",
-		Description: "Find the notes that hold every word of the query in their name, description, tags or text, with or without accents, in one project (and me) or the whole brain; matches in the name, description or tags come first.",
+		Description: "Find the notes that hold every word of the query in their name, description, tags or text, with or without accents, in one project (and me) or the whole brain; matches in the name, description or tags come first. Archived notes are left out unless archive is set: search them only when the user asks about older work.",
 		InputSchema: object([]string{"query"}, map[string]any{
 			"query":   str("Words to look for; a note matches when it contains all of them."),
 			"project": str("Search only this project's notes, plus me."),
+			"archive": map[string]any{"type": "boolean", "description": "Search the archived notes instead, which are kept out of the way until asked for."},
 		}),
 		Annotations: readOnly,
 		run:         searchNotes,
@@ -151,6 +152,18 @@ var tools = []tool{
 		run:         moveNote,
 	},
 	{
+		Name:  "archive_note",
+		Title: "Archive a note",
+		Description: "Move a note no longer needed into its shelf's archive: out of MEMORY.md, checks and searches, still synced " +
+			"and linked, until someone asks for it. Only once the user agreed. Set back to bring an archived note back.",
+		InputSchema: object([]string{"note"}, map[string]any{
+			"note": str(noteArg),
+			"back": map[string]any{"type": "boolean", "description": "Bring an archived note back to its shelf instead."},
+		}),
+		Annotations: writes,
+		run:         archiveNote,
+	},
+	{
 		Name:  "delete_note",
 		Title: "Delete a note",
 		Description: "Delete a note and its MEMORY.md line. Ask the user first. It stays in the history, and the user can " +
@@ -210,11 +223,14 @@ func (s *Server) issues(project, only string) ([]string, error) {
 	return out, nil
 }
 
+// projects counts the live notes of each project, listing too the projects whose notes are all archived.
 func projects(b *remote.Brain) map[string]int {
 	count := map[string]int{}
 	for p := range b.Files {
 		if id, ok := remote.NoteProject(p); ok && id != "me" {
 			count[id]++
+		} else if id, ok := remote.ArchivedProject(p); ok && id != "me" {
+			count[id] += 0
 		}
 	}
 	return count
@@ -258,7 +274,7 @@ func getContext(s *Server, _ string, args json.RawMessage) (string, error) {
 			fmt.Fprintf(&out, "No project is linked to the repo %s yet: a machine links it when it runs `wong link` there. Pass a project id from the list below, or write notes for it on a new project id.\n\n", a.Repo)
 		}
 	}
-	if project != "" && known[project] == 0 {
+	if _, ok := known[project]; project != "" && !ok {
 		return "", argErr("there is no project %q in the brain; the projects are: %s", project, strings.Join(slices.Sorted(maps.Keys(known)), ", "))
 	}
 	fmt.Fprintf(&out, "# Global preferences (me/MEMORY.md)\n\n%s\n", orNone(b.Files["me/MEMORY.md"].Content))
@@ -273,6 +289,15 @@ func getContext(s *Server, _ string, args json.RawMessage) (string, error) {
 	fmt.Fprintf(&out, "\n# Project %s (projects/%s/MEMORY.md)\n\n%s\n", project, project, orNone(b.Files["projects/"+project+"/MEMORY.md"].Content))
 	if tags := b.Graph().TagList(60); len(tags) > 0 {
 		fmt.Fprintf(&out, "\n# Tags in use\n\nReuse these instead of new spellings: %s.\n", strings.Join(tags, ", "))
+	}
+	archived := 0
+	for _, n := range b.Graph().Archived {
+		if n.Shelf() == project {
+			archived++
+		}
+	}
+	if archived > 0 {
+		fmt.Fprintf(&out, "\n# Archive\n\nThis project keeps %d archived notes, out of the way on purpose. Search them with search_notes and archive set only when the user asks about older work.\n", archived)
 	}
 	open, err := s.issues(project, "")
 	if err != nil {
@@ -292,7 +317,10 @@ func orNone(data []byte) string {
 }
 
 func searchNotes(s *Server, _ string, args json.RawMessage) (string, error) {
-	var a struct{ Query, Project string }
+	var a struct {
+		Query, Project string
+		Archive        bool
+	}
 	if err := decode(args, &a); err != nil {
 		return "", err
 	}
@@ -303,12 +331,16 @@ func searchNotes(s *Server, _ string, args json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	hits := b.Graph().Search(a.Query, a.Project)
+	search, what := b.Graph().Search, "note"
+	if a.Archive {
+		search, what = b.Graph().SearchArchive, "archived note"
+	}
+	hits := search(a.Query, a.Project)
 	if len(hits) == 0 {
-		return fmt.Sprintf("No note holds all of: %s.", strings.Join(strings.Fields(a.Query), ", ")), nil
+		return fmt.Sprintf("No %s holds all of: %s.", what, strings.Join(strings.Fields(a.Query), ", ")), nil
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%d notes match", len(hits))
+	fmt.Fprintf(&out, "%d %ss match", len(hits), what)
 	if len(hits) > 20 {
 		fmt.Fprintf(&out, "; the first 20")
 		hits = hits[:20]
@@ -481,6 +513,24 @@ func moveNote(s *Server, machine string, args json.RawMessage) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("Moved it to %s, with its scope and its MEMORY.md line.", p), nil
+}
+
+func archiveNote(s *Server, machine string, args json.RawMessage) (string, error) {
+	var a struct {
+		Note string
+		Back bool
+	}
+	if err := decode(args, &a); err != nil {
+		return "", err
+	}
+	p, _, err := s.store.ArchiveNote(machine, a.Note, a.Back)
+	if err != nil {
+		return "", err
+	}
+	if a.Back {
+		return fmt.Sprintf("Brought it back to %s, with its MEMORY.md line.", p), nil
+	}
+	return fmt.Sprintf("Archived it at %s; it is out of the way until someone asks for it.", p), nil
 }
 
 func deleteNote(s *Server, machine string, args json.RawMessage) (string, error) {

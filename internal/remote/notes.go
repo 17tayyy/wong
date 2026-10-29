@@ -55,15 +55,22 @@ var Agent = Checks{Tags: true, Links: true, Duplicates: true}
 // Graph sees the brain's notes as a graph of links and tags.
 func (b *Brain) Graph() *graph.Graph {
 	if b.graph == nil {
-		var notes []graph.Note
+		var notes, archived []graph.Note
 		for p, f := range b.Files {
-			if _, isNote := NoteProject(p); isNote {
-				if n, err := note.Parse(f.Content); err == nil {
+			_, isNote := NoteProject(p)
+			_, isArchived := ArchivedProject(p)
+			if !isNote && !isArchived {
+				continue
+			}
+			if n, err := note.Parse(f.Content); err == nil {
+				if isArchived {
+					archived = append(archived, graph.Note{Path: p, Note: n})
+				} else {
 					notes = append(notes, graph.Note{Path: p, Note: n})
 				}
 			}
 		}
-		b.graph = graph.New(notes)
+		b.graph = graph.New(notes).WithArchive(archived)
 	}
 	return b.graph
 }
@@ -128,8 +135,13 @@ func (s *Store) Brain() (*Brain, error) {
 		return nil, err
 	}
 	b := &Brain{Files: map[string]Change{}, names: map[string]string{}}
+	var archived []Change
 	for _, f := range files {
 		b.Files[f.Path] = f
+		if _, ok := ArchivedProject(f.Path); ok {
+			archived = append(archived, f)
+			continue
+		}
 		if _, ok := NoteProject(f.Path); !ok {
 			continue
 		}
@@ -138,6 +150,17 @@ func (s *Store) Brain() (*Brain, error) {
 		}
 		b.names[strings.TrimSuffix(path.Base(f.Path), ".md")] = f.Path
 	}
+	for _, f := range archived {
+		names := []string{strings.TrimSuffix(path.Base(f.Path), ".md")}
+		if n, err := note.Parse(f.Content); err == nil {
+			names = append(names, n.Name)
+		}
+		for _, name := range names {
+			if _, taken := b.names[name]; !taken {
+				b.names[name] = f.Path
+			}
+		}
+	}
 	return b, nil
 }
 
@@ -145,7 +168,8 @@ func (s *Store) Brain() (*Brain, error) {
 func (b *Brain) Resolve(ref string) (string, bool) {
 	ref = strings.TrimSpace(ref)
 	for _, p := range []string{ref, ref + ".md"} {
-		if _, isNote := NoteProject(p); isNote {
+		_, isNote := NoteProject(p)
+		if _, isArchived := ArchivedProject(p); isNote || isArchived {
 			if _, ok := b.Files[p]; ok {
 				return p, true
 			}
@@ -413,6 +437,42 @@ func (s *Store) MoveNote(machine, ref, to string) (string, string, error) {
 		ups = append(ups, up)
 	}
 	op := NewOp("move")
+	return target, op, s.commit(machine, op, ups)
+}
+
+// ArchiveNote moves a note into its shelf's archive, or with back out of it, moving its MEMORY.md line along.
+func (s *Store) ArchiveNote(machine, ref string, back bool) (string, string, error) {
+	b, err := s.Brain()
+	if err != nil {
+		return "", "", err
+	}
+	f, n, err := b.Note(ref)
+	if err != nil {
+		return "", "", err
+	}
+	from, file := path.Dir(f.Path), path.Base(f.Path)
+	_, archived := ArchivedProject(f.Path)
+	to, kind := from+"/"+brain.ArchiveDir, "archive"
+	switch {
+	case back && !archived:
+		return "", "", refuse(ErrInvalid, "%s is not archived.", f.Path)
+	case back:
+		to, kind = path.Dir(from), "unarchive"
+	case archived:
+		return "", "", refuse(ErrInvalid, "%s is already archived.", f.Path)
+	}
+	target := to + "/" + file
+	if _, taken := b.Files[target]; taken {
+		return "", "", refuse(ErrTaken, "There is already a note at %s. Rename one of them first.", target)
+	}
+	ups := []Upload{{Path: target, Sha: f.Sha, Content: f.Content, Modified: f.Modified}, upload(f.Path, f.Sha, nil)}
+	if up, ok := b.index(from, func(s string) string { return brain.WithoutIndexEntry(s, file) }); ok {
+		ups = append(ups, up)
+	}
+	if up, ok := b.index(to, func(s string) string { return brain.WithIndexEntry(s, file, n) }); ok {
+		ups = append(ups, up)
+	}
+	op := NewOp(kind)
 	return target, op, s.commit(machine, op, ups)
 }
 

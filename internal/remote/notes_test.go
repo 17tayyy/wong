@@ -80,3 +80,55 @@ func TestNoteOperations(t *testing.T) {
 		t.Errorf("deleting a missing note: %v", err)
 	}
 }
+
+func TestArchiveNote(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	old := note.New("Old billing", "Billing before Stripe", note.Decision, "", "\nInvoices by hand.\n")
+	if _, _, err := store.CreateNote("codex", "acme", old, Checks{}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, op, err := store.ArchiveNote("codex", "Old billing", false)
+	if err != nil || p != "projects/acme/archive/old-billing.md" || !strings.HasPrefix(op, "archive:") {
+		t.Fatalf("ArchiveNote = %q %q %v", p, op, err)
+	}
+	if got := current(t, store, "projects/acme/MEMORY.md"); strings.Contains(got, "old-billing") {
+		t.Errorf("the shelf's MEMORY.md still lists it: %q", got)
+	}
+	if got := current(t, store, "projects/acme/archive/MEMORY.md"); !strings.Contains(got, "(old-billing.md)") {
+		t.Errorf("the archive's MEMORY.md = %q", got)
+	}
+	if _, _, err := store.ArchiveNote("codex", p, false); !errors.Is(err, ErrInvalid) {
+		t.Errorf("archiving it twice: %v", err)
+	}
+	b, _ := store.Brain()
+	if got, ok := b.Resolve("Old billing"); !ok || got != p {
+		t.Errorf("Resolve of an archived note = %q, %v", got, ok)
+	}
+	if hits := b.Graph().Search("billing", "acme"); len(hits) != 0 {
+		t.Errorf("a plain search found the archived note: %v", hits)
+	}
+	if _, err := store.UndoOp(op, "browser"); err != nil {
+		t.Fatal(err)
+	}
+	if got := current(t, store, "projects/acme/MEMORY.md"); !strings.Contains(got, "(old-billing.md)") {
+		t.Errorf("undoing the archive did not bring its MEMORY.md line back: %q", got)
+	}
+	if _, _, err := store.ArchiveNote("codex", "old-billing", true); !errors.Is(err, ErrInvalid) {
+		t.Errorf("bringing back a note that is not archived: %v", err)
+	}
+	if _, _, err := store.ArchiveNote("codex", "old-billing", false); err != nil {
+		t.Fatal(err)
+	}
+	now := note.New("Billing", "Billing today", note.Project, "", "\nStripe now; see [[old-billing]].\n")
+	if _, _, err := store.CreateNote("codex", "acme", now, Checks{Links: true}); err != nil {
+		t.Errorf("a link to an archived note was refused: %v", err)
+	}
+	if back, _, err := store.ArchiveNote("codex", "old-billing", true); err != nil || back != "projects/acme/old-billing.md" {
+		t.Errorf("bring it back = %q, %v", back, err)
+	}
+}

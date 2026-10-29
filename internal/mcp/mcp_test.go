@@ -114,7 +114,7 @@ func TestLegacyClient(t *testing.T) {
 		t.Errorf("an unknown version was not answered with the latest legacy one: %v", out)
 	}
 	_, out = c.post(`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`, map[string]string{"MCP-Protocol-Version": "2025-06-18"})
-	if tools := out["result"].(map[string]any)["tools"].([]any); len(tools) != 8 {
+	if tools := out["result"].(map[string]any)["tools"].([]any); len(tools) != 9 {
 		t.Errorf("tools/list = %d tools", len(tools))
 	}
 	if code, _ := c.post(`{"jsonrpc":"2.0","id":4,"method":"tools/list"}`, map[string]string{"MCP-Protocol-Version": "1999-01-01"}); code != http.StatusBadRequest {
@@ -329,5 +329,24 @@ func TestEachTokenReachesItsBrain(t *testing.T) {
 	}
 	if text, failed := (client{t, srv.URL, tokens["bob"]}).tool("read_note", `{"note":"deploy-runbook"}`); !failed || strings.Contains(text, "Merge to `main`") {
 		t.Errorf("bob's token read alice's note:\n%s", text)
+	}
+}
+
+func TestArchiveThroughMCP(t *testing.T) {
+	_, c := setup(t)
+	if text, failed := c.tool("archive_note", `{"note":"deploy-runbook"}`); failed || !strings.Contains(text, "projects/acme/archive/deploy-runbook.md") {
+		t.Fatalf("archive_note: %s", text)
+	}
+	if text, _ := c.tool("search_notes", `{"query":"release"}`); !strings.Contains(text, "No note holds all of") {
+		t.Errorf("a plain search found an archived note:\n%s", text)
+	}
+	if text, _ := c.tool("search_notes", `{"query":"release","archive":true}`); !strings.Contains(text, "1 archived notes match") {
+		t.Errorf("search_notes with archive:\n%s", text)
+	}
+	if text, _ := c.tool("get_context", `{"project":"acme"}`); !strings.Contains(text, "This project keeps 1 archived notes") {
+		t.Errorf("get_context does not mention the archive:\n%s", text)
+	}
+	if text, failed := c.tool("archive_note", `{"note":"deploy-runbook","back":true}`); failed || !strings.Contains(text, "Brought it back to projects/acme/deploy-runbook.md") {
+		t.Errorf("archive_note back: %s", text)
 	}
 }

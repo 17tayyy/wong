@@ -14,6 +14,7 @@
   {{range .Groups}}
   <details class="group" open>
     <summary data-shelf="{{.ID}}"><h2 id="{{.ID}}">{{icon "chevron-right"}}{{icon "folder"}}<span>{{.ID}}</span><span class="count">{{len .Entries}}</span></h2><a class="add" href="/new?in={{.ID}}" title="New note in {{.ID}}">{{icon "plus"}}<span class="sr">New note in {{.ID}}</span></a></summary>
+    {{if .Entries}}
     <div class="table-wrap">
     <table class="db">
       <thead><tr><th scope="col" class="c-name">Name</th><th scope="col" class="c-kind">Kind</th><th scope="col" class="c-status">Status</th><th scope="col" class="c-date">Verified</th><th scope="col" class="c-date c-edited">Last edited</th></tr></thead>
@@ -30,6 +31,15 @@
       </tbody>
     </table>
     </div>
+    {{end}}
+    {{with .Archive}}
+    <details class="archived">
+      <summary>{{icon "chevron-right"}}{{icon "archive"}}<span>Archive</span><span class="count">{{len .}}</span></summary>
+      <ul>
+        {{range .}}<li{{template "noteData" .}}><a href="{{notePath .Path}}">{{icon "file-text"}}<span data-label>{{.Name}}</span></a>{{if .ShowDescription}}<span class="muted">{{.Description}}</span>{{end}}</li>{{end}}
+      </ul>
+    </details>
+    {{end}}
   </details>
   {{else}}
   <p class="empty">{{if .Query}}No note mentions “{{.Query}}”.{{else if eq .Filter "pending"}}No note needs a correction.{{else if .Filter}}No note fits this view.{{else}}The brain is empty. Notes appear here after a machine runs wong push.{{end}}</p>

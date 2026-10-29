@@ -422,6 +422,20 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
 .newnote #body { margin-top: 0; padding: 0; border-color: transparent; font: 16px/1.65 var(--sans); }
 .newnote #body:focus { outline: none; }
 
+/* Archive */
+.archived { margin: 10px 0 0; }
+.archived summary { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 2px; border-radius: 4px; color: var(--muted); font-size: 13.5px; cursor: pointer; list-style: none; }
+.archived summary::-webkit-details-marker { display: none; }
+.archived summary:hover { background: var(--hover); color: var(--text); }
+.archived summary > .i:first-child { transition: transform 120ms ease-out; }
+.archived[open] summary > .i:first-child { transform: rotate(90deg); }
+.archived ul { margin: 4px 0 0; padding: 0 0 0 26px; list-style: none; }
+.archived li { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 5px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.archived li a { display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--muted); }
+.archived li a:hover { color: var(--text); }
+.archived li .muted { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.archived-note form { margin-top: 8px; }
+
 /* Webhooks */
 .hook { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
 .hook h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }

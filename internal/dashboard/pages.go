@@ -148,10 +148,12 @@ type skillRow struct {
 }
 
 var snacks = map[string]string{
-	"renamed":  "Renamed to “%[1]s”, with its line in MEMORY.md and the links to it.",
-	"moved":    "Moved “%[1]s” to %[2]s, with its scope and MEMORY.md line.",
-	"deleted":  "Deleted “%[1]s”. It stays in the history.",
-	"reverted": "Undone.",
+	"renamed":    "Renamed to “%[1]s”, with its line in MEMORY.md and the links to it.",
+	"moved":      "Moved “%[1]s” to %[2]s, with its scope and MEMORY.md line.",
+	"deleted":    "Deleted “%[1]s”. It stays in the history.",
+	"archived":   "Archived “%[1]s”. Agents leave it alone until someone asks for it.",
+	"unarchived": "Brought “%[1]s” back to %[2]s.",
+	"reverted":   "Undone.",
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
@@ -266,6 +268,9 @@ func (d *Dashboard) library(w http.ResponseWriter, r *http.Request, machine stri
 	var shelves []shelf
 	for _, s := range b.Shelves {
 		kept := shelf{ID: s.ID}
+		if p.Filter == "" && p.Query == "" {
+			kept.Archive = s.Archive
+		}
 		for _, e := range s.Entries {
 			for id, f := range keep {
 				if f(e) {
@@ -277,7 +282,7 @@ func (d *Dashboard) library(w http.ResponseWriter, r *http.Request, machine stri
 			}
 			kept.Entries = append(kept.Entries, e)
 		}
-		if len(kept.Entries) > 0 {
+		if len(kept.Entries) > 0 || len(kept.Archive) > 0 {
 			shelves = append(shelves, kept)
 		}
 	}
@@ -409,7 +414,8 @@ func (d *Dashboard) changes(b *brain, limit int, before int64) ([]change, int64,
 	return out, oldest, nil
 }
 
-var opActions = map[string]string{"create": "created", "edit": "edited", "rename": "renamed", "move": "moved", "delete": "deleted", "undo": "undone"}
+var opActions = map[string]string{"create": "created", "edit": "edited", "rename": "renamed", "move": "moved", "delete": "deleted", "undo": "undone",
+	"archive": "archived", "unarchive": "brought back"}
 
 // describeOp describes an operation by its note, with how many other files it changed and whether it can still be undone.
 func (d *Dashboard) describeOp(b *brain, vs []remote.Version) (change, error) {
@@ -439,7 +445,8 @@ func (d *Dashboard) describeOp(b *brain, vs []remote.Version) (change, error) {
 
 func isNote(v remote.Version) bool {
 	_, ok := remote.NoteProject(v.Path)
-	return ok
+	_, archived := remote.ArchivedProject(v.Path)
+	return ok || archived
 }
 
 func (d *Dashboard) describe(b *brain, v remote.Version) (changeView, error) {

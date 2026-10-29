@@ -230,6 +230,9 @@ document.documentElement.classList.add('js');
       { icon: 'pencil-line', label: 'Rename', run: () => rename(t) },
       { icon: 'folder-input', label: 'Move to…', run: () => moveDialog(t) },
       { icon: 'link', label: 'Copy link', hint: '[[' + name + ']]', run: () => copy('[[' + name + ']]') },
+      t.dataset.archived !== undefined
+        ? { icon: 'archive-restore', label: 'Bring back', run: () => archive(path, true) }
+        : { icon: 'archive', label: 'Archive', run: () => archive(path, false) },
       '-',
       { icon: 'trash-2', label: 'Delete…', danger: true, run: () => deleteDialog(t) },
     ];
@@ -297,6 +300,14 @@ document.documentElement.classList.add('js');
       confirm: 'Move',
       onConfirm: async (form) => after('moved', await post('/move/' + encPath(path), { to: new FormData(form).get('to') }), path),
     });
+  }
+
+  async function archive(path, back) {
+    try {
+      after(back ? 'unarchived' : 'archived', await post((back ? '/unarchive/' : '/archive/') + encPath(path)), path);
+    } catch (x) {
+      showError(x.message);
+    }
   }
 
   function deleteDialog(t) {

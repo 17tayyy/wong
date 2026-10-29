@@ -42,7 +42,7 @@ const (
 
 const instructions = `wong is the user's external brain for coding agents: memory notes, preferences and skills, kept on their own server and checked against their sources.
 
-At the start of a task, call get_context with the repo you work in. Read the notes that apply with read_note and follow the user's preferences in them. Keep the brain true: when a note is wrong or out of date, fix it with edit_note and mark it with verify_note; write what you learn with write_note. Point to the source (issue, commit, file) instead of copying its state. Ask the user before deleting a note or moving one to another project. Every change is signed with this connection's token and can be undone from the wong dashboard.`
+At the start of a task, call get_context with the repo you work in. Read the notes that apply with read_note and follow the user's preferences in them. Keep the brain true: when a note is wrong or out of date, fix it with edit_note and mark it with verify_note; write what you learn with write_note. Point to the source (issue, commit, file) instead of copying its state. Ask the user before deleting a note, archiving one or moving one to another project. Archived notes stay out of searches unless asked for: look there only when the user asks about older work. Every change is signed with this connection's token and can be undone from the wong dashboard.`
 
 type message struct {
 	JSONRPC string          `json:"jsonrpc"`

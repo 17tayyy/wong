@@ -87,7 +87,7 @@
 </body>
 </html>
 
-{{define "noteData"}} data-note="{{.Path}}" data-name="{{.Name}}" data-links="{{len .Backlinks}}"{{end}}
+{{define "noteData"}} data-note="{{.Path}}" data-name="{{.Name}}" data-links="{{len .Backlinks}}"{{if .Archived}} data-archived{{end}}{{end}}
 
 {{define "pill"}}{{if eq .Severity "stale"}}<span class="pill red">Stale</span>{{else}}<span class="pill yellow">Review</span>{{end}}{{end}}
 

@@ -23,6 +23,7 @@
     <div class="prop"><span class="k">{{icon "globe"}}Scope</span><span class="v">{{with .Note.Scope}}{{.}}{{else}}<span class="muted">Empty</span>{{end}}</span></div>
     <div class="prop"><span class="k">{{icon "folder"}}File</span><span class="v"><code class="chip">{{.Path}}</code></span></div>
   </div>
+  {{if .Archived}}<div class="callout gray archived-note" role="note">{{icon "archive"}}<div><p><b>This note is archived.</b> It stays out of MEMORY.md, checks and searches, and agents leave it alone until someone asks for it.</p><form method="post" action="/unarchive/{{.Path}}"><button class="btn small">{{icon "archive-restore"}}Bring it back</button></form></div></div>{{end}}
   {{if not .Valid}}<div class="callout red" role="note">{{icon "triangle-alert"}}<p><b>The frontmatter of this file does not parse.</b> Fix it in the Markdown view; until then the page cannot be edited in place.</p></div>{{end}}
   {{with .Issues}}
   <div class="callout {{if $.Entry.Stale}}red{{else}}yellow{{end}}" role="note">

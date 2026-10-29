@@ -30,6 +30,7 @@ type entry struct {
 	Sha         string
 	Seq         int64
 	Valid       bool
+	Archived    bool
 }
 
 // issue is a finding on a note and who raised it: a machine's check or a webhook.
@@ -57,10 +58,11 @@ func (e entry) AsOf() time.Time {
 	return e.Written
 }
 
-// shelf is a folder of the library: me or one project.
+// shelf is a folder of the library: me or one project, with the notes in its archive apart.
 type shelf struct {
 	ID      string
 	Entries []entry
+	Archive []entry
 }
 
 func (s shelf) Count(stale bool) int {
@@ -117,6 +119,11 @@ func loadBrain(store *remote.Store) (*brain, error) {
 			continue
 		}
 		id, ok := remote.NoteProject(f.Path)
+		archived := false
+		if !ok {
+			id, archived = remote.ArchivedProject(f.Path)
+			ok = archived
+		}
 		if !ok {
 			b.Other = append(b.Other, f.Path)
 			continue
@@ -129,9 +136,13 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		written, _ := time.Parse(time.RFC3339Nano, f.Modified)
 		written, _ = n.LastWrite(written)
 		e := entry{Path: f.Path, Name: n.Name, Description: n.Description, Kind: n.Kind, Verified: n.Verified,
-			Written: written, Issues: issues[f.Path], Note: n, Data: f.Content, Sha: f.Sha, Seq: f.Seq, Valid: valid}
+			Written: written, Issues: issues[f.Path], Note: n, Data: f.Content, Sha: f.Sha, Seq: f.Seq, Valid: valid, Archived: archived}
 		if shelves[id] == nil {
 			shelves[id] = &shelf{ID: id}
+		}
+		if archived {
+			shelves[id].Archive = append(shelves[id].Archive, e)
+			continue
 		}
 		shelves[id].Entries = append(shelves[id].Entries, e)
 		b.byName[n.Name] = f.Path
@@ -144,15 +155,28 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		}
 		return strings.Compare(a, b)
 	})
+	byName := func(a, b entry) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) }
 	for _, id := range ids {
 		s := shelves[id]
-		slices.SortFunc(s.Entries, func(a, b entry) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
+		slices.SortFunc(s.Entries, byName)
+		slices.SortFunc(s.Archive, byName)
 		b.Shelves = append(b.Shelves, *s)
 	}
 	for i := range b.Shelves {
 		for j := range b.Shelves[i].Entries {
 			e := &b.Shelves[i].Entries[j]
 			b.byPath[e.Path] = e
+		}
+	}
+	for i := range b.Shelves {
+		for j := range b.Shelves[i].Archive {
+			e := &b.Shelves[i].Archive[j]
+			b.byPath[e.Path] = e
+			for _, name := range []string{e.Name, strings.TrimSuffix(path.Base(e.Path), ".md")} {
+				if _, taken := b.byName[name]; !taken {
+					b.byName[name] = e.Path
+				}
+			}
 		}
 	}
 	for _, e := range b.byPath {

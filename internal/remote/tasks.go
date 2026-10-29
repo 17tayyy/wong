@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/repos"
@@ -63,6 +64,14 @@ func NoteProject(p string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSuffix(id, "/"), true
+}
+
+// ArchivedProject returns the shelf, "me" or a project id, of a path in a shelf's archive.
+func ArchivedProject(p string) (string, bool) {
+	if !brain.IsArchived(p) {
+		return "", false
+	}
+	return NoteProject(path.Dir(path.Dir(p)) + "/" + path.Base(p))
 }
 
 // notes returns the notes of a project, or of the whole brain when project is "".

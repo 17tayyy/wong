@@ -494,3 +494,32 @@ func TestStorageShowsAgainstItsLimit(t *testing.T) {
 		t.Errorf("the sidebar does not say how much of its room the brain takes:\n%s", body)
 	}
 }
+
+func TestArchiveInTheDashboard(t *testing.T) {
+	_, b := signedIn(t)
+	req, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/archive/projects/acme/deploy-runbook.md", nil)
+	req.Header.Set("Origin", b.srv.URL)
+	req.Header.Set("Accept", "application/json")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]string
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || out["path"] != "projects/acme/archive/deploy-runbook.md" || !strings.HasPrefix(out["op"], "archive:") {
+		t.Fatalf("archive: %d %v", resp.StatusCode, out)
+	}
+
+	_, body := b.get("/")
+	if !strings.Contains(body, `<details class="archived">`) || !strings.Contains(body, `<li data-note="projects/acme/archive/deploy-runbook.md"`) || strings.Contains(body, `<tr data-note="projects/acme/archive/deploy-runbook.md"`) {
+		t.Errorf("the library does not keep the archived note apart:\n%s", body)
+	}
+	_, body = b.get("/notes/projects/acme/archive/deploy-runbook.md")
+	if !strings.Contains(body, "This note is archived.") || !strings.Contains(body, "data-archived") {
+		t.Errorf("the note page does not say it is archived:\n%s", body)
+	}
+	if code, body := b.post("/unarchive/projects/acme/archive/deploy-runbook.md", url.Values{}, b.srv.URL); code != http.StatusOK || !strings.Contains(body, "Brought “deploy-runbook” back to acme.") {
+		t.Errorf("bring it back: %d", code)
+	}
+}

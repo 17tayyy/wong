@@ -120,6 +120,24 @@ func (d *Dashboard) move(w http.ResponseWriter, r *http.Request, machine string)
 	writeJSON(w, http.StatusOK, map[string]string{"path": target, "url": notePath(target), "op": op})
 }
 
+// archive moves a note into its shelf's archive, or with back out of it; a form post goes back to the note.
+func (d *Dashboard) archive(w http.ResponseWriter, r *http.Request, machine string, back bool) {
+	target, op, err := d.store.ArchiveNote(dashboardPrefix+machine, r.PathValue("path"), back)
+	if err != nil {
+		d.refused(w, err)
+		return
+	}
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, map[string]string{"path": target, "url": notePath(target), "op": op})
+		return
+	}
+	done := "archived"
+	if back {
+		done = "unarchived"
+	}
+	http.Redirect(w, r, notePath(target)+"?done="+done+"&op="+op, http.StatusSeeOther)
+}
+
 // deleteNote removes a note and its MEMORY.md line; both stay in the history.
 func (d *Dashboard) deleteNote(w http.ResponseWriter, r *http.Request, machine string) {
 	op, err := d.store.DeleteNote(dashboardPrefix+machine, r.PathValue("path"))
