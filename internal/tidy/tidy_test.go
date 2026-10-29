@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, brain, rel, kind, name, description, body string) {
@@ -87,5 +88,30 @@ func TestGrowing(t *testing.T) {
 	got := Growing(notes)
 	if len(got) != 1 || got[0].Note != filepath.Join("projects", "acme", "pre-alarm.md") || got[0].Dated != 4 || got[0].Parts != 6 || got[0].First != "2026-01-01" || got[0].Last != "2026-10-24" {
 		t.Errorf("Growing = %+v", got)
+	}
+}
+
+func TestIdle(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().AddDate(0, -6, 0)
+	for name, kind := range map[string]string{"q3-migration": "project", "use-uv": "preference", "fresh": "project"} {
+		path := filepath.Join(dir, "projects", "acme", name+".md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("---\nname: "+name+"\ndescription: d\nkind: "+kind+"\n---\nBody.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if name != "fresh" {
+			os.Chtimes(path, old, old)
+		}
+	}
+	notes, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idle := Idle(notes, time.Now().AddDate(0, 0, -120))
+	if len(idle) != 1 || idle[0].Name != "q3-migration" {
+		t.Errorf("Idle = %v", idle)
 	}
 }

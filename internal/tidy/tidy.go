@@ -1,13 +1,16 @@
-// Package tidy finds notes that repeat each other and notes that seem to live in the wrong folder.
+// Package tidy finds notes that repeat each other, notes that seem to live in the wrong folder, and notes the
+// archive could take.
 package tidy
 
 import (
 	"cmp"
 	"maps"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/graph"
@@ -26,6 +29,7 @@ type Note struct {
 	Name        string
 	Description string
 	Kind        note.Kind
+	AsOf        time.Time
 	words       map[string]bool
 	text        string
 	head        string
@@ -67,11 +71,20 @@ func Load(dir string) ([]Note, error) {
 				body = body[:bodyPrefix]
 			}
 			head := strings.ToLower(n.Name + " " + n.Description)
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, err
+			}
+			asOf, _ := n.LastWrite(info.ModTime())
+			if n.Verified.After(asOf) {
+				asOf = n.Verified
+			}
 			notes = append(notes, Note{
 				Path:        filepath.Join(folder, filepath.Base(path)),
 				Name:        n.Name,
 				Description: n.Description,
 				Kind:        kind,
+				AsOf:        asOf,
 				words:       graph.Words(head + " " + body),
 				text:        strings.ToLower(n.Body),
 				head:        head,
@@ -201,4 +214,17 @@ func Growing(notes []Note) []Growth {
 		return cmp.Or(cmp.Compare(b.Dated, a.Dated), cmp.Compare(b.Size, a.Size), strings.Compare(a.Note, b.Note))
 	})
 	return out
+}
+
+// Idle returns the notes nobody wrote or verified since before, oldest first: the archive could take them.
+// Preferences are left out, since one can hold for years untouched.
+func Idle(notes []Note, before time.Time) []Note {
+	var idle []Note
+	for _, n := range notes {
+		if n.Kind != note.Preference && n.AsOf.Before(before) {
+			idle = append(idle, n)
+		}
+	}
+	slices.SortFunc(idle, func(a, b Note) int { return cmp.Or(a.AsOf.Compare(b.AsOf), strings.Compare(a.Path, b.Path)) })
+	return idle
 }
