@@ -39,8 +39,10 @@ func newServeCmd() *cobra.Command {
 			"creates the account with its first token; machines connect with it as to any\n" +
 			"other server.\n\n" +
 			"Webhooks leave tasks on the notes they make outdated: POST /hooks/github (push\n" +
-			"events) with WONG_GITHUB_SECRET set, and POST /hooks/linear (issue events) with\n" +
-			"WONG_LINEAR_SECRET set. Only those paths need to be reachable from the internet.\n" +
+			"events) and POST /hooks/linear (issue events), signed with the secret set on the\n" +
+			"dashboard's Webhooks page, or in WONG_GITHUB_SECRET and WONG_LINEAR_SECRET. With\n" +
+			"--accounts, each account sets its own, at /hooks/<account>/github and\n" +
+			"/hooks/<account>/linear. Only /hooks/ needs to be reachable from the internet.\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
 			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
 			"The same address serves the dashboard: open it in a browser and sign in with a\n" +
@@ -81,7 +83,7 @@ func newServeCmd() *cobra.Command {
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
 			api := remote.Handler(brains, log, hooks)
-			web, err := dashboard.Handler(brains, log)
+			web, err := dashboard.Handler(brains, log, hooks)
 			if err != nil {
 				return err
 			}
@@ -104,9 +106,12 @@ func newServeCmd() *cobra.Command {
 				defer cancel()
 				_ = srv.Shutdown(shutdown)
 			}()
-			where := []any{"db", db, "github_hook", hooks.GitHubSecret != "", "linear_hook", hooks.LinearSecret != ""}
+			where := []any{"db", db}
 			if dir != "" {
 				where = []any{"accounts", dir}
+				if hooks != (remote.Webhooks{}) {
+					log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
+				}
 			}
 			log.Info("serving", append(where, "addr", addr, "tls", certFile != "")...)
 			if certFile != "" {

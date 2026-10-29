@@ -3,8 +3,11 @@ package remote
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -22,10 +25,77 @@ const (
 	maxHookBody     = 25 << 20
 )
 
-// Webhooks holds the secrets that sign GitHub's and Linear's webhooks; an empty one leaves its endpoint off.
+// Webhooks holds the secrets that sign GitHub's and Linear's webhooks for a single brain, before the ones it keeps itself.
 type Webhooks struct {
 	GitHubSecret string
 	LinearSecret string
+}
+
+// Hooks names the webhooks a brain can take.
+var Hooks = []string{"github", "linear"}
+
+// HookSecret returns the secret that signs a webhook of this brain, "" when it has none.
+func (s *Store) HookSecret(hook string) (string, error) {
+	var secret string
+	err := s.db.QueryRow(`SELECT secret FROM hooks WHERE name = ?`, hook).Scan(&secret)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return secret, err
+}
+
+// SetHookSecret keeps the secret that signs a webhook of this brain; an empty one turns the webhook off.
+func (s *Store) SetHookSecret(hook, secret string) error {
+	if !slices.Contains(Hooks, hook) {
+		return fmt.Errorf("no webhook named %q", hook)
+	}
+	if secret == "" {
+		_, err := s.db.Exec(`DELETE FROM hooks WHERE name = ?`, hook)
+		return err
+	}
+	_, err := s.db.Exec(`INSERT INTO hooks (name, secret, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET secret = excluded.secret, updated_at = excluded.updated_at`,
+		hook, secret, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+// hookBrain finds the brain a webhook request is for and the secret that signs it; no store or secret means no such webhook.
+type hookBrain func(r *http.Request, hook string) (*Store, string, error)
+
+// hookBrains serves a single brain's webhooks at /hooks/<hook>, and each account's of a Folder at /hooks/<account>/<hook>.
+func hookBrains(mux *http.ServeMux, brains Brains, log *slog.Logger, env Webhooks) {
+	var find hookBrain
+	prefix := "/hooks/"
+	switch b := brains.(type) {
+	case *Store:
+		find = func(_ *http.Request, hook string) (*Store, string, error) {
+			if secret := map[string]string{"github": env.GitHubSecret, "linear": env.LinearSecret}[hook]; secret != "" {
+				return b, secret, nil
+			}
+			secret, err := b.HookSecret(hook)
+			return b, secret, err
+		}
+	case *Folder:
+		prefix = "/hooks/{account}/"
+		find = func(r *http.Request, hook string) (*Store, string, error) {
+			if ValidAccount(r.PathValue("account")) != nil {
+				return nil, "", nil
+			}
+			s, err := b.Store(r.PathValue("account"))
+			if errors.Is(err, ErrNoAccount) {
+				return nil, "", nil
+			}
+			if err != nil {
+				return nil, "", err
+			}
+			secret, err := s.HookSecret(hook)
+			return s, secret, err
+		}
+	default:
+		return
+	}
+	mux.HandleFunc("POST "+prefix+"github", githubHook(find, log))
+	mux.HandleFunc("POST "+prefix+"linear", linearHook(find, log))
 }
 
 var versionTagRE = regexp.MustCompile(`^v\d`)
@@ -72,8 +142,12 @@ type hookResponse struct {
 }
 
 // githubHook turns a push to a repo's default branch into tasks for the notes of its project that cite a removed file.
-func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc {
+func githubHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		store, secret, ok := hookTarget(w, r, find, log, "github")
+		if !ok {
+			return
+		}
 		body, ok := signedBody(w, r, log, secret, "X-Hub-Signature-256", "sha256=")
 		if !ok {
 			return
@@ -163,8 +237,12 @@ func githubHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 }
 
 // linearHook turns an issue that is now closed into tasks for the notes that cite it.
-func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc {
+func linearHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		store, secret, ok := hookTarget(w, r, find, log, "linear")
+		if !ok {
+			return
+		}
 		body, ok := signedBody(w, r, log, secret, "Linear-Signature", "")
 		if !ok {
 			return
@@ -206,6 +284,21 @@ func linearHook(store *Store, log *slog.Logger, secret string) http.HandlerFunc 
 		log.Info("linear issue", "issue", issue.Identifier, "state", issue.State, "tasks", n)
 		writeJSON(w, hookResponse{Tasks: n})
 	}
+}
+
+// hookTarget finds the brain and secret of a webhook request, answering it when there is no such webhook.
+func hookTarget(w http.ResponseWriter, r *http.Request, find hookBrain, log *slog.Logger, hook string) (*Store, string, bool) {
+	store, secret, err := find(r, hook)
+	if err != nil {
+		log.Error(hook, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return nil, "", false
+	}
+	if store == nil || secret == "" {
+		http.NotFound(w, r)
+		return nil, "", false
+	}
+	return store, secret, true
 }
 
 // signedBody reads the request body and checks its hex HMAC-SHA256 against the secret, answering the request when it fails.

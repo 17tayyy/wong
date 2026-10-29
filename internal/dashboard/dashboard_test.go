@@ -73,7 +73,7 @@ func setup(t *testing.T) (*remote.Store, browser, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestEachTokenSignsInToItsBrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,5 +283,90 @@ func TestEachTokenSignsInToItsBrain(t *testing.T) {
 	}
 	if _, body := b.get("/notes/me/deploy-runbook.md"); strings.Contains(body, "A note of alice") {
 		t.Error("bob's session opened a note of alice's brain")
+	}
+}
+
+func TestWebhooksPage(t *testing.T) {
+	folder, err := remote.OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	store, _, err := folder.Create("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+
+	_, body := b.get("/webhooks")
+	if !strings.Contains(body, srv.URL+"/hooks/bob/github") || !strings.Contains(body, srv.URL+"/hooks/bob/linear") || strings.Contains(body, "WONG_GITHUB_SECRET") || strings.Count(body, `<span class="pill gray">Off</span>`) != 2 {
+		t.Fatalf("an account's webhooks page:\n%s", body)
+	}
+	if code, body := b.post("/webhooks/github", url.Values{"do": {"generate"}}, srv.URL); code != http.StatusOK || !strings.Contains(body, "A new secret is ready") {
+		t.Errorf("make a secret: %d", code)
+	}
+	_, body = b.get("/webhooks")
+	if secret, _ := store.HookSecret("github"); len(secret) != 64 || !strings.Contains(body, "<code>"+secret+"</code>") {
+		t.Errorf("the secret made is not kept and shown: %q", secret)
+	}
+	if code, _ := b.post("/webhooks/linear", url.Values{"do": {"save"}, "secret": {" lin_wh_abc \n"}}, srv.URL); code != http.StatusOK {
+		t.Errorf("save Linear's secret: %d", code)
+	}
+	if secret, _ := store.HookSecret("linear"); secret != "lin_wh_abc" {
+		t.Errorf("Linear's secret = %q", secret)
+	}
+	if code, _ := b.post("/webhooks/linear", url.Values{"do": {"off"}}, srv.URL); code != http.StatusOK {
+		t.Errorf("turn off: %d", code)
+	}
+	if secret, _ := store.HookSecret("linear"); secret != "" {
+		t.Errorf("Linear's webhook is still on: %q", secret)
+	}
+	if code, _ := b.post("/webhooks/gitlab", url.Values{"do": {"generate"}}, srv.URL); code != http.StatusNotFound {
+		t.Errorf("a webhook wong does not take: %d", code)
+	}
+	if code, _ := b.post("/webhooks/github", url.Values{"do": {"off"}}, "https://evil.example"); code != http.StatusForbidden {
+		t.Errorf("a cross-site post: %d", code)
+	}
+}
+
+func TestWebhooksPageOfASingleBrain(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{GitHubSecret: "the server's"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+
+	_, body := b.get("/webhooks")
+	if !strings.Contains(body, srv.URL+"/hooks/github") || !strings.Contains(body, "<code>WONG_GITHUB_SECRET</code>") || strings.Contains(body, `action="/webhooks/github"`) || !strings.Contains(body, `action="/webhooks/linear"`) {
+		t.Errorf("a single brain's webhooks page:\n%s", body)
 	}
 }

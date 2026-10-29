@@ -1,0 +1,47 @@
+{{define "crumbs"}}{{icon "webhook"}}<span>Webhooks</span>{{end}}
+{{define "main"}}
+<div class="page">
+  <h1>Webhooks</h1>
+  <p class="desc">GitHub and Linear tell wong when a file is removed, a version is tagged or an issue closes, and wong leaves a task on the notes that cite it before an agent reads them.</p>
+  {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
+  {{range .Hooks}}
+  <section class="hook" id="{{.ID}}" aria-labelledby="{{.ID}}-h">
+    <h2 id="{{.ID}}-h">{{.Name}}{{if or .Secret .Env}}<span class="pill green">On</span>{{else}}<span class="pill gray">Off</span>{{end}}</h2>
+    {{if eq .ID "github"}}
+    <p class="desc">In each repo, Settings → Webhooks → Add webhook, with these values. wong reads pushes to the default branch and new <code>v*</code> tags.</p>
+    {{else}}
+    <p class="desc">In Linear, Settings → API → Webhooks → New webhook, with these values. wong reads the issues that close.</p>
+    {{end}}
+    <div class="props">
+      <div class="prop"><span class="k">{{icon "link"}}{{if eq .ID "github"}}Payload URL{{else}}URL{{end}}</span><span class="v"><code>{{.URL}}</code></span></div>
+      {{if eq .ID "github"}}
+      <div class="prop"><span class="k">{{icon "code"}}Content type</span><span class="v"><code>application/json</code></span></div>
+      <div class="prop"><span class="k">{{icon "list-filter"}}Events</span><span class="v">Just the push event</span></div>
+      {{else}}
+      <div class="prop"><span class="k">{{icon "list-filter"}}Events</span><span class="v">Issues</span></div>
+      {{end}}
+      <div class="prop"><span class="k">{{icon "key-round"}}Secret</span><span class="v">
+        {{- if .Env}}Set on the server, in <code>{{.Env}}</code>
+        {{- else if and .Secret (eq .ID "github")}}<details class="secret"><summary>Show</summary><code>{{.Secret}}</code></details>
+        {{- else if .Secret}}Saved
+        {{- else}}<span class="muted">None yet</span>{{end -}}
+      </span></div>
+    </div>
+    {{if not .Env}}
+    <form class="formbar" method="post" action="/webhooks/{{.ID}}">
+      {{if eq .ID "github"}}
+      <button class="btn{{if not .Secret}} primary{{end}}" name="do" value="generate">{{icon "key-round"}}{{if .Secret}}Make a new secret{{else}}Make a secret{{end}}</button>
+      {{else}}
+      <label class="sr" for="linear-secret">Signing secret</label>
+      <input id="linear-secret" name="secret" type="password" autocomplete="off" required placeholder="{{if .Secret}}Paste a new signing secret{{else}}Paste the signing secret Linear shows{{end}}">
+      <button class="btn primary" name="do" value="save">Save</button>
+      {{end}}
+      {{if .Secret}}<button class="btn ghost" name="do" value="off" formnovalidate>Turn off</button>{{end}}
+      {{if and .Secret (eq .ID "github")}}<span class="muted">A new secret replaces this one: paste it into every repo.</span>{{end}}
+    </form>
+    {{end}}
+  </section>
+  {{end}}
+  <div class="callout gray">{{icon "info"}}<p>GitHub and Linear must reach this address from the internet. If they reach the server at another one, such as a tunnel's, use that one: only <code>/hooks/</code> needs to be public.</p></div>
+</div>
+{{end}}

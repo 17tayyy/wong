@@ -250,3 +250,91 @@ func TestReleasesLeaveTasksOnNotesWithWorkForThem(t *testing.T) {
 		t.Errorf("tasks after updating the note = %+v", got)
 	}
 }
+
+func TestEachAccountTakesItsOwnWebhooks(t *testing.T) {
+	folder, err := OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	srv := httptest.NewServer(Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), Webhooks{GitHubSecret: githubSecret}))
+	t.Cleanup(srv.Close)
+	machines := map[string]machine{}
+	for _, account := range []string{"alice", "bob"} {
+		store, _, err := folder.Create(account)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := store.NewToken("desktop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := machine{brain: t.TempDir(), client: NewClient(srv.URL, token, 5*time.Second)}
+		write(t, filepath.Join(m.brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")
+		writeAt(t, filepath.Join(m.brain, "projects/acme/a.md"), "---\nname: a\ndescription: d\n---\nBilling lives in `acme-api/src/billing.go`.\n", "2026-09-01")
+		push(t, m)
+		machines[account] = m
+	}
+	alice, _ := folder.Store("alice")
+	if err := alice.SetHookSecret("github", "alice-secret"); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(githubPayload, "main")
+	signed := func(secret string) map[string]string {
+		return map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=" + sign(secret, body)}
+	}
+
+	if code := deliver(t, srv.URL+"/hooks/alice/github", signed("alice-secret"), body); code != http.StatusOK {
+		t.Fatalf("alice's webhook: status %d", code)
+	}
+	if got := tasks(t, machines["alice"], "acme"); len(got) != 1 {
+		t.Errorf("alice's tasks = %+v", got)
+	}
+	if got := tasks(t, machines["bob"], "acme"); len(got) != 0 {
+		t.Errorf("alice's webhook left tasks in bob's brain: %+v", got)
+	}
+	for path, secret := range map[string]string{
+		"/hooks/bob/github":   "alice-secret",
+		"/hooks/carol/github": "alice-secret",
+		"/hooks/github":       githubSecret,
+		"/hooks/alice/linear": "alice-secret",
+	} {
+		if code := deliver(t, srv.URL+path, signed(secret), body); code != http.StatusNotFound {
+			t.Errorf("%s with no secret set: status %d", path, code)
+		}
+	}
+	bob, _ := folder.Store("bob")
+	if err := bob.SetHookSecret("github", "bob-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if code := deliver(t, srv.URL+"/hooks/bob/github", signed("alice-secret"), body); code != http.StatusUnauthorized {
+		t.Errorf("alice's secret on bob's webhook: status %d", code)
+	}
+}
+
+func TestSingleBrainKeepsItsWebhookSecret(t *testing.T) {
+	store, url, desktop, _ := setup(t)
+	write(t, filepath.Join(desktop.brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")
+	push(t, desktop)
+	body := fmt.Sprintf(githubPayload, "main")
+	headers := map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=" + sign("kept", body)}
+
+	if code := deliver(t, url+"/hooks/github", headers, body); code != http.StatusNotFound {
+		t.Errorf("a webhook with no secret: status %d", code)
+	}
+	if err := store.SetHookSecret("github", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	if code := deliver(t, url+"/hooks/github", headers, body); code != http.StatusOK {
+		t.Errorf("a webhook with the brain's secret: status %d", code)
+	}
+	if err := store.SetHookSecret("github", ""); err != nil {
+		t.Fatal(err)
+	}
+	if code := deliver(t, url+"/hooks/github", headers, body); code != http.StatusNotFound {
+		t.Errorf("a webhook turned off: status %d", code)
+	}
+	if err := store.SetHookSecret("gitlab", "x"); err == nil {
+		t.Error("a secret for a webhook wong does not take was kept")
+	}
+}

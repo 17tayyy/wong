@@ -58,6 +58,7 @@ type page struct {
 	Change *changeView
 	Older  int64
 	Skills []skillRow
+	Hooks  []hookView
 
 	Form    newNote
 	Folders []string
@@ -827,6 +828,12 @@ func notice(r *http.Request) string {
 		return "Restored. The restore is a new change and can be undone too."
 	case "created":
 		return "Created, and added to its folder's MEMORY.md. The machines get it on their next pull."
+	case "hook-new":
+		return "A new secret is ready below. Paste it into each repo's webhook; the old one no longer works."
+	case "hook-saved":
+		return "Saved. wong takes the webhook from now on."
+	case "hook-off":
+		return "Turned off. wong refuses the webhook until it has a secret again."
 	}
 	return ""
 }

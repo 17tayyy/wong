@@ -29,6 +29,7 @@ var staticFS embed.FS
 // Dashboard serves the brains a server keeps; each request sees the one its token opens, as store.
 type Dashboard struct {
 	brains  remote.Brains
+	env     remote.Webhooks
 	store   *remote.Store
 	account string
 	log     *slog.Logger
@@ -36,13 +37,14 @@ type Dashboard struct {
 }
 
 // Handler serves the dashboard; every page but the login asks for a machine token, kept in a cookie.
-func Handler(brains remote.Brains, log *slog.Logger) (http.Handler, error) {
-	d := &Dashboard{brains: brains, log: log, pages: map[string]*template.Template{}}
+// env holds the webhook secrets the server sets for a single brain, which the dashboard shows but cannot change.
+func Handler(brains remote.Brains, log *slog.Logger, env remote.Webhooks) (http.Handler, error) {
+	d := &Dashboard{brains: brains, env: env, log: log, pages: map[string]*template.Template{}}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html")
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "login"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "login"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -75,6 +77,8 @@ func Handler(brains remote.Brains, log *slog.Logger) (http.Handler, error) {
 	mux.HandleFunc("POST /changes/{seq}/undo", d.session((*Dashboard).undo))
 	mux.HandleFunc("POST /changes/{seq}/restore", d.session((*Dashboard).restore))
 	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
+	mux.HandleFunc("GET /webhooks", d.session((*Dashboard).webhooks))
+	mux.HandleFunc("POST /webhooks/{hook}", d.session((*Dashboard).setWebhook))
 	return securityHeaders(mux), nil
 }
 
@@ -98,7 +102,7 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
-		next(&Dashboard{brains: d.brains, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
+		next(&Dashboard{brains: d.brains, env: d.env, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
 	}
 }
 

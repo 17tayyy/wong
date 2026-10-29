@@ -421,6 +421,16 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
 .newnote #body { margin-top: 0; padding: 0; border-color: transparent; font: 16px/1.65 var(--sans); }
 .newnote #body:focus { outline: none; }
 
+/* Webhooks */
+.hook { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
+.hook h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+.hook .prop .v code { overflow-wrap: anywhere; }
+.hook .formbar input { flex: 1 1 260px; min-width: 0; height: 32px; padding: 0 10px; }
+.hook .formbar input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.secret summary { color: var(--muted); cursor: pointer; }
+.secret[open] summary { margin-bottom: 4px; }
+.hook + .callout { margin-top: 36px; }
+
 /* Sign in */
 .bare { display: grid; place-items: center; min-height: 100vh; padding: 24px; }
 .login { display: flex; flex-direction: column; gap: 10px; width: min(380px, 100%); }

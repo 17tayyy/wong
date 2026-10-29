@@ -67,7 +67,12 @@ CREATE TABLE IF NOT EXISTS findings (
 	reported_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS findings_project ON findings(project, machine);
-CREATE INDEX IF NOT EXISTS findings_note ON findings(note);`
+CREATE INDEX IF NOT EXISTS findings_note ON findings(note);
+CREATE TABLE IF NOT EXISTS hooks (
+	name       TEXT PRIMARY KEY,
+	secret     TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);`
 
 // Change is the current state of one file of the brain on the server.
 type Change struct {

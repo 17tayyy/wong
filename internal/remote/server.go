@@ -97,12 +97,7 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 		}
 		writeJSON(w, struct{}{})
 	}))
-	if store, ok := brains.(*Store); ok && hooks.GitHubSecret != "" {
-		mux.HandleFunc("POST /hooks/github", githubHook(store, log, hooks.GitHubSecret))
-	}
-	if store, ok := brains.(*Store); ok && hooks.LinearSecret != "" {
-		mux.HandleFunc("POST /hooks/linear", linearHook(store, log, hooks.LinearSecret))
-	}
+	hookBrains(mux, brains, log, hooks)
 	return mux
 }
 
