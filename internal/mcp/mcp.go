@@ -105,7 +105,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if token == "" || session.Store == nil {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="wong"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="wong", resource_metadata="`+remote.BaseURL(r)+`/.well-known/oauth-protected-resource/mcp"`)
 		http.Error(w, "send a wong token: Authorization: Bearer <token>", http.StatusUnauthorized)
 		return
 	}

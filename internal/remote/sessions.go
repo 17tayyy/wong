@@ -57,22 +57,24 @@ func (s *Store) EndSession(session string) error {
 // SignIns are links that open a dashboard session once, within two minutes of being made.
 type SignIns struct {
 	mu    sync.Mutex
-	links map[string]signIn
+	links map[string]SignIn
 	now   func() time.Time
 }
 
-type signIn struct {
-	store *Store
-	via   string
+// SignIn is what a sign-in link opens: a brain, who made the link, and the page of the dashboard to land on.
+type SignIn struct {
+	Store *Store
+	Via   string
+	Next  string
 	made  time.Time
 }
 
 func NewSignIns() *SignIns {
-	return &SignIns{links: map[string]signIn{}, now: time.Now}
+	return &SignIns{links: map[string]SignIn{}, now: time.Now}
 }
 
-// Issue makes the code of a link that opens a session on a brain.
-func (l *SignIns) Issue(store *Store, via string) (string, error) {
+// Issue makes the code of a link that opens a session on a brain and lands on next, a page of the dashboard.
+func (l *SignIns) Issue(store *Store, via, next string) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune()
@@ -84,22 +86,22 @@ func (l *SignIns) Issue(store *Store, via string) (string, error) {
 		return "", err
 	}
 	code := hex.EncodeToString(raw)
-	l.links[code] = signIn{store: store, via: via, made: l.now()}
+	l.links[code] = SignIn{Store: store, Via: via, Next: next, made: l.now()}
 	return code, nil
 }
 
-// Redeem spends a link's code and returns the brain it opens and who made it.
-func (l *SignIns) Redeem(code string) (*Store, string, bool) {
+// Redeem spends a link's code and returns what it opens.
+func (l *SignIns) Redeem(code string) (SignIn, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.prune()
 	for c, link := range l.links {
 		if subtle.ConstantTimeCompare([]byte(c), []byte(code)) == 1 {
 			delete(l.links, c)
-			return link.store, link.via, true
+			return link, true
 		}
 	}
-	return nil, "", false
+	return SignIn{}, false
 }
 
 func (l *SignIns) prune() {
@@ -116,8 +118,8 @@ type SignInLink struct {
 	ExpiresIn int    `json:"expires_in"`
 }
 
-func (l *SignIns) link(r *http.Request, store *Store, via string) (SignInLink, error) {
-	code, err := l.Issue(store, via)
+func (l *SignIns) link(r *http.Request, store *Store, via, next string) (SignInLink, error) {
+	code, err := l.Issue(store, via, next)
 	return SignInLink{URL: baseURL(r) + "/signin/" + code, ExpiresIn: int(signInTTL.Seconds())}, err
 }
 
@@ -125,7 +127,7 @@ func (l *SignIns) link(r *http.Request, store *Store, via string) (SignInLink, e
 func SignInHandler(brains Brains, signins *SignIns, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/signin", authorized(brains, func(w http.ResponseWriter, r *http.Request, s Session) {
-		link, err := signins.link(r, s.Store, s.Machine)
+		link, err := signins.link(r, s.Store, s.Machine, "/")
 		if err != nil {
 			log.Error("signin", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -142,7 +144,8 @@ type adminAccount struct {
 	Created bool   `json:"created"`
 }
 
-// AdminHandler lets a sign-up service, such as wong cloud's, make accounts, sign people in to them and see how they are.
+// AdminHandler lets a sign-up service, such as wong cloud's, make accounts, sign people in to them, on the page of
+// the dashboard given as next, and see how they are.
 // It holds the admin token; with none, it answers nothing.
 func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
@@ -203,7 +206,7 @@ func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog
 		}
 		var link SignInLink
 		if err == nil {
-			link, err = signins.link(r, store, "sign-in")
+			link, err = signins.link(r, store, "sign-in", r.FormValue("next"))
 		}
 		if err != nil {
 			log.Error("admin", "err", err)
@@ -215,7 +218,9 @@ func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog
 	return mux
 }
 
-// baseURL is the scheme and host a request reached, for links back to this server.
+// BaseURL is the scheme and host a request reached, for links back to this server.
+func BaseURL(r *http.Request) string { return baseURL(r) }
+
 func baseURL(r *http.Request) string {
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		return "https://" + r.Host

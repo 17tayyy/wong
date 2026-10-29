@@ -61,19 +61,19 @@ func TestSignInLinksWorkOnce(t *testing.T) {
 	links := NewSignIns()
 	now := time.Now()
 	links.now = func() time.Time { return now }
-	code, err := links.Issue(store, "desktop")
+	code, err := links.Issue(store, "desktop", "/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, via, ok := links.Redeem(code); !ok || got != store || via != "desktop" {
-		t.Errorf("Redeem = %v, %q, %v", got, via, ok)
+	if got, ok := links.Redeem(code); !ok || got.Store != store || got.Via != "desktop" {
+		t.Errorf("Redeem = %+v, %v", got, ok)
 	}
-	if _, _, ok := links.Redeem(code); ok {
+	if _, ok := links.Redeem(code); ok {
 		t.Error("a link worked twice")
 	}
-	late, _ := links.Issue(store, "desktop")
+	late, _ := links.Issue(store, "desktop", "/")
 	now = now.Add(signInTTL + time.Second)
-	if _, _, ok := links.Redeem(late); ok {
+	if _, ok := links.Redeem(late); ok {
 		t.Error("an expired link worked")
 	}
 }
@@ -128,7 +128,7 @@ func TestAdminMakesAccountsAndSignsPeopleIn(t *testing.T) {
 	if code, _ := call(srv.URL, http.MethodGet, "/admin/accounts", "guess"); code != http.StatusNotFound {
 		t.Errorf("list accounts with a wrong token: %d", code)
 	}
-	code, body := call(srv.URL, http.MethodPost, "/admin/accounts/alice/signin", "admin-secret")
+	code, body := call(srv.URL, http.MethodPost, "/admin/accounts/alice/signin?next=%2Fgraph", "admin-secret")
 	var link SignInLink
 	json.Unmarshal([]byte(body), &link)
 	code2, ok := strings.CutPrefix(link.URL, srv.URL+"/signin/")
@@ -136,8 +136,8 @@ func TestAdminMakesAccountsAndSignsPeopleIn(t *testing.T) {
 		t.Fatalf("sign-in link: %d %s", code, body)
 	}
 	alice, _ := folder.Store("alice")
-	if got, via, ok := links.Redeem(code2); !ok || got != alice || via != "sign-in" {
-		t.Errorf("the link opens %v, %q, %v", got, via, ok)
+	if got, ok := links.Redeem(code2); !ok || got.Store != alice || got.Via != "sign-in" || got.Next != "/graph" {
+		t.Errorf("the link opens %+v, %v", got, ok)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestMachinesMakeSignInLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _ := strings.CutPrefix(link.URL, srv.URL+"/signin/")
-	if got, via, ok := links.Redeem(code); !ok || got != store || via != "desktop" {
-		t.Errorf("the link opens %v, %q, %v", got, via, ok)
+	if got, ok := links.Redeem(code); !ok || got.Store != store || got.Via != "desktop" {
+		t.Errorf("the link opens %+v, %v", got, ok)
 	}
 	stranger := NewClient(srv.URL, "", time.Second)
 	if _, err := stranger.SignIn(t.Context()); err == nil || !strings.Contains(err.Error(), "401") {

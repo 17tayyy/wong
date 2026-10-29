@@ -57,12 +57,13 @@ type page struct {
 	Base     string
 	Versions []change
 
-	Change *changeView
-	Older  int64
-	Skills []skillRow
-	Hooks  []hookView
-	Device *remote.Device
-	Taken  bool
+	Change     *changeView
+	Older      int64
+	Skills     []skillRow
+	Hooks      []hookView
+	Device     *remote.Device
+	Connection *connection
+	Taken      bool
 
 	Form    newNote
 	Folders []string

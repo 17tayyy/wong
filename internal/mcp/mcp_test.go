@@ -350,3 +350,17 @@ func TestArchiveThroughMCP(t *testing.T) {
 		t.Errorf("archive_note back: %s", text)
 	}
 }
+
+func TestUnauthorizedPointsToOAuth(t *testing.T) {
+	_, c := setup(t)
+	req, _ := http.NewRequest(http.MethodPost, c.url, strings.NewReader(`{}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	base := strings.TrimSuffix(c.url, "/")
+	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), `resource_metadata="`+base+`/.well-known/oauth-protected-resource/mcp"`) {
+		t.Errorf("401 without a token: %d %q", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+	}
+}

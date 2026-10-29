@@ -27,12 +27,14 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 // Options are what the dashboard shares with the rest of the server: the webhook secrets it sets for a single brain,
-// which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, and where
-// people without a token sign in, such as wong cloud's sign-in with GitHub.
+// which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, the
+// OAuth server that MCP clients ask to be approved, and where people without a token sign in, such as wong cloud's
+// sign-in with GitHub.
 type Options struct {
 	Webhooks  remote.Webhooks
 	Devices   *remote.Devices
 	SignIns   *remote.SignIns
+	OAuth     *remote.OAuth
 	SignInURL string
 }
 
@@ -55,7 +57,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "login"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -97,6 +99,10 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
 	mux.HandleFunc("GET /webhooks", d.session((*Dashboard).webhooks))
 	mux.HandleFunc("POST /webhooks/{hook}", d.session((*Dashboard).setWebhook))
+	if opts.OAuth != nil {
+		mux.HandleFunc("GET /oauth/authorize", d.session((*Dashboard).authorize))
+		mux.HandleFunc("POST /oauth/authorize", d.session((*Dashboard).authorize))
+	}
 	mux.HandleFunc("GET /device", d.session((*Dashboard).device))
 	mux.HandleFunc("POST /device", d.session((*Dashboard).approveDevice))
 	return securityHeaders(mux), nil
@@ -136,7 +142,23 @@ func sameOrigin(r *http.Request) bool {
 }
 
 func (d *Dashboard) login(w http.ResponseWriter, r *http.Request) {
-	d.render(w, "login", page{Title: "Sign in", Next: safeNext(r.URL.Query().Get("next")), SignInURL: d.opts.SignInURL})
+	next := safeNext(r.URL.Query().Get("next"))
+	d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.signInURL(next)})
+}
+
+// signInURL is where people without a token sign in, told to come back to next.
+func (d *Dashboard) signInURL(next string) string {
+	if d.opts.SignInURL == "" || next == "/" {
+		return d.opts.SignInURL
+	}
+	u, err := url.Parse(d.opts.SignInURL)
+	if err != nil {
+		return d.opts.SignInURL
+	}
+	q := u.Query()
+	q.Set("next", next)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +175,7 @@ func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if token == "" || s.Store == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.opts.SignInURL, Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
+		d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.signInURL(next), Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
 		return
 	}
 	d.openSession(w, r, s.Store, s.Machine, next)
@@ -161,13 +183,13 @@ func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
 
 // signIn spends a one-time link, made by wong open or a sign-up service, and opens a session on its brain.
 func (d *Dashboard) signIn(w http.ResponseWriter, r *http.Request) {
-	store, via, ok := d.opts.SignIns.Redeem(r.PathValue("code"))
+	link, ok := d.opts.SignIns.Redeem(r.PathValue("code"))
 	if !ok {
 		w.WriteHeader(http.StatusGone)
 		d.render(w, "login", page{Title: "Sign in", Next: "/", SignInURL: d.opts.SignInURL, Error: "That sign-in link was used or expired. Links work once, for two minutes."})
 		return
 	}
-	d.openSession(w, r, store, via, "/")
+	d.openSession(w, r, link.Store, link.Via, safeNext(link.Next))
 }
 
 func (d *Dashboard) openSession(w http.ResponseWriter, r *http.Request, store *remote.Store, via, next string) {

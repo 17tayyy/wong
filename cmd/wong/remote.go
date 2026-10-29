@@ -54,6 +54,10 @@ func newServeCmd() *cobra.Command {
 			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer;\n" +
 			"GET /admin/accounts lists every account with its size and last change.\n" +
 			"--sign-in-url sends people without a token to the service's sign-in page.\n\n" +
+			"MCP clients such as claude.ai connect with OAuth: given the address of /mcp, they\n" +
+			"register and send you to approve them on the dashboard, and get a token of the\n" +
+			"brain, named after them and revoked like any other. The key that signs their\n" +
+			"registrations is kept beside the database, or in the accounts folder.\n\n" +
 			"--max-size, --max-file and --max-requests bound what each brain may take: its\n" +
 			"size on disk with its history, the size of one file, and API requests a minute.",
 		Args: cobra.NoArgs,
@@ -109,7 +113,15 @@ func newServeCmd() *cobra.Command {
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
 			api := remote.Handler(brains, log, hooks)
 			devices, signins := remote.NewDevices(), remote.NewSignIns()
-			web, err := dashboard.Handler(brains, log, dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, SignInURL: signInURL})
+			keyFile := db + ".oauth-key"
+			if dir != "" {
+				keyFile = filepath.Join(dir, ".oauth-key")
+			}
+			oauth, err := remote.NewOAuth(keyFile)
+			if err != nil {
+				return err
+			}
+			web, err := dashboard.Handler(brains, log, dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, OAuth: oauth, SignInURL: signInURL})
 			if err != nil {
 				return err
 			}
@@ -118,6 +130,10 @@ func newServeCmd() *cobra.Command {
 			root.Handle("/api/device", remote.DeviceHandler(devices, log))
 			root.Handle("/api/device/", remote.DeviceHandler(devices, log))
 			root.Handle("/api/signin", remote.SignInHandler(brains, signins, log))
+			connect := remote.OAuthHandler(oauth, log)
+			root.Handle("/.well-known/", connect)
+			root.Handle("/oauth/register", connect)
+			root.Handle("/oauth/token", connect)
 			if folder, ok := brains.(*remote.Folder); ok {
 				root.Handle("/admin/", remote.AdminHandler(folder, signins, os.Getenv("WONG_ADMIN_TOKEN"), log))
 			}

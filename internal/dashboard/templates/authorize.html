@@ -1,0 +1,31 @@
+{{define "crumbs"}}{{icon "link"}}<span>Connect an app</span>{{end}}
+{{define "main"}}
+<div class="page">
+  {{with .Connection}}
+  <h1>Connect {{.Client}}</h1>
+  <p class="desc">{{.Client}} asks to use the brain{{with $.Server}} {{.}}{{end}}: to read your notes and preferences, and to write and change notes as you work with it. Connect it only if you started this from {{.Client}} just now.</p>
+  <form class="device" method="post" action="/oauth/authorize">
+    <input type="hidden" name="response_type" value="code">
+    <input type="hidden" name="client_id" value="{{.ClientID}}">
+    <input type="hidden" name="redirect_uri" value="{{.Redirect}}">
+    <input type="hidden" name="state" value="{{.State}}">
+    <input type="hidden" name="code_challenge" value="{{.Challenge}}">
+    <input type="hidden" name="code_challenge_method" value="S256">
+    <div class="props">
+      <div class="prop"><span class="k">{{icon "laptop"}}App</span><span class="v">{{.Client}}</span></div>
+      <div class="prop"><span class="k">{{icon "globe"}}Answers to</span><span class="v"><code>{{.Host}}</code></span></div>
+      <div class="prop"><span class="k">{{icon "pencil-line"}}Signs as</span><span class="v"><code>{{.Name}}</code></span></div>
+    </div>
+    {{if .Taken}}<div class="callout yellow">{{icon "triangle-alert"}}<p>Something already connected as {{.Name}}. Connecting replaces its access, so it stops working until it connects again.</p></div>{{end}}
+    <div class="formbar">
+      <button class="btn primary" name="do" value="approve">Connect</button>
+      <button class="btn ghost" name="do" value="deny">Cancel</button>
+      <span class="muted">Every change it makes is signed and can be undone. Revoke it any time with wong serve --revoke-token {{.Name}}.</span>
+    </div>
+  </form>
+  {{else}}
+  <h1>Connect an app</h1>
+  {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+  {{end}}
+</div>
+{{end}}

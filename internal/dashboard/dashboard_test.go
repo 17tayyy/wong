@@ -456,7 +456,10 @@ func TestSignInLinksAndSigningOut(t *testing.T) {
 	if _, body := b.get("/login"); !strings.Contains(body, `href="https://signup.example/login"`) || !strings.Contains(body, "Sign in with a token") {
 		t.Errorf("the sign-in page does not send people to the sign-up service:\n%s", body)
 	}
-	code, _ := links.Issue(store, "desktop")
+	if _, body := b.get("/login?next=%2Fgraph"); !strings.Contains(body, `href="https://signup.example/login?next=%2Fgraph"`) {
+		t.Errorf("the sign-up service is not told where to come back:\n%s", body)
+	}
+	code, _ := links.Issue(store, "desktop", "/")
 	if status, body := b.get("/signin/" + code); status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
 		t.Fatalf("a sign-in link did not land on the library: %d", status)
 	}
@@ -521,5 +524,75 @@ func TestArchiveInTheDashboard(t *testing.T) {
 	}
 	if code, body := b.post("/unarchive/projects/acme/archive/deploy-runbook.md", url.Values{}, b.srv.URL); code != http.StatusOK || !strings.Contains(body, "Brought “deploy-runbook” back to acme.") {
 		t.Errorf("bring it back: %d", code)
+	}
+}
+
+func TestConnectAnApp(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, _ := store.NewToken("browser")
+	o, err := remote.NewOAuth(filepath.Join(t.TempDir(), "key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), OAuth: o})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(remote.OAuthHandler(o, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	t.Cleanup(srv.Close)
+	resp, _ := http.Post(srv.URL+"/oauth/register", "application/json", strings.NewReader(`{"client_name":"Claude","redirect_uris":["https://claude.example/cb"]}`))
+	var reg map[string]string
+	json.NewDecoder(resp.Body).Decode(&reg)
+	resp.Body.Close()
+
+	web := httptest.NewServer(h)
+	t.Cleanup(web.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, web, &http.Client{Jar: jar, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if req.URL.Host == "claude.example" {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}}}
+	params := url.Values{"response_type": {"code"}, "client_id": {reg["client_id"]}, "redirect_uri": {"https://claude.example/cb"},
+		"state": {"s1"}, "code_challenge": {"abc"}, "code_challenge_method": {"S256"}}
+
+	if _, body := b.get("/oauth/authorize?" + params.Encode()); !strings.Contains(body, "Sign in to wong") {
+		t.Fatal("an anonymous visit was not sent to sign in first")
+	}
+	if code, body := b.post("/login", url.Values{"token": {token}, "next": {"/oauth/authorize?" + params.Encode()}}, web.URL); code != http.StatusOK || !strings.Contains(body, "<h1>Connect Claude</h1>") || !strings.Contains(body, "<code>claude.example</code>") {
+		t.Fatalf("signing in did not come back to the approval: %d", code)
+	}
+
+	approve := func(do string) *url.URL {
+		t.Helper()
+		form := url.Values{"do": {do}}
+		for k, v := range params {
+			form[k] = v
+		}
+		req, _ := http.NewRequest(http.MethodPost, web.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", web.URL)
+		resp, err := b.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		u, _ := url.Parse(resp.Header.Get("Location"))
+		return u
+	}
+	if u := approve("deny"); u.Host != "claude.example" || u.Query().Get("error") != "access_denied" || u.Query().Get("state") != "s1" {
+		t.Errorf("deny went to %v", u)
+	}
+	if u := approve("approve"); u.Host != "claude.example" || u.Query().Get("code") == "" || u.Query().Get("state") != "s1" {
+		t.Errorf("approve went to %v", u)
+	}
+	bad := url.Values{"response_type": {"code"}, "client_id": {reg["client_id"]}, "redirect_uri": {"https://evil.example/cb"}, "code_challenge": {"abc"}, "code_challenge_method": {"S256"}}
+	if code, body := b.get("/oauth/authorize?" + bad.Encode()); code != http.StatusBadRequest || !strings.Contains(body, "not valid") {
+		t.Errorf("a redirect the client did not register: %d", code)
 	}
 }
