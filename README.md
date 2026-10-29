@@ -75,7 +75,7 @@ Without Docker, download the binary for your platform from the
 On macOS or Linux, one line:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh -s -- http://wong.lan:8787
+curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787
 ```
 
 The script installs wong, asks for the token you made for this machine, and runs
@@ -110,7 +110,7 @@ changes it. Nothing in `~/.claude` is changed, and `wong link --remove` undoes t
 To try wong on a single machine, run the script without a url:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh
+curl -fsSL https://wong.bytay.dev/install.sh | sh
 ```
 
 `wong setup <url>` connects that machine to a server later.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs wong and sets this machine up: curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh -s -- [server-url]
+# Installs wong and sets this machine up: curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- [server-url]
 set -eu
 
 repo=17tayyy/wong
