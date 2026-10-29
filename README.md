@@ -78,8 +78,8 @@ flowchart LR
   into each session, and the agent fixes them with the `maintain-brain` skill.
 - **There when it matters.** When an agent opens a file, it sees the notes that cite that
   file. When it saves a note, wong tells it what the note is missing.
-- **A server, if you want one.** `wong serve` is a single binary with SQLite. It syncs
-  your machines and keeps every version of every note. It also turns GitHub and Linear
+- **Your server.** `wong serve` is a single binary with SQLite, or a Docker image. It
+  syncs your machines and keeps every version of every note. It also turns GitHub and Linear
   events into tasks, serves a dashboard and speaks MCP.
 
 ## What the agent sees
@@ -162,56 +162,94 @@ not "ENG-15 is in progress".
 
 ## Install
 
-You need Go 1.27 or later, and git.
+wong has two parts: the **server**, which keeps the brain and its history, and **wong on
+each machine**, which keeps a copy that Claude Code reads and writes. Set up the server
+first. It starts empty, and the first machine you connect fills it with its memory.
 
-```sh
-go install github.com/17tayyy/wong/cmd/wong@latest
+### 1. The server
 
-wong import --dry-run   # see how your Claude Code memory would be grouped into projects
-wong import             # bring it into ~/.wong; ~/.claude is left as it is
-git -C ~/.wong init     # optional: each session's changes become a commit
-wong check              # see what is already outdated
+On any machine your others can reach, with Docker:
+
+```yaml
+# compose.yaml
+services:
+  wong:
+    image: ghcr.io/17tayyy/wong:latest
+    restart: unless-stopped
+    ports: ["8787:8787"]
+    volumes: ["wong-data:/data"]
+volumes:
+  wong-data:
 ```
 
-`wong import` groups repos that share a parent folder into one project (`~/acme/*`
-becomes `acme`). Use `--map PATH=ID` to override that. You can run it again later to
-bring in what changed: notes the brain has not touched are updated, and notes changed on
-both sides are reported.
+```sh
+docker compose up -d
+docker compose exec wong /wong serve --new-token laptop   # one token per machine
+```
 
-Then point Claude Code at the brain and install the plugin:
+Without Docker, download the binary for your platform from the
+[releases](https://github.com/17tayyy/wong/releases) and run
+`wong serve --db /var/lib/wong/wong.db` under systemd or any supervisor. It listens on
+`:8787`.
+
+### 2. Each machine
+
+Install wong, on macOS or Linux:
 
 ```sh
-wong link --all      # every repo wong knows keeps its memory in its project
-wong link --global   # every other folder uses me/
+os=$(uname -s | tr A-Z a-z); arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -fsSLo wong "https://github.com/17tayyy/wong/releases/latest/download/wong-$os-$arch"
+chmod +x wong && sudo mv wong /usr/local/bin/
+```
 
+On Windows, download `wong-windows-amd64.exe` from the releases. With Go 1.27 or later,
+`go install github.com/17tayyy/wong/cmd/wong@latest` works anywhere.
+
+Then connect the machine and install the Claude Code plugin:
+
+```sh
+wong setup http://wong.lan:8787     # paste the token made for this machine
 claude plugin marketplace add 17tayyy/wong
 claude plugin install wong@wong
 ```
 
-`wong link` only writes `autoMemoryDirectory` to the repo's
-`.claude/settings.local.json` and makes sure git ignores that file. `wong link --remove`
-undoes it.
+`wong setup` does five things:
+
+1. Saves the server and this machine's token.
+2. Pulls the brain.
+3. Imports this machine's Claude Code memory into it.
+4. Pushes the result.
+5. Points Claude Code at the brain: every repo to its project, every other folder to
+   `me/`.
+
+On the first machine the server is empty, so `wong setup` uploads your memory. On the
+others it brings the brain down and adds whatever memory that machine had. From then on,
+the plugin pulls when a session starts and pushes when it ends.
+
+Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). The
+exception is a folder of unrelated repos such as `~/code`, where each repo is its own
+project. Run `wong import --dry-run` first to see the grouping, and pass `--map PATH=ID`
+to `wong setup` to change it. Nothing in `~/.claude` is changed, and
+`wong link --remove` undoes the links.
+
+### Without a server
+
+To try wong on a single machine, skip the server:
+
+```sh
+wong import && wong link --all && wong link --global
+```
+
+Then install the plugin. `wong setup` connects that machine to a server later.
 
 ## The server
 
-Run it on any machine your others can reach:
+Each machine has its own token. `wong serve --tokens` lists them, and
+`--revoke-token <name>` revokes a lost machine's. With Docker, prefix these with
+`docker compose exec wong /wong`.
 
-```sh
-wong serve --db /var/lib/wong/wong.db              # listens on :8787
-wong serve --db /var/lib/wong/wong.db --new-token laptop
-```
-
-Each machine gets its own token. List tokens with `--tokens` and revoke one with
-`--revoke-token <name>`. Then, on each machine:
-
-```sh
-wong remote http://wong.lan:8787   # paste the token and press enter
-wong sync                          # pull, then push
-```
-
-The plugin pulls when a session starts and pushes when it ends. A note changed on two
-machines at once is never overwritten: the server's version goes to
-`~/.wong/.wong/conflicts`, and `wong resolve <path> --keep local|server` settles it.
+A note changed on two machines at once is never overwritten. The server's version goes
+to `~/.wong/.wong/conflicts`, and `wong resolve <path> --keep local|server` settles it.
 
 To reach the server from outside your network, put it behind a tunnel or a proxy with a
 certificate, or pass `--tls-cert` and `--tls-key`. wong only sends a token over plain
@@ -243,8 +281,9 @@ itself once the fixed note reaches the server.
 - **Linear:** `POST /hooks/linear` for issue events, with `WONG_LINEAR_SECRET` set. An
   issue that a note cites leaves a task when it is completed or canceled.
 
-The plugin records which GitHub repo belongs to which project. Only `/hooks/*` needs to be
-reachable from the internet. To check Linear issues locally with `wong check`, set
+With Docker, set the secrets under `environment:` in `compose.yaml`. The plugin records
+which GitHub repo belongs to which project. Only `/hooks/*` needs to be reachable from
+the internet. To check Linear issues locally with `wong check`, set
 `LINEAR_API_KEY` to a personal API key.
 
 ### MCP
@@ -279,6 +318,7 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 
 | Command | What it does |
 | --- | --- |
+| `wong setup` | Connect a machine to the server, bring its memory in and point Claude Code at the brain |
 | `wong import` | Bring Claude Code's memory folders into the brain |
 | `wong link` | Make Claude Code keep its memory in the brain |
 | `wong check` | Check every note against what it cites |
