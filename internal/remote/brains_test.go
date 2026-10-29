@@ -112,3 +112,19 @@ func TestValidAccount(t *testing.T) {
 		}
 	}
 }
+
+func TestFolderLimitsEveryAccount(t *testing.T) {
+	folder, err := OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	before, _, _ := folder.Create("alice")
+	folder.SetLimits(Limits{Size: 100 << 20, File: 2 << 20, Requests: 300})
+	after, _, _ := folder.Create("bob")
+	for name, s := range map[string]*Store{"an account open before": before, "an account opened after": after} {
+		if s.Limits() != (Limits{Size: 100 << 20, File: 2 << 20, Requests: 300}) {
+			t.Errorf("%s has limits %+v", name, s.Limits())
+		}
+	}
+}

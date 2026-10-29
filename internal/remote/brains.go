@@ -59,9 +59,10 @@ func ValidAccount(id string) error {
 // Folder keeps the brain of each account in a SQLite file of its own, to copy, move or delete alone.
 // Its tokens carry their account, which keeps them valid when the file is served alone.
 type Folder struct {
-	dir  string
-	mu   sync.Mutex
-	open map[string]*Store
+	dir    string
+	mu     sync.Mutex
+	open   map[string]*Store
+	limits Limits
 }
 
 func OpenFolder(dir string) (*Folder, error) {
@@ -134,9 +135,19 @@ func (f *Folder) brain(id string, create bool) (*Store, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	s.id = id
+	s.id, s.limits = id, f.limits
 	f.open[id] = s
 	return s, missing, nil
+}
+
+// SetLimits bounds what each account's brain may take.
+func (f *Folder) SetLimits(l Limits) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.limits = l
+	for _, s := range f.open {
+		s.limits = l
+	}
 }
 
 // IDs lists the folder's accounts.

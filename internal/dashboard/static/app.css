@@ -157,6 +157,7 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
 .machines li > span:first-of-type { color: var(--text); }
 .machines .seen { margin-left: auto; font-size: 12px; }
 .side-foot .btn { width: 100%; justify-content: flex-start; }
+.storage { margin: 0 0 6px; padding: 0 8px; color: var(--muted); font-size: 12.5px; }
 
 .frame { display: flex; flex-direction: column; min-width: 0; }
 .topbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; height: 45px; padding: 0 16px; background: var(--bg); }

@@ -31,6 +31,7 @@ type page struct {
 	Error     string
 	Notice    string
 	SignInURL string
+	Storage   string
 	Snack     *snack
 	Masthead  masthead
 
@@ -157,6 +158,13 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host}
 	if d.account != "" {
 		p.Server = d.account
+	}
+	if limit := d.store.Limits().Size; limit > 0 {
+		size, err := d.store.Size()
+		if err != nil {
+			return p, err
+		}
+		p.Storage = "Using " + remote.Bytes(size) + " of " + remote.Bytes(limit)
 	}
 	q := r.URL.Query()
 	if format, ok := snacks[q.Get("done")]; ok {

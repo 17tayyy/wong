@@ -129,6 +129,9 @@ func TestServeTokens(t *testing.T) {
 	if _, err := run(t, "serve", "--db", db, "--tls-cert", "cert.pem"); err == nil || !strings.Contains(err.Error(), "go together") {
 		t.Errorf("--tls-cert without --tls-key: %v", err)
 	}
+	if _, err := run(t, "serve", "--db", db, "--max-size", "10X"); err == nil || !strings.Contains(err.Error(), "--max-size") {
+		t.Errorf("an invalid --max-size: %v", err)
+	}
 }
 
 func TestServeAccountTokens(t *testing.T) {

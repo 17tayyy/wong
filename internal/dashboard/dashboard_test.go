@@ -483,3 +483,14 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	}
 	return u
 }
+
+func TestStorageShowsAgainstItsLimit(t *testing.T) {
+	store, b := signedIn(t)
+	if _, body := b.get("/"); strings.Contains(body, `class="storage"`) {
+		t.Error("a brain without a size limit shows its storage")
+	}
+	store.SetLimits(remote.Limits{Size: 100 << 20})
+	if _, body := b.get("/"); !strings.Contains(body, " of 100.0 MB</p>") {
+		t.Errorf("the sidebar does not say how much of its room the brain takes:\n%s", body)
+	}
+}

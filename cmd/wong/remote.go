@@ -24,7 +24,8 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, dir, account, addr, certFile, keyFile, signInURL string
+	var db, dir, account, addr, certFile, keyFile, signInURL, maxSize, maxFile string
+	var maxRequests int
 	var admin adminFlags
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -51,7 +52,9 @@ func newServeCmd() *cobra.Command {
 			"With --accounts and WONG_ADMIN_TOKEN set, a sign-up service can create accounts\n" +
 			"and sign people in to them: PUT /admin/accounts/<id>, and POST\n" +
 			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer.\n" +
-			"--sign-in-url sends people without a token to the service's sign-in page.",
+			"--sign-in-url sends people without a token to the service's sign-in page.\n\n" +
+			"--max-size, --max-file and --max-requests bound what each brain may take: its\n" +
+			"size on disk with its history, the size of one file, and API requests a minute.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if (certFile == "") != (keyFile == "") {
@@ -59,6 +62,20 @@ func newServeCmd() *cobra.Command {
 			}
 			if account != "" && dir == "" {
 				return errors.New("--account goes with --accounts")
+			}
+			limits := remote.Limits{Requests: maxRequests}
+			for _, l := range []struct {
+				flag, value string
+				to          *int64
+			}{{"--max-size", maxSize, &limits.Size}, {"--max-file", maxFile, &limits.File}} {
+				if l.value == "" {
+					continue
+				}
+				n, err := remote.ParseBytes(l.value)
+				if err != nil {
+					return fmt.Errorf("%s: %w", l.flag, err)
+				}
+				*l.to = n
 			}
 			var brains remote.Brains
 			var done bool
@@ -71,6 +88,7 @@ func newServeCmd() *cobra.Command {
 				if done, err = adminCmds(cmd, store, admin); done || err != nil {
 					return err
 				}
+				store.SetLimits(limits)
 				brains = store
 			} else {
 				folder, err := remote.OpenFolder(dir)
@@ -81,6 +99,7 @@ func newServeCmd() *cobra.Command {
 				if done, err = folderAdminCmds(cmd, folder, account, admin); done || err != nil {
 					return err
 				}
+				folder.SetLimits(limits)
 				brains = folder
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -132,6 +151,9 @@ func newServeCmd() *cobra.Command {
 			if _, ok := brains.(*remote.Folder); ok && hooks != (remote.Webhooks{}) {
 				log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
 			}
+			if limits != (remote.Limits{}) {
+				where = append(where, "max_size", limits.Size, "max_file", limits.File, "max_requests", limits.Requests)
+			}
 			log.Info("serving", append(where, "addr", addr, "tls", certFile != "")...)
 			if certFile != "" {
 				err = srv.ListenAndServeTLS(certFile, keyFile)
@@ -148,6 +170,9 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dir, "accounts", "", "keep a brain for each account, one SQLite file each, in this folder")
 	cmd.Flags().StringVar(&account, "account", "", "with --accounts: the account whose tokens --new-token, --tokens and --revoke-token act on")
 	cmd.Flags().StringVar(&addr, "addr", ":8787", "address to listen on")
+	cmd.Flags().StringVar(&maxSize, "max-size", "", "the most room each brain may take on disk, history included, such as 100M")
+	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
+	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")
 	cmd.Flags().BoolVar(&admin.list, "tokens", false, "list who has a token and when they last used it, and exit")

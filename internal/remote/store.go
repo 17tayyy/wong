@@ -103,8 +103,9 @@ type Upload struct {
 var ErrBadPush = errors.New("bad push")
 
 type Store struct {
-	db *sql.DB
-	id string
+	db     *sql.DB
+	id     string
+	limits Limits
 }
 
 func Open(file string) (*Store, error) {
@@ -191,6 +192,9 @@ func NewOp(kind string) string {
 }
 
 func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, conflicts []Change, err error) {
+	if err := s.room(pushes); err != nil {
+		return nil, nil, err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, nil, err

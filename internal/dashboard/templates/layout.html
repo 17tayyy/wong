@@ -52,6 +52,7 @@
       {{end}}
     </div>
     <div class="side-foot">
+      {{with .Storage}}<p class="storage">{{.}}</p>{{end}}
       <ul class="machines" aria-label="Machines">
         {{range .Masthead.Machines}}<li>{{icon "laptop"}}<span>{{.Name}}</span><span class="seen">{{if .Seen.IsZero}}not seen{{else}}{{ago .Seen}}{{end}}</span></li>{{end}}
       </ul>
