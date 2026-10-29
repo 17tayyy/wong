@@ -28,14 +28,15 @@ var staticFS embed.FS
 
 // Options are what the dashboard shares with the rest of the server: the webhook secrets it sets for a single brain,
 // which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, the
-// OAuth server that MCP clients ask to be approved, and where people without a token sign in, such as wong cloud's
-// sign-in with GitHub.
+// OAuth server that MCP clients ask to be approved, where people without a token sign in, such as wong cloud's
+// sign-in with GitHub, and the page where they manage their account and its payment, when a service has one.
 type Options struct {
-	Webhooks  remote.Webhooks
-	Devices   *remote.Devices
-	SignIns   *remote.SignIns
-	OAuth     *remote.OAuth
-	SignInURL string
+	Webhooks   remote.Webhooks
+	Devices    *remote.Devices
+	SignIns    *remote.SignIns
+	OAuth      *remote.OAuth
+	SignInURL  string
+	AccountURL string
 }
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.

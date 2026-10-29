@@ -444,7 +444,12 @@ func TestSignInLinksAndSigningOut(t *testing.T) {
 	}
 	t.Cleanup(func() { store.Close() })
 	links := remote.NewSignIns()
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: links, SignInURL: "https://signup.example/login"})
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Devices:    remote.NewDevices(),
+		SignIns:    links,
+		SignInURL:  "https://signup.example/login",
+		AccountURL: "https://signup.example/account/",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,8 +465,12 @@ func TestSignInLinksAndSigningOut(t *testing.T) {
 		t.Errorf("the sign-up service is not told where to come back:\n%s", body)
 	}
 	code, _ := links.Issue(store, "desktop", "/")
-	if status, body := b.get("/signin/" + code); status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
+	status, body := b.get("/signin/" + code)
+	if status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
 		t.Fatalf("a sign-in link did not land on the library: %d", status)
+	}
+	if !strings.Contains(body, `href="https://signup.example/account/"`) {
+		t.Error("the sidebar does not link to the service's account page")
 	}
 	if status, body := b.get("/signin/" + code); status != http.StatusGone || !strings.Contains(body, "used or expired") {
 		t.Errorf("a link used twice: %d", status)

@@ -24,7 +24,7 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, dir, account, addr, certFile, keyFile, signInURL, maxSize, maxFile string
+	var db, dir, account, addr, certFile, keyFile, signInURL, accountURL, maxSize, maxFile string
 	var maxRequests int
 	var admin adminFlags
 	cmd := &cobra.Command{
@@ -53,7 +53,8 @@ func newServeCmd() *cobra.Command {
 			"and sign people in to them: PUT /admin/accounts/<id>, and POST\n" +
 			"/admin/accounts/<id>/signin for a one-time link, with that token as bearer;\n" +
 			"GET /admin/accounts lists every account with its size and last change.\n" +
-			"--sign-in-url sends people without a token to the service's sign-in page.\n\n" +
+			"--sign-in-url sends people without a token to the service's sign-in page, and\n" +
+			"--account-url adds a link to its account page to the dashboard.\n\n" +
 			"MCP clients such as claude.ai connect with OAuth: given the address of /mcp, they\n" +
 			"register and send you to approve them on the dashboard, and get a token of the\n" +
 			"brain, named after them and revoked like any other. The key that signs their\n" +
@@ -121,7 +122,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			web, err := dashboard.Handler(brains, log, dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, OAuth: oauth, SignInURL: signInURL})
+			web, err := dashboard.Handler(brains, log, dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, OAuth: oauth, SignInURL: signInURL, AccountURL: accountURL})
 			if err != nil {
 				return err
 			}
@@ -191,6 +192,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
+	cmd.Flags().StringVar(&accountURL, "account-url", "", "link the dashboard to this page where people manage their account and its payment")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")
 	cmd.Flags().BoolVar(&admin.list, "tokens", false, "list who has a token and when they last used it, and exit")
 	cmd.Flags().StringVar(&admin.revoke, "revoke-token", "", "revoke this machine name's token and exit")
