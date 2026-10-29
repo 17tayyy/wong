@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/link"
@@ -72,6 +73,19 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 
 	fmt.Fprintf(&b, "wong: this session's memory is the brain's project %q (%s).\n",
 		project, link.MemoryDir(env.Brain, env.Home, "projects/"+project))
+	for _, shelf := range []struct{ dir, who string }{{"projects/" + project, "This project"}, {"me", "me/"}} {
+		n := brain.ArchivedIn(env.Brain, shelf.dir)
+		if n == 0 {
+			continue
+		}
+		notes := "notes"
+		if n == 1 {
+			notes = "note"
+		}
+		fmt.Fprintf(&b, "%s keeps %d archived %s in %s, out of your memory on purpose: read them, or run "+
+			"`wong note search --archive <words>`, only when the user asks about older work.\n",
+			shelf.who, n, notes, link.MemoryDir(env.Brain, env.Home, shelf.dir+"/"+brain.ArchiveDir))
+	}
 	if index, err := os.ReadFile(filepath.Join(env.Brain, "me", "MEMORY.md")); err == nil && len(strings.TrimSpace(string(index))) > 0 {
 		fmt.Fprintf(&b, "\nGlobal preferences from the brain; the notes are in %s, read one when it applies:\n%s\n",
 			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))

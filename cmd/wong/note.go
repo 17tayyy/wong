@@ -29,7 +29,7 @@ func newNoteCmd(home string, brainDir *string) *cobra.Command {
 			"A note is given by its path in the brain, its name or its file name without .md.",
 	}
 	cmd.AddCommand(newNoteShowCmd(home, brainDir), newNoteSearchCmd(brainDir), newNoteWriteCmd(brainDir), newNoteVerifyCmd(brainDir),
-		newNoteMoveCmd(brainDir), newNoteRemoveCmd(brainDir))
+		newNoteMoveCmd(brainDir), newNoteArchiveCmd(brainDir, false), newNoteArchiveCmd(brainDir, true), newNoteRemoveCmd(brainDir))
 	return cmd
 }
 
@@ -49,6 +49,10 @@ func newNoteShowCmd(home string, brainDir *string) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "%s\n\n%s", link.MemoryDir(*brainDir, home, rel), data)
+			if brain.IsArchived(rel) {
+				fmt.Fprintln(out, "\narchived: wong check leaves it alone; wong note unarchive brings it back")
+				return nil
+			}
 			rep, err := checkNote(cmd, *brainDir, rel)
 			if err != nil {
 				return err
@@ -70,25 +74,31 @@ func newNoteShowCmd(home string, brainDir *string) *cobra.Command {
 func newNoteSearchCmd(brainDir *string) *cobra.Command {
 	var project string
 	var limit int
+	var archive bool
 	cmd := &cobra.Command{
 		Use:   "search <words>...",
 		Short: "Find the notes that hold every word, in their name, description, tags or text",
 		Long: "Find the notes that hold every word, in their name, description, tags or text, with or\n" +
 			"without accents. Notes that hold the words in their name, description or tags come\n" +
-			"first. --project searches one project and me.",
+			"first. --project searches one project and me. --archive searches the archived notes,\n" +
+			"which a plain search leaves out.",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g, err := graph.Load(*brainDir)
 			if err != nil {
 				return err
 			}
-			hits := g.Search(strings.Join(args, " "), project)
+			search, what := g.Search, "note"
+			if archive {
+				search, what = g.SearchArchive, "archived note"
+			}
+			hits := search(strings.Join(args, " "), project)
 			out := cmd.OutOrStdout()
 			if len(hits) == 0 {
-				fmt.Fprintf(out, "no note holds all of: %s\n", strings.Join(args, ", "))
+				fmt.Fprintf(out, "no %s holds all of: %s\n", what, strings.Join(args, ", "))
 				return nil
 			}
-			fmt.Fprintf(out, "%d notes match", len(hits))
+			fmt.Fprintf(out, "%d %ss match", len(hits), what)
 			if limit > 0 && len(hits) > limit {
 				fmt.Fprintf(out, ", the first %d", limit)
 				hits = hits[:limit]
@@ -105,7 +115,37 @@ func newNoteSearchCmd(brainDir *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "search only this project's notes and me")
 	cmd.Flags().IntVar(&limit, "limit", 20, "show at most this many notes (0 for all)")
+	cmd.Flags().BoolVar(&archive, "archive", false, "search the archived notes instead")
 	return cmd
+}
+
+// newNoteArchiveCmd puts a note in its shelf's archive, or with back, takes it out.
+func newNoteArchiveCmd(brainDir *string, back bool) *cobra.Command {
+	use, short, move, done := "archive <note>", "Keep a note that is no longer needed out of the way: out of MEMORY.md, check, the hooks and search", brain.Archive, "archived"
+	if back {
+		use, short, move, done = "unarchive <note>", "Bring an archived note back to its shelf and its MEMORY.md", brain.Unarchive, "brought back"
+	}
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Long: short + ".\n\n" +
+			"An archived note lives in archive/ inside its shelf, is listed in that folder's\n" +
+			"MEMORY.md, keeps its history and syncs as any other, and links to it still work.\n" +
+			"Agents see it only when asked: wong note search --archive, or reading the archive.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rel, err := brain.Resolve(*brainDir, args[0])
+			if err != nil {
+				return err
+			}
+			dest, err := move(*brainDir, rel)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s -> %s\n", done, rel, dest)
+			return nil
+		},
+	}
 }
 
 func newNoteWriteCmd(brainDir *string) *cobra.Command {

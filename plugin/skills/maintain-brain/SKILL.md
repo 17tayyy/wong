@@ -57,9 +57,10 @@ user did not ask for:
   translate, reorder or drop details that are still true.
 - **Turn progress into history.** "Pending: X" about finished work becomes what happened
   and where to read more, or disappears if the note keeps the lesson elsewhere.
-- **Ask before**: deleting a note, merging notes from different projects, moving a note
-  to another project, and touching anything under `people/` or `clients/`. Once the user
-  agrees, `wong note move <note> --to <project|me>` moves it and updates both indexes.
+- **Ask before**: deleting a note, archiving one, merging notes from different projects,
+  moving a note to another project, and touching anything under `people/` or `clients/`.
+  Once the user agrees, `wong note move <note> --to <project|me>` moves it and updates
+  both indexes.
 - **Keep the notes on the files you touch true.** Before you read or change a file, wong
   shows the notes that cite it or its folder. Read the ones that bear on your task, and
   when your change makes one of them wrong (a path, a behaviour, a pending step), fix
@@ -140,6 +141,23 @@ act only on what they approve:
   its links and sources. On a long note, show the user the rewrite before saving it.
   Write new findings into the state they change, not as one more dated paragraph at the
   end.
+
+## The archive
+
+Each shelf keeps an `archive/` folder for notes that are no longer needed but may be one
+day: finished work, decisions about something that is gone, history kept for its own
+sake. An archived note stays out of `MEMORY.md`, `wong check`, the session start, the
+notes shown before an edit and `wong note search`; it keeps its history and syncs, and
+links to it still work. The session start says how many a project keeps.
+
+- **Look in it only when asked**: when the user asks about older work, or about something
+  the live notes do not cover, run `wong note search --archive <words>` or read the
+  archive's `MEMORY.md`. Do not fix archived notes or bring their content into your work
+  otherwise.
+- **Propose, do not archive on your own.** When a note only records what is over, or
+  `check` keeps flagging one whose subject is gone, offer to archive it, several at once
+  if you can. Once the user agrees, `wong note archive <note>`; `wong note unarchive
+  <note>` brings one back when it matters again.
 
 ## Writing a note
 

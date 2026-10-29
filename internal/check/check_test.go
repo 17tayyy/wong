@@ -547,3 +547,17 @@ func TestKnownTeams(t *testing.T) {
 		t.Errorf("KnownTeams of a brain check never read teams for = %v", got)
 	}
 }
+
+func TestArchivedNotesAreLinkedButNotChecked(t *testing.T) {
+	f := newFixture(t)
+	f.note(t, "projects/acme/a.md", "See [[old]].\n", "")
+	f.note(t, "projects/acme/archive/old.md", "Linked to [[gone]], and `app/missing.py`.\n", "")
+
+	rep, err := Run(context.Background(), Options{Brain: f.brain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 {
+		t.Errorf("findings = %v", found(rep))
+	}
+}

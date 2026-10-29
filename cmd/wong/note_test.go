@@ -191,3 +191,22 @@ func TestNoteSearch(t *testing.T) {
 		t.Errorf("search with no match:\n%s", out)
 	}
 }
+
+func TestNoteArchive(t *testing.T) {
+	brain := noteEnv(t)
+	if out, err := run(t, "--brain", brain, "note", "archive", "orca"); err != nil || !strings.Contains(out, "archived projects/acme/orca.md -> projects/acme/archive/orca.md") {
+		t.Fatalf("archive: %v\n%s", err, out)
+	}
+	if out, _ := run(t, "--brain", brain, "note", "search", "orca"); !strings.Contains(out, "no note holds all of: orca") {
+		t.Errorf("a plain search found an archived note:\n%s", out)
+	}
+	if out, err := run(t, "--brain", brain, "note", "search", "--archive", "orca"); err != nil || !strings.Contains(out, "1 archived notes match:") || !strings.Contains(out, "projects/acme/archive/orca.md") {
+		t.Errorf("search --archive: %v\n%s", err, out)
+	}
+	if out, err := run(t, "--brain", brain, "note", "show", "orca"); err != nil || !strings.Contains(out, "archived: wong check leaves it alone") {
+		t.Errorf("show an archived note: %v\n%s", err, out)
+	}
+	if out, err := run(t, "--brain", brain, "note", "unarchive", "orca"); err != nil || !strings.Contains(out, "brought back projects/acme/archive/orca.md -> projects/acme/orca.md") {
+		t.Errorf("unarchive: %v\n%s", err, out)
+	}
+}

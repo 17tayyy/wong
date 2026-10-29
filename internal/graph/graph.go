@@ -22,22 +22,28 @@ type Note struct {
 	*note.Note
 }
 
-// Shelf is me or the project id the note lives on.
+// Shelf is me or the project id the note lives on, in its archive or not.
 func (n Note) Shelf() string {
-	if id, ok := strings.CutPrefix(path.Dir(n.Path), "projects/"); ok {
+	dir := path.Dir(n.Path)
+	if brain.IsArchived(n.Path) {
+		dir = path.Dir(dir)
+	}
+	if id, ok := strings.CutPrefix(dir, "projects/"); ok {
 		return id
 	}
-	return path.Dir(n.Path)
+	return dir
 }
 
 func (n Note) stem() string { return strings.TrimSuffix(path.Base(n.Path), ".md") }
 
-// Graph is every note of the brain, the names that reach each one and the tags in use.
+// Graph is every note of the brain, the names that reach each one and the tags in use. Archived notes are apart:
+// links reach them, but nothing else sees them unless asked.
 type Graph struct {
-	Notes  []Note
-	byPath map[string]Note
-	names  map[string]string
-	tags   map[string]int
+	Notes    []Note
+	Archived []Note
+	byPath   map[string]Note
+	names    map[string]string
+	tags     map[string]int
 }
 
 func New(notes []Note) *Graph {
@@ -50,6 +56,20 @@ func New(notes []Note) *Graph {
 		g.names[n.stem()] = n.Path
 		for _, t := range n.Tags {
 			g.tags[strings.ToLower(t)]++
+		}
+	}
+	return g
+}
+
+// WithArchive adds the archived notes, which links reach without their names taking a live note's.
+func (g *Graph) WithArchive(archived []Note) *Graph {
+	slices.SortFunc(archived, func(a, b Note) int { return strings.Compare(a.Path, b.Path) })
+	g.Archived = archived
+	for _, n := range archived {
+		for _, name := range []string{n.Name, n.stem()} {
+			if _, taken := g.names[name]; !taken {
+				g.names[name] = n.Path
+			}
 		}
 	}
 	return g
@@ -286,12 +306,12 @@ func Load(dir string) (*Graph, error) {
 	if err != nil {
 		return nil, err
 	}
-	var notes []Note
-	for _, folder := range folders {
+	read := func(folder string) ([]Note, error) {
 		paths, err := filepath.Glob(filepath.Join(dir, folder, "*.md"))
 		if err != nil {
 			return nil, err
 		}
+		var notes []Note
 		for _, p := range paths {
 			if filepath.Base(p) == "MEMORY.md" {
 				continue
@@ -300,8 +320,21 @@ func Load(dir string) (*Graph, error) {
 				notes = append(notes, Note{Path: filepath.ToSlash(filepath.Join(folder, filepath.Base(p))), Note: n})
 			}
 		}
+		return notes, nil
 	}
-	return New(notes), nil
+	var notes, archived []Note
+	for _, folder := range folders {
+		live, err := read(folder)
+		if err != nil {
+			return nil, err
+		}
+		old, err := read(filepath.Join(folder, brain.ArchiveDir))
+		if err != nil {
+			return nil, err
+		}
+		notes, archived = append(notes, live...), append(archived, old...)
+	}
+	return New(notes).WithArchive(archived), nil
 }
 
 // Hit is a note a search found, with the first line of its text that matched.
@@ -319,12 +352,21 @@ func fold(s string) string { return folder.Replace(strings.ToLower(s)) }
 
 // Search finds the notes of a project and me, or of the whole brain, that hold every word of the query, best first.
 func (g *Graph) Search(query, project string) []Hit {
+	return search(g.Notes, query, project)
+}
+
+// SearchArchive is Search on the archived notes.
+func (g *Graph) SearchArchive(query, project string) []Hit {
+	return search(g.Archived, query, project)
+}
+
+func search(notes []Note, query, project string) []Hit {
 	words := strings.Fields(fold(query))
 	if len(words) == 0 {
 		return nil
 	}
 	var hits []Hit
-	for _, n := range g.Notes {
+	for _, n := range notes {
 		if project != "" && n.Shelf() != project && n.Shelf() != "me" {
 			continue
 		}

@@ -34,7 +34,7 @@ func Folder(target string) (folder, scope string, err error) {
 	return filepath.Join("projects", target), scope, nil
 }
 
-// Resolve finds a note by its path (in the brain or absolute), its name or its file name without .md.
+// Resolve finds a note by its path (in the brain or absolute), its name or its file name without .md, archived or not.
 func Resolve(brain, ref string) (string, error) {
 	if strings.HasSuffix(ref, ".md") {
 		rel := ref
@@ -55,7 +55,7 @@ func Resolve(brain, ref string) (string, error) {
 		return "", err
 	}
 	var found []string
-	for _, folder := range folders {
+	for _, folder := range slices.Concat(folders, archivesOf(folders)) {
 		paths, err := notesIn(filepath.Join(brain, folder))
 		if err != nil {
 			return "", err
@@ -178,6 +178,95 @@ func Move(brain, rel, target string) (string, error) {
 		return "", err
 	}
 	return dest, addToIndex(filepath.Join(brain, folder), file, n)
+}
+
+// ArchiveDir is the folder of a shelf that keeps the notes it no longer needs: out of MEMORY.md, check and the
+// hooks, until someone asks for them.
+const ArchiveDir = "archive"
+
+// IsArchived reports whether a path in the brain is a note in a shelf's archive: me/archive/x.md or
+// projects/<id>/archive/x.md.
+func IsArchived(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	switch {
+	case len(parts) == 3 && parts[0] == "me":
+		return parts[1] == ArchiveDir && parts[2] != indexName
+	case len(parts) == 4 && parts[0] == "projects":
+		return parts[2] == ArchiveDir && parts[3] != indexName
+	}
+	return false
+}
+
+// Archive moves a note into its shelf's archive and from the shelf's MEMORY.md to the archive's.
+func Archive(brain, rel string) (string, error) {
+	folder := filepath.Dir(rel)
+	if IsArchived(rel) {
+		return "", fmt.Errorf("%s is already archived", rel)
+	}
+	if !isShelf(brain, folder) {
+		return "", fmt.Errorf("%s is not a note of me or a project", rel)
+	}
+	dest := filepath.Join(folder, ArchiveDir, filepath.Base(rel))
+	return dest, relocate(brain, rel, dest)
+}
+
+// Unarchive moves an archived note back to its shelf and its MEMORY.md.
+func Unarchive(brain, rel string) (string, error) {
+	if !IsArchived(rel) {
+		return "", fmt.Errorf("%s is not archived", rel)
+	}
+	dest := filepath.Join(filepath.Dir(filepath.Dir(rel)), filepath.Base(rel))
+	return dest, relocate(brain, rel, dest)
+}
+
+// ArchivedIn counts the notes in a shelf's archive.
+func ArchivedIn(brain, folder string) int {
+	paths, _ := notesIn(filepath.Join(brain, folder, ArchiveDir))
+	return len(paths)
+}
+
+// archivesOf lists the archive folder of each shelf.
+func archivesOf(folders []string) []string {
+	archives := make([]string, len(folders))
+	for i, f := range folders {
+		archives[i] = filepath.Join(f, ArchiveDir)
+	}
+	return archives
+}
+
+func isShelf(brain, folder string) bool {
+	folders, err := Folders(brain)
+	return err == nil && slices.Contains(folders, filepath.Clean(folder))
+}
+
+// relocate moves a note's file as it is, keeping its time, from its folder's MEMORY.md to the other folder's.
+func relocate(brain, rel, dest string) error {
+	if _, err := os.Stat(filepath.Join(brain, dest)); err == nil {
+		return fmt.Errorf("%s already exists", dest)
+	}
+	src := filepath.Join(brain, rel)
+	n, err := note.Load(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(brain, dest)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(src, path); err != nil {
+		return err
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		return err
+	}
+	if err := removeFromIndex(filepath.Dir(src), filepath.Base(rel)); err != nil {
+		return err
+	}
+	return addToIndex(filepath.Dir(path), filepath.Base(dest), n)
 }
 
 // Remove deletes a note and its link in MEMORY.md, and returns the notes that link to it.

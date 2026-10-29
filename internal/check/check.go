@@ -160,6 +160,16 @@ func (c *checker) load(brain, project, only string) ([]loaded, error) {
 	}
 	var notes []loaded
 	for _, abs := range dirs {
+		archived, err := filepath.Glob(filepath.Join(abs, "archive", "*.md"))
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range archived {
+			if n, err := note.Load(path); err == nil && filepath.Base(path) != "MEMORY.md" {
+				c.names[n.Name] = true
+				c.names[strings.TrimSuffix(filepath.Base(path), ".md")] = true
+			}
+		}
 		dir, _ := filepath.Rel(brain, abs)
 		paths, err := filepath.Glob(filepath.Join(abs, "*.md"))
 		if err != nil {

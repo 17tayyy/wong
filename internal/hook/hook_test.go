@@ -334,3 +334,14 @@ func TestNoteWrittenAsksForWhatWongNeeds(t *testing.T) {
 		t.Errorf("a file outside the brain: %s", got)
 	}
 }
+
+func TestSessionStartCountsTheArchive(t *testing.T) {
+	env, repo := newEnv(t)
+	for _, name := range []string{"old-a", "old-b"} {
+		write(t, filepath.Join(env.Brain, "projects", "acme", "archive", name+".md"), "---\nname: "+name+"\ndescription: d\n---\nSee `app/missing.py`.\n")
+	}
+	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
+	if !strings.Contains(got, "This project keeps 2 archived notes in ~/.wong/projects/acme/archive, out of your memory on purpose") || strings.Contains(got, "old-a") {
+		t.Errorf("session start:\n%s", got)
+	}
+}

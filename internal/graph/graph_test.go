@@ -87,3 +87,23 @@ func TestSearch(t *testing.T) {
 		t.Error("an empty query or one no note holds found notes")
 	}
 }
+
+func TestArchivedNotesStayApart(t *testing.T) {
+	g := New([]Note{
+		{Path: "projects/acme/a.md", Note: &note.Note{Name: "a", Description: "billing today", Body: "See [[old-billing]]."}},
+	}).WithArchive([]Note{
+		{Path: "projects/acme/archive/old-billing.md", Note: &note.Note{Name: "old-billing", Description: "billing before Stripe"}},
+	})
+	if p, ok := g.Resolve("old-billing"); !ok || p != "projects/acme/archive/old-billing.md" {
+		t.Errorf("Resolve of an archived note = %s, %v", p, ok)
+	}
+	if missing := g.Missing("See [[old-billing]].", ""); len(missing) != 0 {
+		t.Errorf("a link to an archived note is missing: %v", missing)
+	}
+	if hits := g.Search("billing", "acme"); len(hits) != 1 || hits[0].Path != "projects/acme/a.md" {
+		t.Errorf("Search = %v", hits)
+	}
+	if hits := g.SearchArchive("stripe", "acme"); len(hits) != 1 || hits[0].Shelf() != "acme" {
+		t.Errorf("SearchArchive = %v", hits)
+	}
+}

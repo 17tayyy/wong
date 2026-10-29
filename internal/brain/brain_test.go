@@ -171,3 +171,70 @@ func TestWithIndexLine(t *testing.T) {
 		t.Errorf("WithoutIndexEntry = %q", got)
 	}
 }
+
+func TestArchiveAndBack(t *testing.T) {
+	brain := newBrain(t)
+	old := filepath.Join(brain, "projects", "acme", "orca.md")
+	when := mustStat(t, old).ModTime()
+
+	dest, err := Archive(brain, filepath.Join("projects", "acme", "orca.md"))
+	if err != nil || dest != filepath.Join("projects", "acme", "archive", "orca.md") {
+		t.Fatalf("Archive = %s, %v", dest, err)
+	}
+	if !mustStat(t, filepath.Join(brain, dest)).ModTime().Equal(when) {
+		t.Error("archiving changed the note's time")
+	}
+	if index := read(t, filepath.Join(brain, "projects", "acme", "MEMORY.md")); strings.Contains(index, "orca.md") {
+		t.Errorf("the shelf's index still lists the archived note:\n%s", index)
+	}
+	if index := read(t, filepath.Join(brain, "projects", "acme", "archive", "MEMORY.md")); !strings.Contains(index, "(orca.md)") {
+		t.Errorf("the archive's index does not list it:\n%s", index)
+	}
+	if n := ArchivedIn(brain, filepath.Join("projects", "acme")); n != 1 {
+		t.Errorf("ArchivedIn = %d", n)
+	}
+	if rel, err := Resolve(brain, "orca"); err != nil || rel != dest {
+		t.Errorf("Resolve of an archived note = %s, %v", rel, err)
+	}
+	if _, err := Archive(brain, dest); err == nil {
+		t.Error("an archived note was archived again")
+	}
+	if _, err := Unarchive(brain, filepath.Join("projects", "acme", "a.md")); err == nil {
+		t.Error("a live note was brought back from the archive")
+	}
+
+	back, err := Unarchive(brain, dest)
+	if err != nil || back != filepath.Join("projects", "acme", "orca.md") {
+		t.Fatalf("Unarchive = %s, %v", back, err)
+	}
+	if index := read(t, filepath.Join(brain, "projects", "acme", "MEMORY.md")); !strings.Contains(index, "(orca.md)") {
+		t.Errorf("the note is not back in its shelf's index:\n%s", index)
+	}
+	if index := read(t, filepath.Join(brain, "projects", "acme", "archive", "MEMORY.md")); strings.Contains(index, "orca.md") {
+		t.Errorf("the archive's index still lists it:\n%s", index)
+	}
+}
+
+func TestIsArchived(t *testing.T) {
+	for rel, want := range map[string]bool{
+		"me/archive/a.md":                 true,
+		"projects/acme/archive/a.md":      true,
+		"projects/archive/a.md":           false,
+		"projects/archive/archive/a.md":   true,
+		"projects/acme/archive/MEMORY.md": false,
+		"projects/acme/a.md":              false,
+	} {
+		if got := IsArchived(rel); got != want {
+			t.Errorf("IsArchived(%q) = %v", rel, got)
+		}
+	}
+}
+
+func mustStat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
