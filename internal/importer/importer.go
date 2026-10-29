@@ -161,6 +161,7 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 		return res, err
 	}
 	var writes, synced []string
+	merged := map[string]bool{}
 	for _, rel := range order {
 		want := files[rel]
 		count := func(n *int) {
@@ -183,6 +184,12 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 			count(&res.Updated)
 		case imported[rel] == digest(want):
 			count(&res.Kept)
+		case filepath.Base(rel) == indexName:
+			if more := addLines(existing, want); !bytes.Equal(more, existing) {
+				files[rel] = more
+				writes = append(writes, rel)
+				merged[rel] = true
+			}
 		default:
 			res.Conflicts = append(res.Conflicts, rel)
 		}
@@ -200,6 +207,9 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 		}
 	}
 	for _, rel := range append(writes, synced...) {
+		if merged[rel] {
+			continue
+		}
 		imported[rel] = digest(files[rel])
 		src, ok := origin[rel]
 		if !ok {
@@ -285,6 +295,16 @@ func resolve(dir, folder string) string {
 	return ""
 }
 
+// sharedParents are folders that hold unrelated repos, so a repo in one is its own project.
+var sharedParents = map[string]bool{}
+
+func init() {
+	for _, name := range strings.Fields(`code src source sources dev development projects project repos repositories git github
+		gitlab work workspace workspaces documents desktop sites clones oss`) {
+		sharedParents[name] = true
+	}
+}
+
 func project(path, repo, home string) string {
 	if path == home {
 		return "me"
@@ -292,7 +312,7 @@ func project(path, repo, home string) string {
 	base := path
 	if repo != "" {
 		base = repo
-		if parent := filepath.Dir(repo); parent != home && parent != "/" {
+		if parent := filepath.Dir(repo); parent != home && parent != "/" && !sharedParents[strings.ToLower(filepath.Base(parent))] {
 			base = parent
 		}
 	}
@@ -334,6 +354,31 @@ func byTarget(sources []Source) [][]Source {
 		slices.SortStableFunc(g, func(a, b Source) int { return len(b.Notes) - len(a.Notes) })
 	}
 	return groups
+}
+
+var indexLinkRE = regexp.MustCompile(`\]\(([^)\s]+\.md)\)`)
+
+// addLines keeps an index the brain already has and adds the lines of want for notes it does not list yet.
+func addLines(existing, want []byte) []byte {
+	listed := map[string]bool{}
+	for _, m := range indexLinkRE.FindAllSubmatch(existing, -1) {
+		listed[string(m[1])] = true
+	}
+	var add []string
+	for _, line := range strings.Split(string(want), "\n") {
+		m := indexLinkRE.FindAllStringSubmatch(line, -1)
+		if len(m) > 0 && !slices.ContainsFunc(m, func(l []string) bool { return listed[l[1]] }) {
+			add = append(add, line)
+		}
+	}
+	if len(add) == 0 {
+		return existing
+	}
+	out := slices.Clone(existing)
+	if len(out) > 0 && !bytes.HasSuffix(out, []byte("\n")) {
+		out = append(out, '\n')
+	}
+	return append(out, []byte(strings.Join(add, "\n")+"\n")...)
 }
 
 func mergeIndex(group []Source, entries []entry) ([]byte, error) {

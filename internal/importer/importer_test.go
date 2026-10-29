@@ -442,3 +442,43 @@ func TestApplyFailsOnUnreadableNote(t *testing.T) {
 		t.Errorf("Apply() error = %v", err)
 	}
 }
+
+func TestPlanKeepsReposInSharedFoldersApart(t *testing.T) {
+	f := newFixture(t)
+	for _, repo := range []string{"code/api", "code/web"} {
+		dir := filepath.Join(f.home, repo)
+		mkdir(t, dir)
+		if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+		f.memory(t, dir, map[string]string{"a.md": noteText("a", "project")}, "")
+	}
+	got := targets(plan(t, f, nil))
+	if got["api"] != "projects/api" || got["web"] != "projects/web" {
+		t.Errorf("targets = %v", got)
+	}
+}
+
+func TestApplyAddsToAnIndexTheBrainAlreadyHas(t *testing.T) {
+	f := newFixture(t)
+	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"a.md": noteText("a", "project")}, "")
+	index := filepath.Join(f.brain, "projects/side_project/MEMORY.md")
+	write(t, index, "- [From the server](server.md) — pulled from another machine\n")
+
+	res, err := Apply(f.brain, plan(t, f, nil), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- [From the server](server.md) — pulled from another machine\n- [a](a.md) — about a\n"
+	if got := read(t, index); got != want || len(res.Conflicts) != 0 || res.Written != 1 {
+		t.Errorf("index = %q, result = %+v", got, res)
+	}
+
+	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"b.md": noteText("b", "project")}, "")
+	if res, err = Apply(f.brain, plan(t, f, nil), false); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, index); got != want+"- [b](b.md) — about b\n" || len(res.Conflicts) != 0 {
+		t.Errorf("index after a second import = %q, result = %+v", got, res)
+	}
+}
