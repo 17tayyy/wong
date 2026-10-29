@@ -22,6 +22,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#why">Why</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#the-server">Server</a> ·
   <a href="#obsidian">Obsidian</a> ·
@@ -32,6 +33,87 @@
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/graph-dark.png">
   <img src=".github/assets/graph-light.png" alt="The wong dashboard showing a brain as a graph: notes coloured by project, tags as square nodes, and outdated notes ringed in red and yellow">
 </picture>
+
+## Install
+
+wong has two parts: the **server**, which keeps the brain and its history, and **wong on
+each machine**, which keeps a copy that Claude Code reads and writes. The server starts
+empty, and the first machine you connect fills it with its memory.
+
+### 1. Start the server
+
+On any machine your others can reach:
+
+```sh
+docker run -d --name wong --restart unless-stopped -p 8787:8787 -v wong:/data ghcr.io/17tayyy/wong
+docker exec wong /wong serve --new-token laptop    # one token per machine
+```
+
+<details>
+<summary>With Docker Compose, or without Docker</summary>
+
+```yaml
+# compose.yaml
+services:
+  wong:
+    image: ghcr.io/17tayyy/wong:latest
+    restart: unless-stopped
+    ports: ["8787:8787"]
+    volumes: ["wong-data:/data"]
+volumes:
+  wong-data:
+```
+
+Without Docker, download the binary for your platform from the
+[releases](https://github.com/17tayyy/wong/releases) and run
+`wong serve --db /var/lib/wong/wong.db` under systemd or any supervisor.
+
+</details>
+
+### 2. Connect each machine
+
+On macOS or Linux, one line:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh -s -- http://wong.lan:8787
+```
+
+The script installs wong, asks for the token you made for this machine, and runs
+`wong setup`. That command:
+
+1. Pulls the brain from the server.
+2. Imports this machine's Claude Code memory and pushes it.
+3. Points Claude Code at the brain: every repo to its project, every other folder to
+   `me/`.
+4. Installs the wong plugin for Claude Code.
+
+On the first machine your memory goes up to the empty server. On the others the brain
+comes down, and their own memory is added. From then on, the plugin pulls when a session
+starts and pushes when it ends.
+
+<details>
+<summary>Windows, and how memory is grouped into projects</summary>
+
+On Windows, download `wong-windows-amd64.exe` from the
+[releases](https://github.com/17tayyy/wong/releases), save it as `wong.exe` in a folder
+on your PATH, and run `wong setup http://wong.lan:8787`.
+
+Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). A
+folder of unrelated repos such as `~/code` is the exception: each repo there is its own
+project. `wong import --dry-run` shows the grouping first, and `wong setup --map PATH=ID`
+changes it. Nothing in `~/.claude` is changed, and `wong link --remove` undoes the links.
+
+</details>
+
+### Without a server
+
+To try wong on a single machine, run the script without a url:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh
+```
+
+`wong setup <url>` connects that machine to a server later.
 
 ## Why
 
@@ -159,82 +241,6 @@ Billing moves to Stripe. Webhooks first, see [[billing-webhooks]].
 
 Notes point to their sources instead of copying their state. Write "tracked in ENG-15",
 not "ENG-15 is in progress".
-
-## Install
-
-wong has two parts: the **server**, which keeps the brain and its history, and **wong on
-each machine**, which keeps a copy that Claude Code reads and writes. The server starts
-empty, and the first machine you connect fills it with its memory.
-
-### 1. Start the server
-
-On any machine your others can reach:
-
-```sh
-docker run -d --name wong --restart unless-stopped -p 8787:8787 -v wong:/data ghcr.io/17tayyy/wong
-docker exec wong /wong serve --new-token laptop    # one token per machine
-```
-
-<details>
-<summary>With Docker Compose, or without Docker</summary>
-
-```yaml
-# compose.yaml
-services:
-  wong:
-    image: ghcr.io/17tayyy/wong:latest
-    restart: unless-stopped
-    ports: ["8787:8787"]
-    volumes: ["wong-data:/data"]
-volumes:
-  wong-data:
-```
-
-Without Docker, download the binary for your platform from the
-[releases](https://github.com/17tayyy/wong/releases) and run
-`wong serve --db /var/lib/wong/wong.db` under systemd or any supervisor.
-
-</details>
-
-### 2. Connect each machine
-
-On macOS or Linux, one line:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh -s -- http://wong.lan:8787
-```
-
-The script installs wong, asks for the token you made for this machine, and runs
-`wong setup`. That command:
-
-1. Pulls the brain from the server.
-2. Imports this machine's Claude Code memory and pushes it.
-3. Points Claude Code at the brain: every repo to its project, every other folder to
-   `me/`.
-4. Installs the wong plugin for Claude Code.
-
-On the first machine the server is empty, so your memory goes up. On the others the
-brain comes down, and whatever memory that machine had is added. From then on, the
-plugin pulls when a session starts and pushes when it ends.
-
-On Windows, download `wong-windows-amd64.exe` from the
-[releases](https://github.com/17tayyy/wong/releases), save it as `wong.exe` in a folder
-on your PATH, and run `wong setup http://wong.lan:8787`.
-
-Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). A
-folder of unrelated repos such as `~/code` is the exception: each repo there is its own
-project. `wong import --dry-run` shows the grouping first, and `wong setup --map PATH=ID`
-changes it. Nothing in `~/.claude` is changed, and `wong link --remove` undoes the links.
-
-### Without a server
-
-To try wong on a single machine, run the script without a url:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/17tayyy/wong/main/install.sh | sh
-```
-
-`wong setup <url>` connects that machine to a server later.
 
 ## The server
 
