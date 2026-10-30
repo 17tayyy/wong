@@ -89,7 +89,7 @@ func TestRemoteSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err = run(t, "--brain", desktop, "push")
-	if err != nil || !strings.Contains(out, "pushed: 0\n1 files were not pushed; fix them and push again:\n"+
+	if err != nil || !strings.Contains(out, "pushed: 0\n1 file was not pushed; fix it and push again:\n"+
 		"   me/aws.md: it holds what looks like a secret, at line 1 (AWS access key ID): take it out, or set visibility: local") || strings.Contains(out, key) {
 		t.Errorf("push of a note with a secret: %v\n%s", err, out)
 	}
