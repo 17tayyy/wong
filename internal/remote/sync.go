@@ -38,7 +38,7 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 	if err := c.Unlock(ctx); err != nil {
 		return res, err
 	}
-	st, err := LoadState(brain)
+	st, err := loadState(brain, c.statePath())
 	if err != nil {
 		return res, err
 	}
@@ -88,7 +88,7 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 		}
 	}
 	st.Cursor = cursor
-	return res, st.save(brain)
+	return res, st.saveAt(brain, c.statePath())
 }
 
 // Push sends every file changed since the last sync, except those waiting for a conflict to be resolved.
@@ -97,7 +97,7 @@ func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 	if err := c.Unlock(ctx); err != nil {
 		return res, err
 	}
-	st, err := LoadState(brain)
+	st, err := loadState(brain, c.statePath())
 	if err != nil {
 		return res, err
 	}
@@ -165,7 +165,7 @@ func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 		}
 		res.Conflicts = append(res.Conflicts, ch.Path)
 	}
-	return res, st.save(brain)
+	return res, st.saveAt(brain, c.statePath())
 }
 
 // Resolve ends a conflict keeping this machine's version (pushed next time) or the server's.
@@ -206,9 +206,14 @@ func Resolve(brain, path string, keepLocal bool) error {
 	return st.save(brain)
 }
 
+// LoadState reads what this machine last synced with its server.
 func LoadState(brain string) (State, error) {
+	return loadState(brain, statePath)
+}
+
+func loadState(brain, path string) (State, error) {
 	st := State{Files: map[string]string{}, Conflicts: map[string]string{}}
-	data, err := os.ReadFile(filepath.Join(brain, statePath))
+	data, err := os.ReadFile(filepath.Join(brain, path))
 	if errors.Is(err, fs.ErrNotExist) {
 		return st, nil
 	}
@@ -216,7 +221,7 @@ func LoadState(brain string) (State, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
-		return st, fmt.Errorf("%s: %w", statePath, err)
+		return st, fmt.Errorf("%s: %w", path, err)
 	}
 	if st.Files == nil {
 		st.Files = map[string]string{}
@@ -250,11 +255,24 @@ func (st *State) conflict(brain string, ch Change) error {
 }
 
 func (st *State) save(brain string) error {
+	return st.saveAt(brain, statePath)
+}
+
+func (st *State) saveAt(brain, path string) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeFile(filepath.Join(brain, statePath), append(data, '\n'), "")
+	return writeFile(filepath.Join(brain, path), append(data, '\n'), "")
+}
+
+// statePath is where the client keeps what it last synced: State when set, for a brain that syncs with more than one
+// server, or the brain's own sync state.
+func (c *Client) statePath() string {
+	if c.State != "" {
+		return c.State
+	}
+	return statePath
 }
 
 func apply(brain string, ch Change) error {

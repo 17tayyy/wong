@@ -25,6 +25,7 @@ type Client struct {
 	HTTP   *http.Client
 	Device *seal.Device
 	Key    *seal.Key
+	State  string
 	clear  bool
 }
 
