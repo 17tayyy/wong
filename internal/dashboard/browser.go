@@ -42,11 +42,17 @@ func (d *Dashboard) browserRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Service-Worker-Allowed", "/")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'")
+		w.Header().Set("Content-Security-Policy", runsWasm)
 		serveWeb(w, r, "web/sw.js", "text/javascript; charset=utf-8", "")
 	})
-	mux.HandleFunc("GET /static/web/wasm_exec.js", func(w http.ResponseWriter, r *http.Request) {
-		serveWeb(w, r, "web/wasm_exec.js", "text/javascript; charset=utf-8", "")
+	for _, name := range []string{"wasm_exec.js", "core.js"} {
+		mux.HandleFunc("GET /static/web/"+name, func(w http.ResponseWriter, r *http.Request) {
+			serveWeb(w, r, "web/"+name, "text/javascript; charset=utf-8", "")
+		})
+	}
+	mux.HandleFunc("GET /static/web/worker.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", runsWasm)
+		serveWeb(w, r, "web/worker.js", "text/javascript; charset=utf-8", "")
 	})
 	mux.HandleFunc("GET /static/web/wong.wasm", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Wong-Bytes", strconv.FormatInt(bundleSize(), 10))
@@ -69,6 +75,10 @@ var bundleSize = sync.OnceValue(func() int64 {
 	n, _ := io.Copy(io.Discard, z)
 	return n
 })
+
+// runsWasm is the policy of the scripts that run the dashboard: they may compile WebAssembly, and nothing else beyond
+// the dashboard's own.
+const runsWasm = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'"
 
 // serveWeb serves a file of the browser bundle, revalidated each time by its content so a new version reaches the
 // worker as soon as it starts again.
