@@ -267,6 +267,16 @@ func TestSealingABrainInTheClearReplacesItOnTheServer(t *testing.T) {
 			t.Errorf("the server kept something in the clear (%s): %d %v", q, clear, err)
 		}
 	}
+	var seq int
+	var name, file string
+	if err := store.db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{file, file + "-wal"} {
+		if data, err := os.ReadFile(f); err == nil && bytes.Contains(data, []byte("Ship on")) {
+			t.Errorf("%s still holds a note in the clear", filepath.Base(f))
+		}
+	}
 	events, _, err := store.Events(0)
 	if err != nil || len(events) != 1 || events[0].Remote != "acme/acme-api" {
 		t.Errorf("the open task's event was not kept for the machines: %+v %v", events, err)

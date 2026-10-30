@@ -79,8 +79,8 @@ func (s *Store) Keys(device string) (Keys, error) {
 
 // StartSeal makes the brain end-to-end encrypted, with its key wrapped for the device that seals it and for the
 // recovery code. A brain that holds files in the clear is sealed only by a machine that pulled them all, up to cursor,
-// to push them again encrypted: their clear copies and history go, with the findings and tasks that name them and the
-// database log that still holds them, and the events behind the open tasks stay for the machines to apply.
+// to push them again encrypted: their clear copies and history go, with the findings and tasks that name them, and the
+// database is rebuilt so that no free page or log keeps them; the events behind the open tasks stay for the machines.
 func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recoveryWrapped []byte, cursor int64) error {
 	if len(wrapped) == 0 || len(recoveryWrapped) == 0 {
 		return ErrNoKey
@@ -117,6 +117,7 @@ func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recove
 		return err
 	}
 	if latest.Valid {
+		s.db.Exec(`VACUUM`)
 		s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	return nil
