@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/17tayyy/wong/internal/dashboard"
 	"github.com/17tayyy/wong/internal/mcp"
@@ -447,8 +448,7 @@ func typedLine(in io.Reader) <-chan string {
 }
 
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // syncBrain pulls from and pushes to the server, as asked, and lists the conflicts left.
