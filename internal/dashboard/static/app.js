@@ -761,52 +761,148 @@ document.documentElement.classList.add('js');
   addEventListener('scroll', () => closeMenu(false), true);
 
   // Opening a sealed brain here: the service worker keeps a key for this browser, asks a machine that has the brain's
-  // key to approve it, and once it does, serves the dashboard on the notes it decrypts in this browser.
+  // key to approve it, and once it does, serves the dashboard on the notes it decrypts in this browser. A screen
+  // over the app follows each step, and the app stays out of reach until it ends or is cancelled.
   const openHere = () => {
     const unlock = $('[data-unlock]');
-    if (!unlock || !('serviceWorker' in navigator)) return;
-    const start = $('[data-unlock-start]', unlock);
-    const wait = $('[data-unlock-wait]', unlock);
-    const note = $('[data-unlock-note]', unlock);
-    const say = (text, alert) => {
-      note.hidden = !text;
-      note.textContent = text || '';
-      note.setAttribute('role', alert ? 'alert' : 'status');
+    const overlay = $('[data-unlock-overlay]');
+    if (!unlock || !overlay) return;
+    if (!('serviceWorker' in navigator)) {
+      $('[data-unlock-start]', unlock).disabled = true;
+      $('[data-unlock-unsupported]', unlock).hidden = false;
+      return;
+    }
+    const app = $('.app');
+    const order = ['get', 'key', 'approve', 'open'];
+    const step = (name) => $(`[data-step="${name}"]`, overlay);
+    const error = $('[data-unlock-error]', overlay);
+    const retry = $('[data-unlock-retry]', overlay);
+    const mb = (n) => (n / 1e6).toFixed(1) + ' MB';
+    let run = 0;
+
+    const at = (name, sub) => {
+      const i = order.indexOf(name);
+      order.forEach((n, j) => { step(n).dataset.state = j < i ? 'done' : j === i ? 'active' : 'pending'; });
+      if (sub != null) $('[data-sub]', step(name)).textContent = sub;
     };
-    const show = (s) => {
-      start.hidden = s.state === 'waiting' || s.state === 'starting';
-      wait.hidden = s.state !== 'waiting';
-      $('[data-unlock-code]', unlock).textContent = s.code || '';
-      say(s.state === 'starting' ? 'Opening the brain in this browser…' : s.state === 'failed' ? s.problem : '', s.state === 'failed');
-      if (s.state === 'open') location.reload();
-    };
-    const poll = async () => {
-      try {
-        const s = await (await fetch('/__wong/status')).json();
-        show(s);
-        if (s.state === 'waiting' || s.state === 'starting') setTimeout(poll, 2000);
-      } catch {
-        setTimeout(poll, 4000);
+    const fail = (text) => {
+      run++;
+      const active = $('[data-state="active"]', overlay);
+      if (active) {
+        active.dataset.state = 'failed';
+        const sub = $('[data-sub]', active);
+        if (sub) sub.textContent = 'Did not finish.';
       }
+      $('p', error).textContent = text;
+      error.hidden = retry.hidden = false;
     };
+    const show = () => {
+      document.body.append(overlay);
+      overlay.hidden = false;
+      app.inert = true;
+      $('#unlock-title', overlay).focus();
+    };
+    const close = () => {
+      run++;
+      overlay.hidden = true;
+      app.inert = false;
+      $('[data-unlock-start]', unlock).focus();
+    };
+    const within = (promise, ms, problem) => Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(problem)), ms))]);
     const controlled = () => navigator.serviceWorker.controller
       ? Promise.resolve()
       : new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
-    $('button', start).addEventListener('click', async () => {
-      $('button', start).disabled = true;
-      say('Getting this browser ready…');
-      try {
-        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        await controlled();
-        show(await (await fetch('/__wong/unlock', { method: 'POST' })).json());
-        poll();
-      } catch (err) {
-        say('This browser could not get ready: ' + err.message, true);
-      } finally {
-        $('button', start).disabled = false;
+
+    const download = async (mine) => {
+      at('get', 'Starting the download…');
+      const res = await fetch('/static/web/wong.wasm', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(`The server did not send the dashboard (it answered ${res.status}). Try again in a minute.`);
+      const total = Number(res.headers.get('X-Wong-Bytes')) || 0;
+      const bar = $('.bar', step('get'));
+      bar.hidden = !total;
+      const reader = res.body.getReader();
+      for (let got = 0; ;) {
+        const { done, value } = await reader.read();
+        if (done || mine !== run) break;
+        got += value.length;
+        $('[data-sub]', step('get')).textContent = total ? `Downloading… ${Math.min(99, Math.floor((got / total) * 100))}%` : `Downloading… ${mb(got)}`;
+        if (total) bar.firstElementChild.style.width = Math.min(100, (got / total) * 100) + '%';
       }
-    });
-    if (navigator.serviceWorker.controller) poll();
+      $('[data-sub]', step('get')).textContent = 'Ready in this browser.';
+    };
+
+    const follow = (s, mine) => {
+      if (mine !== run) return;
+      if (s.name) {
+        $('[data-unlock-name]', overlay).hidden = false;
+        $('[data-unlock-name] strong', overlay).textContent = s.name;
+        $('[data-name]', overlay).textContent = s.name;
+      }
+      switch (s.state) {
+        case 'waiting':
+          at('approve');
+          $('[data-pair]', overlay).hidden = false;
+          $('[data-code]', overlay).replaceChildren(...(s.code || '').split(' ').map((g) => el('span', {}, g)));
+          break;
+        case 'starting':
+          at('key', 'It never leaves this browser.');
+          break;
+        case 'opening':
+          at('open', 'Decrypting your notes…');
+          break;
+        case 'open':
+          at('open', 'Opening…');
+          location.reload();
+          return;
+        case 'failed':
+          fail(s.problem || 'This browser could not open your notes.');
+          return;
+      }
+      setTimeout(() => poll(mine), 2000);
+    };
+    const poll = async (mine) => {
+      if (mine !== run) return;
+      try {
+        follow(await (await fetch('/__wong/status')).json(), mine);
+      } catch {
+        setTimeout(() => poll(mine), 4000);
+      }
+    };
+
+    const begin = async () => {
+      const mine = ++run;
+      error.hidden = retry.hidden = true;
+      $('[data-pair]', overlay).hidden = true;
+      show();
+      try {
+        await download(mine);
+        if (mine !== run) return;
+        at('key', 'It never leaves this browser.');
+        await within(navigator.serviceWorker.register('/sw.js', { scope: '/' }), 20000,
+          'This browser did not start what keeps its key. Private windows often block it: open this page in a normal window.');
+        await within(controlled(), 20000,
+          'This browser did not start what keeps its key. Private windows often block it: open this page in a normal window.');
+        const res = await within(fetch('/__wong/unlock', { method: 'POST' }), 90000,
+          'This browser took too long to make its key. Check the connection and try again.');
+        follow(await res.json(), mine);
+      } catch (err) {
+        if (mine === run) fail(err.message);
+      }
+    };
+
+    $('[data-unlock-start]', unlock).addEventListener('click', begin);
+    retry.addEventListener('click', begin);
+    $('[data-unlock-cancel]', overlay).addEventListener('click', close);
+    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    if (navigator.serviceWorker.controller) {
+      fetch('/__wong/status').then((r) => r.json()).then((s) => {
+        if (!['starting', 'waiting', 'opening'].includes(s.state)) return;
+        const mine = ++run;
+        show();
+        $('[data-sub]', step('get')).textContent = 'Ready in this browser.';
+        follow(s, mine);
+      }).catch(() => {});
+    }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openHere);
   else openHere();

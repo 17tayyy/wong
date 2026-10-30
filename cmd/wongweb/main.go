@@ -21,8 +21,8 @@ import (
 	"github.com/17tayyy/wong/internal/seal"
 )
 
-// runtime is the brain this browser opened, or how far it got: locked, waiting for a machine to approve its key, open,
-// or failed with a problem.
+// runtime is the brain this browser opened, or how far it got: locked, starting, waiting for a machine to approve its
+// key, opening, open, or failed with a problem.
 type runtime struct {
 	mu      sync.Mutex
 	state   string
@@ -93,6 +93,9 @@ func (rt *runtime) start(_ js.Value, args []js.Value) any {
 			rt.mu.Unlock()
 			time.Sleep(3 * time.Second)
 		}
+		rt.mu.Lock()
+		rt.state = "opening"
+		rt.mu.Unlock()
 		opened, err := remote.OpenThrough(ctx, client)
 		if err != nil {
 			rt.fail(err)

@@ -6,15 +6,49 @@
   {{if .Browser}}
   <section class="part" aria-labelledby="unlock-h" data-unlock>
     <h2 id="unlock-h">Open them in this browser</h2>
-    <p class="desc">This browser can keep a key of its own and decrypt the notes here, as WhatsApp Web does. A machine that has the key approves it once, after you check that both show the same code.</p>
-    <div class="formbar" data-unlock-start><button class="btn primary" type="button">{{icon "key-round"}}Open in this browser</button></div>
-    <div class="callout gray" data-unlock-wait hidden>{{icon "laptop"}}<div><p><strong>Waiting for a machine to approve this browser.</strong> Its code is <code class="chip fingerprint" data-unlock-code></code></p><p>On a machine that has the key, open Encryption in the dashboard <code>wong open</code> serves, or run <code>wong keys approve</code>, and approve this browser only if it shows the same code. This page opens your notes as soon as it does.</p></div></div>
-    <p class="part-note" data-unlock-note hidden role="status"></p>
-    <noscript><p class="part-note">Opening the notes here needs JavaScript.</p></noscript>
+    <p class="desc">This browser can make a key of its own and decrypt your notes here. A machine that already has the brain's key approves it once, after you check that both show the same code. Each browser and phone is approved on its own.</p>
+    <div class="formbar"><button class="btn primary" type="button" data-unlock-start>{{icon "key-round"}}Open in this browser</button></div>
+    <p class="part-note" data-unlock-unsupported hidden role="alert">This browser cannot keep a key of its own. Private windows often block it: open this page in a normal window.</p>
+    <noscript><p class="part-note">Opening your notes here needs JavaScript.</p></noscript>
   </section>
+  <div class="unlock" role="dialog" aria-modal="true" aria-labelledby="unlock-title" data-unlock-overlay hidden>
+    <div class="unlock-col">
+      <span class="logo big" aria-hidden="true">w</span>
+      <h1 id="unlock-title" tabindex="-1">Opening your notes in this browser</h1>
+      <p class="desc" data-unlock-name hidden>This browser is <strong></strong>.</p>
+      <ol class="steps">
+        <li data-step="get"><span class="mark" aria-hidden="true">{{icon "check"}}</span><div>
+          <p class="step-t">Get the dashboard for this browser</p>
+          <p class="step-s" data-sub>Only the first time.</p>
+          <div class="bar" hidden><span></span></div>
+        </div></li>
+        <li data-step="key"><span class="mark" aria-hidden="true">{{icon "check"}}</span><div>
+          <p class="step-t">Make a key for this browser</p>
+          <p class="step-s" data-sub>It never leaves this browser.</p>
+        </div></li>
+        <li data-step="approve"><span class="mark" aria-hidden="true">{{icon "check"}}</span><div>
+          <p class="step-t">Approve it on a machine that has the brain's key</p>
+          <div class="pair" data-pair hidden>
+            <p class="pair-k">This browser's code</p>
+            <p class="pair-code" data-code></p>
+            <p class="pair-help">On that machine, open Encryption in the dashboard <code>wong open</code> serves, or run <code>wong keys approve</code>, and approve <strong data-name></strong> only if it shows this same code. This screen moves on by itself.</p>
+          </div>
+        </div></li>
+        <li data-step="open"><span class="mark" aria-hidden="true">{{icon "check"}}</span><div>
+          <p class="step-t">Open your notes</p>
+          <p class="step-s" data-sub>Decrypted here, in this browser.</p>
+        </div></li>
+      </ol>
+      <div class="callout red" role="alert" data-unlock-error hidden>{{icon "triangle-alert"}}<p></p></div>
+      <div class="formbar">
+        <button class="btn primary" type="button" data-unlock-retry hidden>Try again</button>
+        <button class="btn ghost" type="button" data-unlock-cancel>Cancel</button>
+      </div>
+    </div>
+  </div>
   {{else}}
   <div class="callout gray">{{icon "info"}}<p>Your agents read and write the notes on your machines as always. On a machine that has the key, <code>wong open</code> shows them in its own dashboard.</p></div>
   {{end}}
-  <div class="formbar">{{if not .Browser}}<a class="btn" href="/encryption">{{icon "key-round"}}Encryption</a>{{else}}<a class="btn ghost" href="/encryption">{{icon "key-round"}}Encryption</a>{{end}}<a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{if .AccountNav}}<a class="btn ghost" href="/account">{{icon "circle-user"}}Account</a>{{end}}</div>
+  <div class="formbar"><a class="btn{{if .Browser}} ghost{{end}}" href="/encryption">{{icon "key-round"}}Encryption</a><a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{if .AccountNav}}<a class="btn ghost" href="/account">{{icon "circle-user"}}Account</a>{{end}}</div>
 </div>
 {{end}}

@@ -48,11 +48,18 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === '/__wong/unlock' && e.request.method === 'POST') return e.respondWith(unlock().catch(failed));
-  if (url.pathname === '/__wong/status') return e.respondWith(dashboard().then((w) => json(w.status())).catch(failed));
+  if (url.pathname === '/__wong/status') return e.respondWith(status().catch(failed));
   if (url.pathname === '/logout' && e.request.method === 'POST') return e.respondWith(signOut(e.request));
   if (server.test(url.pathname)) return;
   e.respondWith(page(e.request));
 });
+
+// status says how far this browser got, and the name the server knows it by.
+async function status() {
+  const w = await dashboard();
+  const kept = await keep('readonly', (s) => s.get('self'));
+  return json({ ...w.status(), name: kept && kept.name });
+}
 
 // unlock gets this browser a token and a device key the first time, and asks for the brain's key with them.
 async function unlock() {
@@ -63,11 +70,12 @@ async function unlock() {
     if (!res.ok || !(res.headers.get('Content-Type') || '').startsWith('application/json')) {
       return json({ state: 'failed', problem: 'The server did not give this browser a token. Sign in again and retry.' }, 502);
     }
-    kept = { token: (await res.json()).token, device: w.newDevice() };
+    const given = await res.json();
+    kept = { token: given.token, name: given.name, device: w.newDevice() };
     await keep('readwrite', (s) => s.put(kept, 'self'));
   }
   w.start(self.location.origin, kept.token, kept.device);
-  return json(w.status());
+  return json({ ...w.status(), name: kept.name });
 }
 
 // signOut forgets the brain and this browser's key before the server ends the session.
@@ -80,7 +88,7 @@ async function signOut(request) {
 
 async function page(request) {
   const w = await dashboard();
-  for (let i = 0; i < 400 && w.status().state === 'starting'; i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 400 && ['starting', 'opening'].includes(w.status().state); i++) await new Promise((r) => setTimeout(r, 50));
   if (w.status().state !== 'open') return fetch(request);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : new Uint8Array(await request.arrayBuffer());
   try {

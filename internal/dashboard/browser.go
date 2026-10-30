@@ -6,14 +6,18 @@ package dashboard
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/17tayyy/wong/internal/remote"
@@ -45,9 +49,26 @@ func (d *Dashboard) browserRoutes(mux *http.ServeMux) {
 		serveWeb(w, r, "web/wasm_exec.js", "text/javascript; charset=utf-8", "")
 	})
 	mux.HandleFunc("GET /static/web/wong.wasm", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Wong-Bytes", strconv.FormatInt(bundleSize(), 10))
 		serveWeb(w, r, "web/wong.wasm.gz", "application/wasm", "gzip")
 	})
 }
+
+// bundleSize is how many bytes the browser receives of the dashboard once decompressed, for the page to show how
+// far the download got.
+var bundleSize = sync.OnceValue(func() int64 {
+	f, err := webFS.Open("web/wong.wasm.gz")
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	z, err := gzip.NewReader(f)
+	if err != nil {
+		return 0
+	}
+	n, _ := io.Copy(io.Discard, z)
+	return n
+})
 
 // serveWeb serves a file of the browser bundle, revalidated each time by its content so a new version reaches the
 // worker as soon as it starts again.
