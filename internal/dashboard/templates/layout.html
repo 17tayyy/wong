@@ -39,6 +39,7 @@
       <a href="/history"{{if eq .Nav "history"}} aria-current="page"{{end}}>{{icon "history"}}<span>History</span></a>
       <a href="/skills"{{if eq .Nav "skills"}} aria-current="page"{{end}}>{{icon "puzzle"}}<span>Skills</span></a>
       <a href="/webhooks"{{if eq .Nav "webhooks"}} aria-current="page"{{end}}>{{icon "webhook"}}<span>Webhooks</span></a>
+      {{if .AccountNav}}<a href="/account"{{if eq .Nav "account"}} aria-current="page"{{end}}>{{icon "circle-user"}}<span>Account</span></a>{{end}}
     </div>
     <p class="side-h">Shelves</p>
     <div class="tree">
@@ -57,7 +58,6 @@
         {{range .Masthead.Machines}}<li>{{icon "laptop"}}<span>{{.Name}}</span><span class="seen">{{if .Seen.IsZero}}not seen{{else}}{{ago .Seen}}{{end}}</span></li>{{end}}
       </ul>
       <a class="btn ghost small" href="/device">{{icon "plus"}}Connect a machine</a>
-      {{with .AccountURL}}<a class="btn ghost small" href="{{.}}">{{icon "circle-user"}}Account &amp; billing</a>{{end}}
       <form method="post" action="/logout"><button class="btn ghost small">{{icon "log-out"}}Sign out</button></form>
     </div>
   </nav>

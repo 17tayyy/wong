@@ -22,19 +22,20 @@ import (
 )
 
 type page struct {
-	Title      string
-	Nav        string
-	Machine    string
-	Server     string
-	Edition    *change
-	Next       string
-	Error      string
-	Notice     string
-	SignInURL  string
-	AccountURL string
-	Storage    string
-	Snack      *snack
-	Masthead   masthead
+	Title       string
+	Nav         string
+	Machine     string
+	Server      string
+	Edition     *change
+	Next        string
+	Error       string
+	Notice      string
+	SignInURL   string
+	AccountNav  bool
+	AccountPage *accountInfo
+	Storage     string
+	Snack       *snack
+	Masthead    masthead
 
 	Filter  string
 	Query   string
@@ -159,7 +160,7 @@ var snacks = map[string]string{
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
-	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, AccountURL: d.opts.AccountURL}
+	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, AccountNav: d.opts.Account != nil && d.account != ""}
 	if d.account != "" {
 		p.Server = d.account
 	}

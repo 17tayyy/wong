@@ -1,0 +1,50 @@
+{{define "crumbs"}}{{icon "circle-user"}}<span>Account</span>{{end}}
+{{define "main"}}
+{{with .AccountPage}}
+<div class="page">
+  <h1>Account</h1>
+  <p class="desc">Your plan, your brain's room on this server, and what connects to it.</p>
+  {{with .View}}{{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}<span><strong>{{.Name}}</strong> {{.Detail}}</span></p>{{end}}{{end}}
+  {{with .View}}{{if .Headline}}
+  <div class="callout {{if eq .Tone "warn"}}yellow{{else}}gray{{end}}">{{if eq .Tone "warn"}}{{icon "triangle-alert"}}{{else}}{{icon "info"}}{{end}}<p><strong>{{.Headline}}</strong> {{.Detail}}</p></div>
+  {{end}}{{end}}
+
+  {{if .Down}}
+  <section class="part" aria-labelledby="plan-h">
+    <h2 id="plan-h">Plan</h2>
+    <div class="callout red" role="alert">{{icon "triangle-alert"}}<p>The account service did not answer, so your plan is missing here. Try again in a minute.</p></div>
+  </section>
+  {{end}}
+
+  {{with .View}}
+  <section class="part" aria-labelledby="plan-h">
+    <h2 id="plan-h">Plan</h2>
+    <div class="props">
+      {{with .Plan}}<div class="prop"><span class="k">{{icon "circle-user"}}Current</span><span class="v"><span>{{.Name}}{{with .Detail}}&nbsp;<span class="muted">· {{.}}</span>{{end}}</span></span></div>{{end}}
+      {{range .Offers}}<div class="prop offer"><span class="k">{{icon "credit-card"}}{{.Name}}</span><span class="v"><span class="muted">{{.Detail}}</span>{{if .URL}}<a class="btn" href="{{.URL}}">{{.Action}}</a>{{end}}</span></div>{{end}}
+    </div>
+    {{with .Manage}}<div class="formbar"><a class="btn" href="{{.URL}}">{{icon "external-link"}}{{.Action}}</a>{{with .Detail}}<span class="muted">{{.}}</span>{{end}}</div>{{end}}
+    {{with .Note}}<p class="part-note">{{.}}</p>{{end}}
+  </section>
+  {{end}}
+
+  <section class="part" aria-labelledby="brain-h">
+    <h2 id="brain-h">Brain</h2>
+    <div class="props">
+      <div class="prop"><span class="k">{{icon "hash"}}Account</span><span class="v"><code class="chip">{{.Account}}</code></span></div>
+      <div class="prop"><span class="k">{{icon "folder"}}Storage</span><span class="v">{{.Storage}}</span></div>
+      <div class="prop top"><span class="k">{{icon "laptop"}}Machines</span><span class="v machines">{{range .Machines}}<span>{{.Name}} <span class="muted">· {{if .Seen.IsZero}}not seen{{else}}{{ago .Seen}}{{end}}</span></span>{{else}}<span class="muted">None yet</span>{{end}}</span></div>
+    </div>
+    <div class="formbar"><a class="btn" href="/device">{{icon "plus"}}Connect a machine</a></div>
+  </section>
+
+  <section class="part" aria-labelledby="apps-h">
+    <h2 id="apps-h">Apps</h2>
+    <p class="desc">claude.ai and other MCP clients connect with this address, and each one asks you to approve it here.</p>
+    <div class="props">
+      <div class="prop"><span class="k">{{icon "link"}}MCP address</span><span class="v"><code class="chip">{{.MCP}}</code></span></div>
+    </div>
+  </section>
+</div>
+{{end}}
+{{end}}

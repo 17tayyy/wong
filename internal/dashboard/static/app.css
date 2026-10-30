@@ -436,15 +436,23 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
 .archived li .muted { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .archived-note form { margin-top: 8px; }
 
-/* Webhooks */
-.hook { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
-.hook h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }
-.hook .prop .v code { overflow-wrap: anywhere; }
-.hook .formbar input { flex: 1 1 260px; min-width: 0; height: 32px; padding: 0 10px; }
-.hook .formbar input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* Sections: webhooks and account */
+.part { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
+.part h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+.part .prop .v code { overflow-wrap: anywhere; }
+.part .formbar input { flex: 1 1 260px; min-width: 0; height: 32px; padding: 0 10px; }
+.part .formbar input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .secret summary { color: var(--muted); cursor: pointer; }
 .secret[open] summary { margin-bottom: 4px; }
-.hook + .callout { margin-top: 36px; }
+.part + .callout { margin-top: 36px; }
+.part-note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.offer .k { color: var(--text); font-weight: 500; }
+.offer .v { flex-wrap: nowrap; }
+.offer .v .muted { flex: 1 1 auto; min-width: 0; }
+.offer .v .btn { flex: none; }
+.prop.top { align-items: start; }
+.prop.top .k { height: 30px; }
+.prop .v.machines { flex-direction: column; align-items: flex-start; gap: 2px; }
 
 /* Connect a machine */
 .device { margin-top: 24px; }

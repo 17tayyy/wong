@@ -29,14 +29,14 @@ var staticFS embed.FS
 // Options are what the dashboard shares with the rest of the server: the webhook secrets it sets for a single brain,
 // which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, the
 // OAuth server that MCP clients ask to be approved, where people without a token sign in, such as wong cloud's
-// sign-in with GitHub, and the page where they manage their account and its payment, when a service has one.
+// sign-in with GitHub, and the sign-up service that describes each account's plan on the Account page.
 type Options struct {
-	Webhooks   remote.Webhooks
-	Devices    *remote.Devices
-	SignIns    *remote.SignIns
-	OAuth      *remote.OAuth
-	SignInURL  string
-	AccountURL string
+	Webhooks  remote.Webhooks
+	Devices   *remote.Devices
+	SignIns   *remote.SignIns
+	OAuth     *remote.OAuth
+	SignInURL string
+	Account   *AccountService
 }
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.
@@ -58,7 +58,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -103,6 +103,9 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if opts.OAuth != nil {
 		mux.HandleFunc("GET /oauth/authorize", d.session((*Dashboard).authorize))
 		mux.HandleFunc("POST /oauth/authorize", d.session((*Dashboard).authorize))
+	}
+	if opts.Account != nil {
+		mux.HandleFunc("GET /account", d.session((*Dashboard).accountPage))
 	}
 	mux.HandleFunc("GET /device", d.session((*Dashboard).device))
 	mux.HandleFunc("POST /device", d.session((*Dashboard).approveDevice))

@@ -286,6 +286,83 @@ func TestEachTokenSignsInToItsBrain(t *testing.T) {
 	}
 }
 
+func TestAccountPage(t *testing.T) {
+	folder, err := remote.OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	store, _, err := folder.Create("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked *http.Request
+	up := true
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r
+		if !up {
+			http.Error(w, "down", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"tone":"ok","headline":"You're in the beta.","detail":"Free while it lasts.",
+			"notice":{"name":"Payment received.","detail":"The receipt is on its way."},
+			"plan":{"name":"Beta"},
+			"offers":[{"name":"€6 a month","detail":"Cancel any time.","action":"Subscribe monthly","url":"https://pay.example/month"},
+			          {"name":"Sneaky","action":"Click","url":"javascript:alert(1)"}],
+			"note":"Prices include taxes."}`)
+	}))
+	t.Cleanup(service.Close)
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Devices: remote.NewDevices(),
+		SignIns: remote.NewSignIns(),
+		Account: &AccountService{URL: service.URL + "/api/account/{account}/", Token: "admin-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, body := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK || !strings.Contains(body, `href="/account"`) {
+		t.Fatalf("the sidebar does not link to the Account page: %d", code)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/account?paid=1", nil)
+	req.Header.Set("Cf-Ipcountry", "ES")
+	res, err := b.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	body := string(raw)
+	if asked == nil || asked.URL.Path != "/api/account/bob/" || asked.Header.Get("Authorization") != "Bearer admin-secret" {
+		t.Fatalf("the service was not asked about bob with the admin token: %+v", asked)
+	}
+	if q := asked.URL.Query(); q.Get("country") != "ES" || q.Get("paid") != "1" {
+		t.Errorf("the service was not told the country and the page's query: %s", asked.URL.RawQuery)
+	}
+	for _, want := range []string{"<h1>Account</h1>", "You&#39;re in the beta.", "Payment received.", `href="https://pay.example/month"`, "Subscribe monthly", "Prices include taxes.", `<code class="chip">bob</code>`, srv.URL[len("http://"):] + "/mcp"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the Account page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "javascript:alert") {
+		t.Error("a script link from the service reached the page")
+	}
+
+	up = false
+	if code, body := b.get("/account"); code != http.StatusOK || !strings.Contains(body, "did not answer") || !strings.Contains(body, `<code class="chip">bob</code>`) || !strings.Contains(body, `role="alert"`) {
+		t.Errorf("with the service down the page should still show the brain: %d", code)
+	}
+}
+
 func TestWebhooksPage(t *testing.T) {
 	folder, err := remote.OpenFolder(t.TempDir())
 	if err != nil {
@@ -444,12 +521,7 @@ func TestSignInLinksAndSigningOut(t *testing.T) {
 	}
 	t.Cleanup(func() { store.Close() })
 	links := remote.NewSignIns()
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
-		Devices:    remote.NewDevices(),
-		SignIns:    links,
-		SignInURL:  "https://signup.example/login",
-		AccountURL: "https://signup.example/account/",
-	})
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: links, SignInURL: "https://signup.example/login"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,12 +537,8 @@ func TestSignInLinksAndSigningOut(t *testing.T) {
 		t.Errorf("the sign-up service is not told where to come back:\n%s", body)
 	}
 	code, _ := links.Issue(store, "desktop", "/")
-	status, body := b.get("/signin/" + code)
-	if status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
+	if status, body := b.get("/signin/" + code); status != http.StatusOK || !strings.Contains(body, "<h1>Library</h1>") {
 		t.Fatalf("a sign-in link did not land on the library: %d", status)
-	}
-	if !strings.Contains(body, `href="https://signup.example/account/"`) {
-		t.Error("the sidebar does not link to the service's account page")
 	}
 	if status, body := b.get("/signin/" + code); status != http.StatusGone || !strings.Contains(body, "used or expired") {
 		t.Errorf("a link used twice: %d", status)
