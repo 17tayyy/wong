@@ -12,26 +12,17 @@ import (
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/note"
+	"github.com/17tayyy/wong/internal/remote"
 )
 
-// NoteWritten answers PostToolUse on a note of the brain with what wong needs to check it, for the agent to fix at once.
+// NoteWritten answers PostToolUse on a file of the brain with what wong needs to check it and sync it, for the agent to fix at once.
 func NoteWritten(in Input, env Env) string {
 	if in.ToolInput.FilePath == "" || env.Brain == "" {
 		return ""
 	}
 	rel, err := filepath.Rel(filepath.Clean(env.Brain), filepath.Clean(in.ToolInput.FilePath))
-	if err != nil || filepath.Ext(rel) != ".md" || filepath.Base(rel) == "MEMORY.md" {
-		return ""
-	}
 	rel = filepath.ToSlash(rel)
-	shelf, scope := path.Dir(rel), "global"
-	project, isProject := strings.CutPrefix(shelf, "projects/")
-	switch {
-	case shelf == "me":
-		project = ""
-	case isProject && !strings.Contains(project, "/"):
-		scope = "project:" + project
-	default:
+	if err != nil || !remote.Synced(rel) {
 		return ""
 	}
 	data, err := os.ReadFile(in.ToolInput.FilePath)
@@ -39,18 +30,43 @@ func NoteWritten(in Input, env Env) string {
 		return ""
 	}
 	var fixes []string
-	if n, err := note.Parse(data); err != nil {
-		fixes = append(fixes, fmt.Sprintf("its frontmatter does not parse (%v), so wong leaves it out", err))
-	} else {
-		fixes = lint(n, rel, scope, project, in.ToolName == "Write", env)
+	kept, err := remote.Kept(rel, data)
+	if err != nil {
+		fixes = append(fixes, err.Error())
+	}
+	if leak := remote.Leaks(rel, data); leak != "" && !kept {
+		fixes = append(fixes, "wong will not push this file to the server while "+leak)
+	}
+	if project, scope, ok := shelfOf(rel); ok {
+		if n, err := note.Parse(data); err != nil {
+			fixes = append(fixes, fmt.Sprintf("its frontmatter does not parse (%v), so wong leaves it out", err))
+		} else {
+			fixes = append(fixes, lint(n, rel, scope, project, in.ToolName == "Write", env)...)
+		}
 	}
 	if len(fixes) == 0 {
 		return ""
 	}
-	reason := fmt.Sprintf("wong: %s is saved, but needs this so wong can check it. Fix it now, in one edit; wong's fields go at the top level "+
+	reason := fmt.Sprintf("wong: %s is saved, but needs this so wong can check it and sync it. Fix it now, in one edit; wong's fields go at the top level "+
 		"of the frontmatter, beside name and description, not under metadata:\n- %s\n", rel, strings.Join(fixes, "\n- "))
 	out, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
 	return string(out)
+}
+
+// shelfOf returns the project and scope of a note on a shelf, me or a project's folder, and false for any other file.
+func shelfOf(rel string) (string, string, bool) {
+	if path.Ext(rel) != ".md" || path.Base(rel) == "MEMORY.md" {
+		return "", "", false
+	}
+	shelf := path.Dir(rel)
+	if shelf == "me" {
+		return "", "global", true
+	}
+	project, ok := strings.CutPrefix(shelf, "projects/")
+	if !ok || strings.Contains(project, "/") {
+		return "", "", false
+	}
+	return project, "project:" + project, true
 }
 
 // lint lists what a note lacks or gets wrong in wong's format, checked against the rest of the brain.

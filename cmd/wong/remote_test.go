@@ -83,6 +83,16 @@ func TestRemoteSync(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(laptop, "me", "a.md")); string(data) != "desktop\n" {
 		t.Errorf("laptop a.md = %q", data)
 	}
+
+	key := "AKIA" + "Q7XK2M5ZP3NW6RJT"
+	if err := os.WriteFile(filepath.Join(desktop, "me", "aws.md"), []byte("aws_access_key_id = "+key+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, "--brain", desktop, "push")
+	if err != nil || !strings.Contains(out, "pushed: 0\n1 files were not pushed; fix them and push again:\n"+
+		"   me/aws.md: it holds what looks like a secret, at line 1 (AWS access key ID): take it out, or set visibility: local") || strings.Contains(out, key) {
+		t.Errorf("push of a note with a secret: %v\n%s", err, out)
+	}
 }
 
 func TestPrintTasks(t *testing.T) {

@@ -65,6 +65,46 @@ func CheckPending(s string) error {
 	return fmt.Errorf("unknown pending %q: use release (the next v* tag) or main (the next push to the main branch)", s)
 }
 
+// Local is the visibility of a note that stays on its machine.
+const Local = "local"
+
+// CheckVisibility refuses a visibility other than local.
+func CheckVisibility(s string) error {
+	if s == "" || s == Local {
+		return nil
+	}
+	return fmt.Errorf("unknown visibility %q: use local to keep the note on this machine, or leave it out", s)
+}
+
+// KeptLocal reports whether a note's file says visibility: local, read on its own so a frontmatter broken elsewhere still keeps the note home.
+func KeptLocal(data []byte) (bool, error) {
+	data = bytes.ReplaceAll(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), []byte("\r\n"), []byte("\n"))
+	m := frontmatterRE.FindSubmatch(data)
+	if m == nil {
+		return false, nil
+	}
+	var v string
+	if root, err := loadYAML(m[1]); err == nil {
+		node := lookup(root.Content, "visibility")
+		if meta := lookup(root.Content, "metadata"); node == nil && meta != nil && meta.Kind == yaml.MappingNode {
+			node = lookup(meta.Content, "visibility")
+		}
+		if node == nil {
+			return false, nil
+		}
+		if node.Kind != yaml.ScalarNode {
+			return false, errors.New("visibility must be a string: use local to keep the note on this machine, or leave it out")
+		}
+		v = node.Value
+	} else if f := visibilityRE.FindSubmatch(m[1]); f != nil {
+		v = strings.Trim(string(f[1]), `"'`)
+	}
+	if err := CheckVisibility(v); err != nil {
+		return false, err
+	}
+	return v == Local, nil
+}
+
 // WikiLinkRE matches a [[link]] to another note: the name, then an optional #heading and |label.
 var WikiLinkRE = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]`)
 
@@ -91,6 +131,7 @@ func OutsideCode(text string, f func(string) string) string {
 var (
 	frontmatterRE   = regexp.MustCompile(`(?s)\A---\n(.*?)\n---\n?`)
 	scopeRE         = regexp.MustCompile(`\A(global|project:[a-z0-9][a-z0-9._-]*)\z`)
+	visibilityRE    = regexp.MustCompile(`(?m)^visibility:[ \t]*(.*?)[ \t]*$`)
 	unquotedColonRE = regexp.MustCompile(`(?m)^([A-Za-z_][\w-]*: )([^\s"'\[{|>&*!#].*: .*?)[ \t]*$`)
 	yamlQuoter      = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 )
@@ -103,9 +144,11 @@ type Note struct {
 	Scope       string
 	Tags        []string
 	// Pending is "release" or "main" when the note leaves work for the next release or push to the main branch.
-	Pending  string
-	Sources  []string
-	Verified time.Time
+	Pending string
+	// Visibility is "local" when the note stays on its machine: never pushed to the server, nor its deletion, and never overwritten by a pull.
+	Visibility string
+	Sources    []string
+	Verified   time.Time
 	// Extra holds the other frontmatter entries as alternating key and value nodes, in file order.
 	Extra []*yaml.Node
 }
@@ -149,6 +192,8 @@ func Parse(data []byte) (*Note, error) {
 			n.Tags = tags(value)
 		case "pending":
 			n.Pending = value.Value
+		case "visibility":
+			n.Visibility = value.Value
 		case "sources":
 			n.Sources, err = sources(value)
 		case "verified":
@@ -212,6 +257,9 @@ func (n *Note) Marshal() ([]byte, error) {
 	}
 	if n.Pending != "" {
 		add("pending", str(n.Pending))
+	}
+	if n.Visibility != "" {
+		add("visibility", str(n.Visibility))
 	}
 	if len(n.Sources) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode}

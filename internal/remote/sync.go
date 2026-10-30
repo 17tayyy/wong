@@ -1,16 +1,21 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/17tayyy/wong/internal/note"
+	"github.com/17tayyy/wong/internal/secrets"
 )
 
 const (
@@ -18,11 +23,14 @@ const (
 	conflictsDir = ".wong/conflicts"
 )
 
-// State is what this machine last synced: the server's cursor, each file's sha, and the conflicts left to resolve.
+var ownFolders = []string{".git", ".wong", ".obsidian", ".trash"}
+
+// State is what this machine last synced: the server's cursor, each file's sha, the conflicts left to resolve, and the notes it keeps to itself.
 type State struct {
 	Cursor    int64             `json:"cursor"`
 	Files     map[string]string `json:"files"`
 	Conflicts map[string]string `json:"conflicts,omitempty"`
+	Local     []string          `json:"local,omitempty"`
 }
 
 type Result struct {
@@ -30,9 +38,46 @@ type Result struct {
 	Deleted   []string
 	Pushed    []string
 	Conflicts []string
+	Refused   []Refusal
 }
 
-// Pull applies the server's changes to the files this machine has not changed since its last sync.
+// Refusal is a file a push held back, and why, never with the secret it may hold.
+type Refusal struct {
+	Path   string
+	Reason string
+}
+
+// Synced reports whether a file of the brain, by its slash path, syncs: all but each machine's own folders, git's, wong's and Obsidian's.
+func Synced(rel string) bool {
+	top, _, _ := strings.Cut(rel, "/")
+	return rel != "" && rel != "." && top != ".." && !slices.Contains(ownFolders, top)
+}
+
+// Kept reports whether a file of the brain is a note with visibility: local, which stays on this machine.
+func Kept(path string, data []byte) (bool, error) {
+	if !strings.HasSuffix(path, ".md") {
+		return false, nil
+	}
+	return note.KeptLocal(data)
+}
+
+// Leaks says what looks like a secret in a file of the brain, by line and kind, or "" when it has none.
+func Leaks(path string, data []byte) string {
+	if bytes.IndexByte(data, 0) >= 0 {
+		return ""
+	}
+	found := secrets.Scan(data)
+	if len(found) == 0 {
+		return ""
+	}
+	advice := "take it out"
+	if strings.HasSuffix(path, ".md") {
+		advice += ", or set visibility: local to keep the note on this machine"
+	}
+	return fmt.Sprintf("it holds what looks like a secret, at %s: %s", secrets.List(found), advice)
+}
+
+// Pull applies the server's changes to the files this machine has not changed since its last sync, and to none of the notes it keeps to itself.
 func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 	var res Result
 	if err := c.Unlock(ctx); err != nil {
@@ -61,9 +106,20 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 		if err := ValidPath(ch.Path); err != nil {
 			return res, err
 		}
-		localSha, err := c.fileSum(filepath.Join(brain, ch.Path))
-		if err != nil {
+		data, err := os.ReadFile(filepath.Join(brain, ch.Path))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return res, err
+		}
+		localSha := ""
+		if err == nil {
+			localSha = c.sum(data)
+		}
+		if kept, _ := Kept(ch.Path, data); kept {
+			if !slices.Contains(st.Local, ch.Path) {
+				st.Local = append(st.Local, ch.Path)
+				slices.Sort(st.Local)
+			}
+			continue
 		}
 		_, waiting := st.Conflicts[ch.Path]
 		switch {
@@ -91,7 +147,7 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 	return res, st.saveAt(brain, c.statePath())
 }
 
-// Push sends every file changed since the last sync, except those waiting for a conflict to be resolved.
+// Push sends every file changed since the last sync but those waiting on a conflict, the notes kept on this machine, and the files with what looks like a secret, which it refuses.
 func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 	var res Result
 	if err := c.Unlock(ctx); err != nil {
@@ -101,18 +157,26 @@ func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	local, err := walk(brain, c.sum)
+	local, kept, err := walk(brain, c.sum)
 	if err != nil {
 		return res, err
 	}
 	var pushes []Upload
 	for path, sha := range local {
-		if _, waiting := st.Conflicts[path]; waiting || sha == st.Files[path] {
+		if _, waiting := st.Conflicts[path]; waiting || sha == st.Files[path] || kept[path] {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(brain, path))
 		if err != nil {
 			return res, err
+		}
+		if _, err := Kept(path, data); err != nil {
+			res.Refused = append(res.Refused, Refusal{path, err.Error()})
+			continue
+		}
+		if leak := Leaks(path, data); leak != "" {
+			res.Refused = append(res.Refused, Refusal{path, leak})
+			continue
 		}
 		info, err := os.Stat(filepath.Join(brain, path))
 		if err != nil {
@@ -120,15 +184,28 @@ func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 		}
 		pushes = append(pushes, Upload{Path: path, Base: st.Files[path], Sha: sha, Content: data, Modified: info.ModTime().UTC().Format(time.RFC3339Nano)})
 	}
+	slices.SortFunc(res.Refused, func(a, b Refusal) int { return strings.Compare(a.Path, b.Path) })
+	changed := false
 	for path, synced := range st.Files {
 		if _, ok := local[path]; ok {
+			continue
+		}
+		if slices.Contains(st.Local, path) {
+			delete(st.Files, path)
+			changed = true
 			continue
 		}
 		if _, waiting := st.Conflicts[path]; !waiting {
 			pushes = append(pushes, Upload{Path: path, Base: synced})
 		}
 	}
+	keptNow := slices.Sorted(maps.Keys(kept))
+	changed = changed || !slices.Equal(keptNow, st.Local)
+	st.Local = keptNow
 	if len(pushes) == 0 {
+		if changed {
+			return res, st.saveAt(brain, c.statePath())
+		}
 		return res, nil
 	}
 	slices.SortFunc(pushes, func(a, b Upload) int { return strings.Compare(a.Path, b.Path) })
@@ -311,21 +388,6 @@ func (c *Client) sum(data []byte) string {
 	return Sha(data)
 }
 
-func (c *Client) fileSum(path string) (string, error) {
-	return fileSum(path, c.sum)
-}
-
-func fileSum(path string, sum func([]byte) string) (string, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return sum(data), nil
-}
-
 // seal turns the uploads of a sealed brain into blobs under their ids, and returns the path each name stands for; a
 // brain in the clear goes as it is.
 func (c *Client) seal(pushes []Upload) ([]Upload, map[string]string, error) {
@@ -358,7 +420,7 @@ func (c *Client) known(brain string, st State) (map[string]string, error) {
 	if c.Key == nil {
 		return known, nil
 	}
-	local, err := walk(brain, c.sum)
+	local, _, err := walk(brain, c.sum)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -394,9 +456,9 @@ func (c *Client) unseal(ch Change, known map[string]string) (Change, bool, error
 	return ch, true, nil
 }
 
-// walk returns the sum of every file in the brain, outside each machine's own folders: git's, wong's and Obsidian's.
-func walk(brain string, sum func([]byte) string) (map[string]string, error) {
-	files := map[string]string{}
+// walk returns the sum of every file in the brain that syncs, and which of them are notes kept on this machine.
+func walk(brain string, sum func([]byte) string) (map[string]string, map[string]bool, error) {
+	files, kept := map[string]string{}, map[string]bool{}
 	err := filepath.WalkDir(brain, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -404,7 +466,7 @@ func walk(brain string, sum func([]byte) string) (map[string]string, error) {
 		rel, _ := filepath.Rel(brain, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if rel == ".git" || rel == ".wong" || rel == ".obsidian" || rel == ".trash" {
+			if rel != "." && !Synced(rel) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -412,12 +474,18 @@ func walk(brain string, sum func([]byte) string) (map[string]string, error) {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		sha, err := fileSum(path, sum)
+		data, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		files[rel] = sha
+		files[rel] = sum(data)
+		if ok, _ := Kept(rel, data); ok {
+			kept[rel] = true
+		}
 		return nil
 	})
-	return files, err
+	return files, kept, err
 }

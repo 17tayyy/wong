@@ -37,6 +37,7 @@ metadata:
   type: project # kept by wong
 kind: decision
 scope: project:acme
+visibility: local
 sources:
   - linear:ENG-76
   - file:acme-api/app/payments/client.py
@@ -130,8 +131,8 @@ func TestParseLegacyTopLevelType(t *testing.T) {
 func TestParseWongFields(t *testing.T) {
 	n := mustParse(t, wongNote)
 
-	if n.Kind != Decision || n.Scope != "project:acme" {
-		t.Errorf("kind, scope = %q, %q", n.Kind, n.Scope)
+	if n.Kind != Decision || n.Scope != "project:acme" || n.Visibility != Local {
+		t.Errorf("kind, scope, visibility = %q, %q, %q", n.Kind, n.Scope, n.Visibility)
 	}
 	wantSources := []string{"linear:ENG-76", "file:acme-api/app/payments/client.py"}
 	if !slices.Equal(n.Sources, wantSources) {
@@ -152,7 +153,7 @@ func TestMarshalDoesNotAddWongFields(t *testing.T) {
 	for _, text := range []string{claudeNote, legacyNote} {
 		got := mustMarshal(t, mustParse(t, text))
 
-		for _, key := range []string{"kind:", "scope:", "sources:", "verified:"} {
+		for _, key := range []string{"kind:", "scope:", "visibility:", "sources:", "verified:"} {
 			if strings.Contains(got, key) {
 				t.Errorf("Marshal() added %s\n%s", key, got)
 			}
@@ -238,5 +239,31 @@ func TestLoadReportsPath(t *testing.T) {
 	_, err := Load(path)
 	if err == nil || err.Error() != path+": missing frontmatter" {
 		t.Errorf("Load() error = %v", err)
+	}
+}
+
+func TestKeptLocal(t *testing.T) {
+	tests := []struct {
+		why, text string
+		kept      bool
+		err       string
+	}{
+		{"a note in wong's format", wongNote, true, ""},
+		{"a note without it", claudeNote, false, ""},
+		{"no frontmatter", "Just text.\n", false, ""},
+		{"quoted", "---\nname: n\ndescription: d\nvisibility: \"local\"\n---\n", true, ""},
+		{"saved on Windows", "\ufeff---\r\nname: n\r\nvisibility: local\r\n---\r\nBody.\r\n", true, ""},
+		{"a frontmatter missing its description", "---\nname: n\nvisibility: local\n---\n", true, ""},
+		{"a frontmatter that is not YAML", "---\nname: [n\nvisibility: local\n---\n", true, ""},
+		{"under metadata, where agents put fields by mistake", "---\nname: n\nmetadata:\n  visibility: local\n---\n", true, ""},
+		{"a visibility in the body", "---\nname: n\n---\nvisibility: local\n", false, ""},
+		{"a visibility wong does not know", "---\nname: n\nvisibility: private\n---\n", false, `unknown visibility "private"`},
+		{"a list", "---\nname: n\nvisibility: [local]\n---\n", false, "visibility must be a string"},
+	}
+	for _, tt := range tests {
+		kept, err := KeptLocal([]byte(tt.text))
+		if kept != tt.kept || (err == nil) != (tt.err == "") || (err != nil && !strings.Contains(err.Error(), tt.err)) {
+			t.Errorf("%s: KeptLocal = %v, %v; want %v, %q", tt.why, kept, err, tt.kept, tt.err)
+		}
 	}
 }

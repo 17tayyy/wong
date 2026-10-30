@@ -106,8 +106,9 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	fmt.Fprintf(&b, "\nWhen you save a note in the brain, its frontmatter carries at the top level, beside name and description and not under "+
 		"metadata: `kind` (preference, project, "+
 		"person, client, decision or reference), `scope` (`project:%s` here, `global` in me/), `sources` for what it relies on "+
-		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, and `pending: release` or "+
-		"`pending: main` when it leaves work for the next release or push to the main branch. Point to sources instead of copying their state.\n", project)
+		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, `pending: release` or "+
+		"`pending: main` when it leaves work for the next release or push to the main branch, and `visibility: local` when it must "+
+		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", project)
 	if g, err := graph.Load(env.Brain); err == nil {
 		if tags := g.TagList(40); len(tags) > 0 {
 			fmt.Fprintf(&b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))
@@ -118,7 +119,7 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	if rep, err := check.Run(ctx, check.Options{Brain: env.Brain, Repos: env.Repos, Tracker: env.Tracker, Project: project}); err == nil {
 		findings = rep.Findings
 		if env.Remote != nil {
-			if err := env.Remote.ReportFindings(ctx, project, rep.Findings); err != nil {
+			if err := env.Remote.ReportFindings(ctx, project, shared(env.Brain, rep.Findings)); err != nil {
 				fmt.Fprintln(os.Stderr, "wong: findings:", err)
 			}
 		}
@@ -199,11 +200,22 @@ func SessionEnd(ctx context.Context, in Input, env Env) error {
 	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
 	err := errors.Join(saveErr, repos.WriteRemotes(env.Brain, env.Repos), commit(in, env))
 	if env.Remote != nil {
-		if _, pushErr := remote.Push(ctx, env.Remote, env.Brain); pushErr != nil {
-			err = errors.Join(err, pushErr)
+		res, pushErr := remote.Push(ctx, env.Remote, env.Brain)
+		err = errors.Join(err, pushErr)
+		for _, r := range res.Refused {
+			err = errors.Join(err, fmt.Errorf("%s was not pushed: %s", r.Path, r.Reason))
 		}
 	}
 	return err
+}
+
+// shared leaves out the findings on notes kept on this machine, which the server is not to hear of.
+func shared(brain string, findings []check.Finding) []check.Finding {
+	return slices.DeleteFunc(slices.Clone(findings), func(f check.Finding) bool {
+		data, err := os.ReadFile(filepath.Join(brain, f.Note))
+		kept, _ := remote.Kept(f.Note, data)
+		return err == nil && kept
+	})
 }
 
 func commit(in Input, env Env) error {

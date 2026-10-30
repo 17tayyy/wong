@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -263,5 +264,106 @@ func TestObsidianFoldersStayOnTheMachine(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].Path != "me/use-uv.md" {
 		t.Errorf("server files = %v", files)
+	}
+}
+
+const awsKey = "AKIA" + "Q7XK2M5ZP3NW6RJT"
+
+func serverFiles(t *testing.T, store *Store) map[string]string {
+	t.Helper()
+	files, err := store.Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, f := range files {
+		out[f.Path] = string(f.Content)
+	}
+	return out
+}
+
+func TestPushRefusesOnlyTheFilesWithASecret(t *testing.T) {
+	store, _, desktop, _ := setup(t)
+	write(t, filepath.Join(desktop.brain, "me/use-uv.md"), "uv\n")
+	aws := filepath.Join(desktop.brain, "projects/acme/aws.md")
+	write(t, aws, "---\nname: aws\ndescription: d\n---\nDeploys run as the ci user:\naws_access_key_id = "+awsKey+"\n")
+	write(t, filepath.Join(desktop.brain, "skills/deploy/run.sh"), "#!/bin/sh\nexport AWS_ACCESS_KEY_ID="+awsKey+"\n")
+	write(t, filepath.Join(desktop.brain, "me/home.md"), "---\nname: home\ndescription: d\nvisibility: private\n---\nHome.\n")
+
+	res := push(t, desktop)
+	if !slices.Equal(res.Pushed, []string{"me/use-uv.md"}) {
+		t.Errorf("pushed = %v", res.Pushed)
+	}
+	want := []Refusal{
+		{"me/home.md", `unknown visibility "private": use local to keep the note on this machine, or leave it out`},
+		{"projects/acme/aws.md", "it holds what looks like a secret, at line 6 (AWS access key ID): take it out, or set visibility: local to keep the note on this machine"},
+		{"skills/deploy/run.sh", "it holds what looks like a secret, at line 2 (AWS access key ID): take it out"},
+	}
+	if !slices.Equal(res.Refused, want) {
+		t.Errorf("refused = %q, want %q", res.Refused, want)
+	}
+	for _, r := range res.Refused {
+		if strings.Contains(r.Reason, awsKey) {
+			t.Errorf("the reason for %s holds the secret: %s", r.Path, r.Reason)
+		}
+	}
+	if files := serverFiles(t, store); len(files) != 1 {
+		t.Errorf("server files = %v", files)
+	}
+
+	write(t, aws, "---\nname: aws\ndescription: d\n---\nDeploys run as the ci user, whose keys are in the vault.\n")
+	if res := push(t, desktop); !slices.Equal(res.Pushed, []string{"projects/acme/aws.md"}) || len(res.Refused) != 2 {
+		t.Errorf("push once the key is out = %+v", res)
+	}
+}
+
+func TestNotesKeptLocalStayOnTheMachine(t *testing.T) {
+	store, _, desktop, laptop := setup(t)
+	shared := func(body string) string { return "---\nname: n\ndescription: d\n---\n" + body + "\n" }
+	kept := func(body string) string {
+		return "---\nname: n\ndescription: d\nvisibility: local\n---\n" + body + "\n"
+	}
+	draft, old, plan := "projects/acme/draft.md", "projects/acme/old.md", "projects/acme/plan.md"
+	write(t, filepath.Join(desktop.brain, "me/home.md"), kept("The alarm's code, and aws_access_key_id = "+awsKey))
+	for _, p := range []string{draft, old, plan} {
+		write(t, filepath.Join(desktop.brain, p), shared("Shared."))
+	}
+
+	if res := push(t, desktop); !slices.Equal(res.Pushed, []string{draft, old, plan}) || len(res.Refused) != 0 {
+		t.Fatalf("first push = %+v", res)
+	}
+	pull(t, laptop)
+	for _, p := range []string{draft, old, plan} {
+		write(t, filepath.Join(desktop.brain, p), kept("Mine."))
+	}
+	if res := push(t, desktop); len(res.Pushed) != 0 || len(res.Refused) != 0 {
+		t.Errorf("a push of notes made local = %+v", res)
+	}
+
+	write(t, filepath.Join(laptop.brain, plan), shared("The plan, edited on the laptop."))
+	if err := os.Remove(filepath.Join(laptop.brain, old)); err != nil {
+		t.Fatal(err)
+	}
+	push(t, laptop)
+	if res := pull(t, desktop); len(res.Updated)+len(res.Deleted)+len(res.Conflicts) != 0 {
+		t.Errorf("the pull touched notes kept here: %+v", res)
+	}
+	for _, p := range []string{old, plan} {
+		if got := read(t, filepath.Join(desktop.brain, p)); got != kept("Mine.") {
+			t.Errorf("%s = %q", p, got)
+		}
+	}
+
+	if err := os.Remove(filepath.Join(desktop.brain, draft)); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if res := push(t, desktop); len(res.Pushed)+len(res.Conflicts) != 0 {
+			t.Errorf("the deletion of a note kept here was pushed: %+v", res)
+		}
+	}
+	want := map[string]string{draft: shared("Shared."), plan: shared("The plan, edited on the laptop.")}
+	if files := serverFiles(t, store); !maps.Equal(files, want) {
+		t.Errorf("server files = %q, want %q", files, want)
 	}
 }

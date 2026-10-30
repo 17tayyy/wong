@@ -336,6 +336,88 @@ func TestNoteWrittenAsksForWhatWongNeeds(t *testing.T) {
 	}
 }
 
+const awsKey = "AKIA" + "Q7XK2M5ZP3NW6RJT"
+
+func TestNoteWrittenKeepsSecretsOut(t *testing.T) {
+	env, _ := newEnv(t)
+	written := func(rel, content string) string {
+		t.Helper()
+		p := filepath.Join(env.Brain, rel)
+		write(t, p, content)
+		in := Input{ToolName: "Write"}
+		in.ToolInput.FilePath = p
+		return NoteWritten(in, env)
+	}
+	note := func(extra string) string {
+		return "---\nname: ci-user\ndescription: Who CI runs as\nkind: reference\nscope: project:acme\ntags: [deploy]\n" + extra +
+			"---\nThe ci user.\naws_access_key_id = " + awsKey + "\n"
+	}
+	for _, tt := range []struct{ why, rel, content, want string }{
+		{"a note", "projects/acme/ci-user.md", note(""),
+			"wong will not push this file to the server while it holds what looks like a secret, at line 9 (AWS access key ID): take it out, or set visibility: local"},
+		{"a note with a visibility wong does not know", "projects/acme/ci-user.md", note("visibility: private\n"), `unknown visibility "private"`},
+		{"an index", "projects/acme/MEMORY.md", "- [CI user](ci-user.md) — runs as " + awsKey + "\n", "at line 1 (AWS access key ID): take it out"},
+		{"an archived note", "projects/acme/archive/ci-user.md", note(""), "at line 9 (AWS access key ID)"},
+	} {
+		var out struct{ Decision, Reason string }
+		got := written(tt.rel, tt.content)
+		if err := json.Unmarshal([]byte(got), &out); err != nil || out.Decision != "block" || !strings.Contains(out.Reason, tt.want) || strings.Contains(got, awsKey) {
+			t.Errorf("%s: NoteWritten = %s", tt.why, got)
+		}
+	}
+	if got := written("projects/acme/ci-user.md", note("visibility: local\n")); got != "" {
+		t.Errorf("a note kept on this machine: %s", got)
+	}
+	if got := written(".wong/notes.md", awsKey+"\n"); got != "" {
+		t.Errorf("a file of the machine's own folder: %s", got)
+	}
+}
+
+func TestSessionsKeepSecretsAndLocalNotesOffTheServer(t *testing.T) {
+	env, repo := newEnv(t)
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}))
+	defer srv.Close()
+	token, err := store.NewToken("desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.Remote = remote.NewClient(srv.URL, token, 5*time.Second)
+	write(t, filepath.Join(env.Brain, "projects", "acme", "ci.md"), "---\nname: ci\ndescription: d\n---\naws_access_key_id = "+awsKey+"\n")
+	write(t, filepath.Join(env.Brain, "projects", "acme", "home.md"), "---\nname: home\ndescription: d\nvisibility: local\n---\nSee [[nowhere]].\n")
+
+	err = SessionEnd(t.Context(), Input{SessionID: "s", Cwd: repo}, env)
+	if err == nil || !strings.Contains(err.Error(), "projects/acme/ci.md was not pushed: it holds what looks like a secret, at line 5 (AWS access key ID)") ||
+		strings.Contains(err.Error(), awsKey) {
+		t.Errorf("SessionEnd() = %v", err)
+	}
+	files, err := store.Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "/ci.md") || strings.HasSuffix(f.Path, "/home.md") {
+			t.Errorf("%s reached the server", f.Path)
+		}
+	}
+
+	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
+	if !strings.Contains(got, "- projects/acme/home.md: [[nowhere]] links to a note that does not exist") {
+		t.Errorf("the session start left out a note kept on this machine:\n%s", got)
+	}
+	findings, err := store.Findings("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].Note != "projects/acme/a.md" {
+		t.Errorf("the server heard of %+v", findings)
+	}
+}
+
 func TestSessionStartCountsTheArchive(t *testing.T) {
 	env, repo := newEnv(t)
 	for _, name := range []string{"old-a", "old-b"} {

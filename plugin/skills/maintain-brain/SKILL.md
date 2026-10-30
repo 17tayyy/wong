@@ -204,6 +204,8 @@ verified: 2026-10-27
   migration to run in production, a flag to turn on, someone to tell. When the deploy
   happens, whoever deploys, the session start and the server's tasks remind the user.
   Set it with `--pending` on `wong note write`, and drop it once nothing is left.
+- `visibility: local`: the note stays on this machine, for what the user wants kept off the
+  server: it is never pushed, and a pull never overwrites it. Its `MEMORY.md` line still syncs.
 - `verified`: the date you last checked the note against its sources; set it with `wong
   note verify`. `wong check` reads `sources` and measures from `verified`: when a source
   changes after that date (an issue closes, a file is deleted), the note comes back for
