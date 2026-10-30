@@ -14,12 +14,16 @@ import (
 	"time"
 
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/seal"
 )
 
+// Client talks to a wong server. Key, set once the brain's key is unlocked, makes it encrypt what it pushes and
+// decrypt what it pulls, for a sealed brain.
 type Client struct {
 	URL   string
 	Token string
 	HTTP  *http.Client
+	Key   *seal.Key
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
@@ -48,6 +52,70 @@ func (c *Client) Tasks(ctx context.Context, project string) ([]Task, error) {
 // ReportFindings sends what this machine's check found in a project, replacing its previous report.
 func (c *Client) ReportFindings(ctx context.Context, project string, findings []check.Finding) error {
 	return c.do(ctx, http.MethodPost, "/api/findings", findingsRequest{Project: project, Findings: findings}, &struct{}{})
+}
+
+// Keys returns the brain's keyring as this machine sees it.
+func (c *Client) Keys(ctx context.Context) (Keys, error) {
+	var out Keys
+	err := c.do(ctx, http.MethodGet, "/api/keys", nil, &out)
+	return out, err
+}
+
+// StartSeal makes the server's empty brain end-to-end encrypted, with key wrapped for this machine and the recovery code.
+func (c *Client) StartSeal(ctx context.Context, device, recovery *seal.Device, key *seal.Key) error {
+	wrapped, err := seal.Wrap(key, device.Public())
+	if err != nil {
+		return err
+	}
+	recoveryWrapped, err := seal.Wrap(key, recovery.Public())
+	if err != nil {
+		return err
+	}
+	start := sealStart{Public: device.Public(), Wrapped: wrapped, RecoveryPublic: recovery.Public(), RecoveryWrapped: recoveryWrapped}
+	return c.do(ctx, http.MethodPost, "/api/keys/start", start, &struct{}{})
+}
+
+// RequestKey asks for the brain's key for this machine, to be approved from one that holds it.
+func (c *Client) RequestKey(ctx context.Context, device *seal.Device) error {
+	return c.do(ctx, http.MethodPost, "/api/keys/request", keyApproval{Public: device.Public()}, &struct{}{})
+}
+
+// ApproveKey gives a waiting device the brain's key, wrapped for the public key the person checked.
+func (c *Client) ApproveKey(ctx context.Context, req KeyRequest, key *seal.Key) error {
+	wrapped, err := seal.Wrap(key, req.Public)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/keys/approve", keyApproval{Device: req.Device, Public: req.Public, Wrapped: wrapped}, &struct{}{})
+}
+
+// KeepOwnKey stores the brain's key wrapped for this machine, after the recovery code opened it.
+func (c *Client) KeepOwnKey(ctx context.Context, device *seal.Device, key *seal.Key) error {
+	wrapped, err := seal.Wrap(key, device.Public())
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/keys/own", keyApproval{Public: device.Public(), Wrapped: wrapped}, &struct{}{})
+}
+
+// ErrLocked marks a sealed brain whose key this machine does not hold yet.
+var ErrLocked = errors.New("this brain is end-to-end encrypted and this machine has no key yet: approve it from another machine with wong keys approve, or use the recovery code with wong keys recover")
+
+// Unlock reads the brain's key with this machine's device key when the brain is sealed, and sets it on the client.
+func (c *Client) Unlock(ctx context.Context, device *seal.Device) error {
+	keys, err := c.Keys(ctx)
+	if err != nil || !keys.Sealed {
+		return err
+	}
+	if keys.Wrapped == nil {
+		return ErrLocked
+	}
+	key, err := device.Unwrap(keys.Wrapped)
+	if err != nil {
+		return fmt.Errorf("the brain's key does not open with this machine's key: %w", err)
+	}
+	c.Key = key
+	return nil
 }
 
 // ErrNoDevices marks a server too old to let machines in by approving a code.
@@ -130,6 +198,7 @@ func (c *Client) send(ctx context.Context, method, path string, in any) (*http.R
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(SealHeader, "1")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("wong server: %w", err)

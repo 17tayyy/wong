@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS hooks (
 	name       TEXT PRIMARY KEY,
 	secret     TEXT NOT NULL,
 	updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS keyring (
+	device     TEXT PRIMARY KEY,
+	public     BLOB NOT NULL,
+	wrapped    BLOB,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recovery (
+	id      INTEGER PRIMARY KEY CHECK (id = 1),
+	public  BLOB NOT NULL,
+	wrapped BLOB NOT NULL
 );`
 
 // Change is the current state of one file of the brain on the server.
@@ -99,7 +111,8 @@ type Upload struct {
 	Modified string `json:"modified,omitempty"`
 }
 
-// ErrBadPush marks a push the server refuses as a whole: a path outside the brain or content that does not match its sha.
+// ErrBadPush marks a push the server refuses as a whole: a path outside the brain, content that does not match its sha,
+// or a file in the clear sent to a sealed brain.
 var ErrBadPush = errors.New("bad push")
 
 type Store struct {
@@ -195,6 +208,10 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 	if err := s.room(pushes); err != nil {
 		return nil, nil, err
 	}
+	sealed, err := s.Sealed()
+	if err != nil {
+		return nil, nil, err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, nil, err
@@ -205,7 +222,10 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 		if err := ValidPath(p.Path); err != nil {
 			return nil, nil, fmt.Errorf("%w: %w", ErrBadPush, err)
 		}
-		if p.Sha != "" && p.Sha != Sha(p.Content) {
+		if sealed && !sealedID(p.Path) {
+			return nil, nil, fmt.Errorf("%w: %s is not encrypted, and this brain is", ErrBadPush, p.Path)
+		}
+		if !sealed && p.Sha != "" && p.Sha != Sha(p.Content) {
 			return nil, nil, fmt.Errorf("%w: %s: content does not match its sha", ErrBadPush, p.Path)
 		}
 		var current Change
@@ -243,8 +263,10 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 			p.Path, p.Sha, p.Content, p.Sha == "", p.Modified, seq); err != nil {
 			return nil, nil, err
 		}
-		if err := recheck(tx, p.Path, p.Content, p.Modified, p.Sha == "", now); err != nil {
-			return nil, nil, err
+		if !sealed {
+			if err := recheck(tx, p.Path, p.Content, p.Modified, p.Sha == "", now); err != nil {
+				return nil, nil, err
+			}
 		}
 		if _, err := tx.Exec(`DELETE FROM findings WHERE note = ?`, p.Path); err != nil {
 			return nil, nil, err
@@ -325,6 +347,9 @@ func (s *Store) Tokens() ([]TokenInfo, error) {
 func (s *Store) RevokeToken(name string) (bool, error) {
 	res, err := s.db.Exec(`DELETE FROM tokens WHERE name = ?`, name)
 	if err != nil {
+		return false, err
+	}
+	if err := s.ForgetKey(name); err != nil {
 		return false, err
 	}
 	n, err := res.RowsAffected()

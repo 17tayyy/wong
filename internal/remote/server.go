@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -37,6 +38,19 @@ type findingsRequest struct {
 	Findings []check.Finding `json:"findings"`
 }
 
+type sealStart struct {
+	Public          []byte `json:"public"`
+	Wrapped         []byte `json:"wrapped"`
+	RecoveryPublic  []byte `json:"recovery_public"`
+	RecoveryWrapped []byte `json:"recovery_wrapped"`
+}
+
+type keyApproval struct {
+	Device  string `json:"device,omitempty"`
+	Public  []byte `json:"public"`
+	Wrapped []byte `json:"wrapped,omitempty"`
+}
+
 // Handler serves the API of the brain each bearer token opens, and the webhooks whose secret is set.
 func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 	mux := http.NewServeMux()
@@ -47,6 +61,18 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				w.Header().Set("Retry-After", "10")
 				http.Error(w, fmt.Sprintf("too many requests: this brain takes %d a minute", s.Store.limits.Requests), http.StatusTooManyRequests)
 				return
+			}
+			if r.Header.Get(SealHeader) == "" {
+				sealed, err := s.Store.Sealed()
+				if err != nil {
+					log.Error("sealed", "err", err)
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+				if sealed {
+					http.Error(w, ErrOldClient.Error(), http.StatusUpgradeRequired)
+					return
+				}
 			}
 			next(w, r, s)
 		})
@@ -112,6 +138,51 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 			return
 		}
 		writeJSON(w, struct{}{})
+	}))
+	mux.HandleFunc("GET /api/keys", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		keys, err := s.Store.Keys(s.Machine)
+		if err != nil {
+			log.Error("keys", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, keys)
+	}))
+	keyCall := func(do func(Session, keyApproval, sealStart) error) http.HandlerFunc {
+		return metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+			var k keyApproval
+			var start sealStart
+			if err == nil {
+				err = errors.Join(json.Unmarshal(body, &k), json.Unmarshal(body, &start))
+			}
+			if err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			switch err := do(s, k, start); {
+			case errors.Is(err, ErrSealed), errors.Is(err, ErrNotEmpty), errors.Is(err, ErrNoKey):
+				http.Error(w, err.Error(), http.StatusConflict)
+			case err != nil:
+				log.Error("keys", "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			default:
+				log.Info("keys", "machine", s.Who(), "call", r.URL.Path)
+				writeJSON(w, struct{}{})
+			}
+		})
+	}
+	mux.HandleFunc("POST /api/keys/start", keyCall(func(s Session, _ keyApproval, k sealStart) error {
+		return s.Store.StartSeal(s.Machine, k.Public, k.Wrapped, k.RecoveryPublic, k.RecoveryWrapped)
+	}))
+	mux.HandleFunc("POST /api/keys/request", keyCall(func(s Session, k keyApproval, _ sealStart) error {
+		return s.Store.RequestKey(s.Machine, k.Public)
+	}))
+	mux.HandleFunc("POST /api/keys/approve", keyCall(func(s Session, k keyApproval, _ sealStart) error {
+		return s.Store.ApproveKey(s.Machine, k.Device, k.Public, k.Wrapped)
+	}))
+	mux.HandleFunc("POST /api/keys/own", keyCall(func(s Session, k keyApproval, _ sealStart) error {
+		return s.Store.KeepOwnKey(s.Machine, k.Public, k.Wrapped)
 	}))
 	hookBrains(mux, brains, log, hooks)
 	return mux
