@@ -16,6 +16,7 @@
       <div class="prop"><span class="k">{{icon "globe"}}Answers to</span><span class="v"><code>{{.Host}}</code></span></div>
       <div class="prop"><span class="k">{{icon "pencil-line"}}Signs as</span><span class="v"><code>{{.Name}}</code></span></div>
     </div>
+    {{if .Closed}}<div class="callout yellow">{{icon "key-round"}}<p>Your notes are end-to-end encrypted and closed to the AIs that run in the cloud, so {{.Client}} can connect but will read nothing until you run <code>wong keys cloud-ai on</code> on a machine that holds the key.</p></div>{{end}}
     {{if .Taken}}<div class="callout yellow">{{icon "triangle-alert"}}<p>Something already connected as {{.Name}}. Connecting replaces its access, so it stops working until it connects again.</p></div>{{end}}
     <div class="formbar">
       <button class="btn primary" name="do" value="approve">Connect</button>

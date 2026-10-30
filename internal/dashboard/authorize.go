@@ -14,6 +14,7 @@ type connection struct {
 	Host      string
 	Name      string
 	Taken     bool
+	Closed    bool
 	Params    url.Values
 	ClientID  string
 	Redirect  string
@@ -78,6 +79,12 @@ func (d *Dashboard) authorize(w http.ResponseWriter, r *http.Request, machine st
 		d.fail(w, err)
 		return
 	}
+	keys, err := d.store.Keys("")
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	c.Closed = keys.Sealed && !keys.CloudAIs
 	d.authorizePage(w, r, machine, c, "")
 }
 

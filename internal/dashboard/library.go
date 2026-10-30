@@ -85,6 +85,9 @@ type brain struct {
 }
 
 func loadBrain(store *remote.Store) (*brain, error) {
+	if sealed, err := store.Sealed(); err != nil || sealed {
+		return &brain{byPath: map[string]*entry{}, byName: map[string]string{}}, err
+	}
 	files, err := store.Files()
 	if err != nil {
 		return nil, err

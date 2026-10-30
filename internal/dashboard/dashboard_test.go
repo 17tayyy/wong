@@ -699,7 +699,11 @@ func TestASealedBrainShowsNoNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
+	o, err := remote.NewOAuth(filepath.Join(t.TempDir(), "key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), OAuth: o})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,12 +714,27 @@ func TestASealedBrainShowsNoNotes(t *testing.T) {
 	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
 		t.Fatalf("sign in: %d", code)
 	}
+	reg := httptest.NewServer(remote.OAuthHandler(o, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	t.Cleanup(reg.Close)
+	resp, err := http.Post(reg.URL+"/oauth/register", "application/json", strings.NewReader(`{"client_name":"Claude","redirect_uris":["https://claude.example/cb"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var client map[string]string
+	json.NewDecoder(resp.Body).Decode(&client)
+	resp.Body.Close()
+	params := url.Values{"response_type": {"code"}, "client_id": {client["client_id"]}, "redirect_uri": {"https://claude.example/cb"},
+		"code_challenge": {"abc"}, "code_challenge_method": {"S256"}}
+	if code, body := b.get("/oauth/authorize?" + params.Encode()); code != http.StatusOK || !strings.Contains(body, "<h1>Connect Claude</h1>") ||
+		!strings.Contains(body, "wong keys cloud-ai on") || strings.Contains(body, strings.Repeat("ab", 32)) {
+		t.Errorf("connecting an app to a sealed brain should ask, warn that it reads nothing yet, and list no file: %d", code)
+	}
 	for _, path := range []string{"/", "/graph", "/history", "/notes/me/use-uv.md"} {
 		if code, body := b.get(path); code != http.StatusOK || !strings.Contains(body, "Your notes are encrypted") || strings.Contains(body, "sealed bytes") {
 			t.Errorf("%s on a sealed brain: %d", path, code)
 		}
 	}
-	if code, body := b.get("/device"); code != http.StatusOK || strings.Contains(body, "Your notes are encrypted") {
+	if code, body := b.get("/device"); code != http.StatusOK || strings.Contains(body, "Your notes are encrypted") || strings.Contains(body, strings.Repeat("ab", 32)) {
 		t.Errorf("Connect a machine should still work on a sealed brain: %d", code)
 	}
 }
