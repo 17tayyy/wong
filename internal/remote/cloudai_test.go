@@ -116,3 +116,85 @@ func mustWrap(t *testing.T, key *seal.Key, public []byte) []byte {
 	}
 	return wrapped
 }
+
+func TestABrowserOpensASealedBrainThroughItsClient(t *testing.T) {
+	ctx := context.Background()
+	_, url, desktop, _, _, key, _ := sealed(t)
+	write(t, filepath.Join(desktop.brain, "projects/acme/deploy-runbook.md"), "Ship on Tuesdays.\n")
+	if _, err := Push(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	browser := NewClient(url, desktop.client.Token, desktop.client.HTTP.Timeout)
+	browser.Device, browser.Key = desktop.client.Device, key
+	o, err := OpenThrough(ctx, browser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { o.Close() })
+	inMemory := func() map[string]string {
+		changes, _, err := o.Plain.Changes(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]string{}
+		for _, ch := range changes {
+			if !ch.Deleted {
+				files[ch.Path] = string(ch.Content)
+			}
+		}
+		return files
+	}
+	if got := inMemory()["projects/acme/deploy-runbook.md"]; got != "Ship on Tuesdays.\n" {
+		t.Fatalf("the browser does not have the note: %q", got)
+	}
+
+	edit := func(content string) {
+		t.Helper()
+		files, _, _ := o.Plain.Changes(0)
+		base := ""
+		for _, ch := range files {
+			if ch.Path == "projects/acme/deploy-runbook.md" {
+				base = ch.Sha
+			}
+		}
+		if _, conflicts, err := o.Plain.Apply("you", []Upload{{Path: "projects/acme/deploy-runbook.md", Base: base, Sha: Sha([]byte(content)), Content: []byte(content)}}); err != nil || len(conflicts) > 0 {
+			t.Fatalf("edit in the browser: %v %v", conflicts, err)
+		}
+	}
+	edit("Ship on Wednesdays.\n")
+	if err := o.Flush(ctx, "you"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Pull(ctx, desktop.client, desktop.brain); err != nil || read(t, filepath.Join(desktop.brain, "projects/acme/deploy-runbook.md")) != "Ship on Wednesdays.\n" {
+		t.Fatalf("the browser's edit did not reach the desktop: %v", err)
+	}
+
+	write(t, filepath.Join(desktop.brain, "me/use-uv.md"), "uv, never pip.\n")
+	if _, err := Push(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := inMemory()["me/use-uv.md"]; got != "uv, never pip.\n" {
+		t.Errorf("the browser did not get the desktop's new note: %q", got)
+	}
+	if err := o.Flush(ctx, "you"); err != nil {
+		t.Errorf("a flush with nothing new sent something: %v", err)
+	}
+
+	edit("The browser's version.\n")
+	write(t, filepath.Join(desktop.brain, "projects/acme/deploy-runbook.md"), "The desktop's version.\n")
+	if _, err := Push(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Refresh(ctx); err == nil {
+		t.Error("a note changed in the browser and on the desktop was refreshed over")
+	}
+	if got := inMemory()["projects/acme/deploy-runbook.md"]; got != "The browser's version.\n" {
+		t.Errorf("the browser lost its edit: %q", got)
+	}
+	if err := o.Flush(ctx, "you"); err == nil {
+		t.Error("the browser overwrote the desktop's newer version")
+	}
+}

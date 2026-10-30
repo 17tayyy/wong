@@ -11,7 +11,6 @@ import (
 	"path"
 	"strings"
 	"time"
-
 )
 
 const schema = `
