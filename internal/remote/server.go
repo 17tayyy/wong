@@ -33,6 +33,11 @@ type tasksResponse struct {
 	Tasks []Task `json:"tasks"`
 }
 
+type eventsResponse struct {
+	Cursor int64   `json:"cursor"`
+	Events []Event `json:"events"`
+}
+
 type findingsRequest struct {
 	Project  string          `json:"project"`
 	Findings []check.Finding `json:"findings"`
@@ -142,6 +147,20 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 			return
 		}
 		writeJSON(w, struct{}{})
+	}))
+	mux.HandleFunc("GET /api/events", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		since, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		if err != nil && r.URL.Query().Get("since") != "" {
+			http.Error(w, "since must be a number", http.StatusBadRequest)
+			return
+		}
+		events, cursor, err := s.Store.Events(since)
+		if err != nil {
+			log.Error("events", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, eventsResponse{Cursor: cursor, Events: events})
 	}))
 	mux.HandleFunc("GET /api/keys", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
 		keys, err := s.Store.Keys(s.Machine)

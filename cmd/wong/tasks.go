@@ -11,7 +11,7 @@ import (
 	"github.com/17tayyy/wong/internal/remote"
 )
 
-func newTasksCmd() *cobra.Command {
+func newTasksCmd(brain *string) *cobra.Command {
 	var project string
 	cmd := &cobra.Command{
 		Use:   "tasks",
@@ -23,14 +23,15 @@ func newTasksCmd() *cobra.Command {
 			"on the note.\n" +
 			"A task closes by itself when the note reaches the server and no longer breaks the\n" +
 			"rule: fix it with the wong:maintain-brain skill and run wong push (the session-end\n" +
-			"hook does).",
+			"hook does). The server of a sealed brain keeps only the events, and this machine\n" +
+			"applies them to its notes and keeps the tasks.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := requireRemote(30 * time.Second)
 			if err != nil {
 				return err
 			}
-			tasks, err := client.Tasks(cmd.Context(), project)
+			tasks, err := remote.OpenTasks(cmd.Context(), client, *brain, project)
 			if err != nil {
 				return err
 			}

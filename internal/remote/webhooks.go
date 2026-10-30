@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/linear"
 )
 
@@ -175,6 +176,19 @@ func githubHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 			ignore(w, log, "github", "not the default branch of "+push.Repository.FullName)
 			return
 		}
+		if sealed, err := store.Sealed(); err != nil || sealed {
+			if err == nil {
+				err = keepPush(store, push, tag, isTag)
+			}
+			if err != nil {
+				log.Error("github", "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			log.Info("github kept for the machines", "repo", push.Repository.FullName)
+			writeJSON(w, hookResponse{})
+			return
+		}
 		remotes, err := store.remotes()
 		if err != nil {
 			log.Error("github", "err", err)
@@ -271,10 +285,16 @@ func linearHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 			ignore(w, log, "linear", ev.Data.Identifier+" is not closed")
 			return
 		}
-		notes, err := store.notes("")
+		sealed, err := store.Sealed()
 		var n int
-		if err == nil {
-			n, err = store.addTasks(event{Issue: &issue}, "linear "+issue.Identifier, notes)
+		switch {
+		case err == nil && sealed:
+			err = store.keepEvent(event{Issue: &issue}, "linear "+issue.Identifier, "")
+		case err == nil:
+			var notes []check.Note
+			if notes, err = store.notes(""); err == nil {
+				n, err = store.addTasks(event{Issue: &issue}, "linear "+issue.Identifier, notes)
+			}
 		}
 		if err != nil {
 			log.Error("linear", "err", err)
@@ -284,6 +304,38 @@ func linearHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 		log.Info("linear issue", "issue", issue.Identifier, "state", issue.State, "tasks", n)
 		writeJSON(w, hookResponse{Tasks: n})
 	}
+}
+
+// keepPush stores what a push to a sealed brain's repo reported, for its machines to apply: the tag or the commit on
+// the default branch, and each file the push removed. Repo is left for the machine to fill with the repo's directory.
+func keepPush(store *Store, push githubPush, tag string, isTag bool) error {
+	full := push.Repository.FullName
+	deploy := event{By: push.Pusher.Name, When: time.Now().UTC()}
+	source := "github " + full + "@"
+	if isTag {
+		deploy.Tag, source = tag, source+tag
+	} else {
+		deploy.Branch, deploy.Commit = push.Repository.DefaultBranch, push.After[:min(len(push.After), 7)]
+		source += deploy.Commit
+	}
+	if err := store.keepEvent(deploy, source, full); err != nil || isTag {
+		return err
+	}
+	removed := map[string]event{}
+	for _, c := range push.Commits {
+		for _, p := range c.Added {
+			delete(removed, p)
+		}
+		for _, p := range c.Removed {
+			removed[p] = event{Path: p, Commit: c.ID[:min(len(c.ID), 7)], When: c.Timestamp}
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(removed)) {
+		if err := store.keepEvent(removed[p], "github "+full+"@"+removed[p].Commit, full); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // hookTarget finds the brain and secret of a webhook request, answering it when there is no such webhook.

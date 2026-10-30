@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS keyring (
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS events (
+	seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+	source     TEXT NOT NULL,
+	remote     TEXT NOT NULL DEFAULT '',
+	event      TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS recovery (
 	id      INTEGER PRIMARY KEY CHECK (id = 1),
 	public  BLOB NOT NULL,

@@ -125,7 +125,7 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	}
 	list := fmt.Sprintf("`wong check --project %s` lists everything", project)
 	if env.Remote != nil {
-		tasks, err := env.Remote.Tasks(ctx, project)
+		tasks, err := remote.OpenTasks(ctx, env.Remote, env.Brain, project)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "wong: tasks:", err)
 		}

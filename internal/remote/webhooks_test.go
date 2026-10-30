@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/17tayyy/wong/internal/seal"
 )
 
 const (
@@ -336,5 +338,60 @@ func TestSingleBrainKeepsItsWebhookSecret(t *testing.T) {
 	}
 	if err := store.SetHookSecret("gitlab", "x"); err == nil {
 		t.Error("a secret for a webhook wong does not take was kept")
+	}
+}
+
+func TestASealedBrainsMachinesApplyItsWebhooks(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	srv := httptest.NewServer(Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Webhooks{GitHubSecret: githubSecret, LinearSecret: linearSecret}))
+	t.Cleanup(srv.Close)
+	token, err := store.NewToken("desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desktop := machine{brain: t.TempDir(), client: NewClient(srv.URL, token, 5*time.Second)}
+	desktop.client.Device = newDevice(t)
+	key, _ := seal.NewKey()
+	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
+	if err := desktop.client.StartSeal(ctx, desktop.client.Device, recovery, key); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(desktop.brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")
+	writeAt(t, filepath.Join(desktop.brain, "projects/acme/a.md"), "---\nname: a\ndescription: d\n---\nBilling lives in `acme-api/src/billing.go`.\n", "2026-09-01")
+	writeAt(t, filepath.Join(desktop.brain, "projects/acme/d.md"), "---\nname: d\ndescription: d\n---\nENG-15 en pausa hasta la demo.\n", "2026-10-01")
+	writeAt(t, filepath.Join(desktop.brain, "projects/other/b.md"), "---\nname: b\ndescription: d\n---\nBilling lives in `acme-api/src/billing.go`.\n", "2026-09-01")
+	push(t, desktop)
+
+	body := fmt.Sprintf(githubPayload, "main")
+	if code := deliver(t, srv.URL+"/hooks/github", map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=" + sign(githubSecret, body)}, body); code != http.StatusOK {
+		t.Fatalf("github: status %d", code)
+	}
+	linear := linearPayload("Done", "completed", time.Now())
+	if code := deliver(t, srv.URL+"/hooks/linear", map[string]string{"Linear-Signature": sign(linearSecret, linear)}, linear); code != http.StatusOK {
+		t.Fatalf("linear: status %d", code)
+	}
+	if server, err := store.Tasks(""); err != nil || len(server) != 0 {
+		t.Fatalf("the server opened tasks on a brain it cannot read: %+v %v", server, err)
+	}
+
+	got, err := OpenTasks(ctx, desktop.client, desktop.brain, "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Note != "projects/acme/a.md" || got[0].Ref != "acme-api/src/billing.go" || got[1].Ref != "ENG-15" {
+		t.Fatalf("the desktop's tasks = %+v", got)
+	}
+	if other, _ := OpenTasks(ctx, desktop.client, desktop.brain, "other"); len(other) != 0 {
+		t.Errorf("a note of a project the repo is not in got a task: %+v", other)
+	}
+
+	write(t, filepath.Join(desktop.brain, "projects/acme/a.md"), "---\nname: a\ndescription: d\n---\nBilling lives in `acme-api/src/invoices.go`.\n")
+	if got, err := OpenTasks(ctx, desktop.client, desktop.brain, "acme"); err != nil || len(got) != 1 || got[0].Ref != "ENG-15" {
+		t.Errorf("the fixed note's task did not close, or the other closed too: %+v %v", got, err)
 	}
 }
