@@ -99,9 +99,9 @@ var tools = []tool{
 		Description: "Create a note and add it to its shelf's MEMORY.md. Point to the source instead of copying its state: " +
 			"\"tracked in ENG-15\", not \"ENG-15 is in progress\"; past facts with a date are fine. List the sources the note " +
 			"relies on, reuse the tags in use (get_context lists them) and link related notes with [[name]]. It is refused when a " +
-			"tag is a spelling of one in use, when a [[link]] reaches no note, and when a note on the same shelf already covers " +
-			"the subject: update that one with edit_note, or set distinct if the subject is really different. The answer lists " +
-			"related notes to link.",
+			"tag is a spelling of one in use, when a [[link]] reaches no note, when it holds what looks like a secret (a key, a " +
+			"token, a password), and when a note on the same shelf already covers the subject: update that one with edit_note, or " +
+			"set distinct if the subject is really different. The answer lists related notes to link.",
 		InputSchema: object([]string{"to", "name", "description", "kind", "body"}, map[string]any{
 			"to":          str(shelfArg),
 			"name":        str("A short name; the file name is made from it."),
@@ -121,8 +121,8 @@ var tools = []tool{
 		Title: "Edit a note",
 		Description: "Change a note: old_text must appear exactly once in its file, frontmatter included, and becomes new_text. " +
 			"To replace the whole file, pass content and the sha read_note returned. Keep the note's meaning, voice and language, " +
-			"and change only what the evidence contradicts. New tags must reuse the tags in use and new [[links]] must reach a " +
-			"note. Then mark it with verify_note if every claim you could check holds.",
+			"and change only what the evidence contradicts. New tags must reuse the tags in use, new [[links]] must reach a " +
+			"note, and no secret may go in. Then mark it with verify_note if every claim you could check holds.",
 		InputSchema: object([]string{"note"}, map[string]any{
 			"note":     str(noteArg),
 			"old_text": str("Text of the file to replace, exactly as read_note shows it."),
@@ -474,7 +474,7 @@ func editNote(s *Server, machine string, args json.RawMessage) (string, error) {
 	default:
 		return "", argErr("pass old_text and new_text, or content and sha")
 	}
-	sha, err := s.store.EditNote(machine, p, a.Sha, []byte(data), remote.Checks{Tags: true, Links: true})
+	sha, err := s.store.EditNote(machine, p, a.Sha, []byte(data), remote.Checks{Tags: true, Links: true, Secrets: true})
 	if err != nil {
 		return "", err
 	}

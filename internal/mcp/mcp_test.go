@@ -300,6 +300,37 @@ func TestAgentsKeepTagsLinksAndNotesTidy(t *testing.T) {
 	}
 }
 
+func TestAgentsKeepSecretsOutOfTheBrain(t *testing.T) {
+	store, c := setup(t)
+	key := "AKIA" + "Q7XK2M5ZP3NW6RJT"
+	for _, tt := range []struct{ tool, args, want string }{
+		{"write_note", `{"to":"acme","name":"CI user","description":"Who CI runs as","kind":"reference","body":"The ci user.\naws_access_key_id = ` + key + `"}`,
+			"in line 2 of its body (AWS access key ID)"},
+		{"write_note", `{"to":"acme","name":"CI user","description":"CI runs as ` + key + `","kind":"reference","body":"The ci user."}`,
+			"in its description (AWS access key ID)"},
+		{"edit_note", `{"note":"deploy-runbook","old_text":"then promote.","new_text":"then promote as ` + key + `."}`,
+			"at line 7 (AWS access key ID) of the file"},
+		{"verify_note", `{"note":"deploy-runbook","sources":["https://console.example.com/?key=` + key + `"]}`,
+			"Source 1 holds what looks like a secret (AWS access key ID)"},
+		{"edit_note", `{"note":"deploy-runbook","old_text":"kind: reference\n","new_text":"kind: reference\nvisibility: local\n"}`,
+			"visibility: local keeps a note on the machine that saves it"},
+	} {
+		text, failed := c.tool(tt.tool, tt.args)
+		if !failed || !strings.Contains(text, tt.want) || strings.Contains(text, key) {
+			t.Errorf("%s %s: %v %s", tt.tool, tt.args, failed, text)
+		}
+	}
+	files, err := store.Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.Contains(string(f.Content), key) || f.Path == "projects/acme/ci-user.md" || (f.Path == "projects/acme/deploy-runbook.md" && string(f.Content) != deploy) {
+			t.Errorf("a refused write was saved: %s\n%s", f.Path, f.Content)
+		}
+	}
+}
+
 func TestEachTokenReachesItsBrain(t *testing.T) {
 	folder, err := remote.OpenFolder(t.TempDir())
 	if err != nil {

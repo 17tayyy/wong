@@ -81,6 +81,45 @@ func TestNoteOperations(t *testing.T) {
 	}
 }
 
+func TestServerNotesHoldNoSecretsAndStayShared(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	n := note.New("Deploy flow", "How Acme ships", note.Reference, "", "\nMerge, then promote.\nThe ci user: aws_access_key_id = "+awsKey+"\n")
+	if _, _, err := store.CreateNote("codex", "acme", n, Agent); !errors.Is(err, ErrSecret) ||
+		!strings.Contains(err.Error(), "in line 2 of its body (AWS access key ID)") || strings.Contains(err.Error(), awsKey) {
+		t.Errorf("a new note with a key in its body: %v", err)
+	}
+	n = note.New("Deploy flow", "How Acme ships", note.Reference, "", "\nMerge, then promote.\n")
+	p, _, err := store.CreateNote("codex", "acme", n, Agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := func(from, to string, checks Checks) error {
+		text := current(t, store, p)
+		_, err := store.EditNote("codex", p, Sha([]byte(text)), []byte(strings.Replace(text, from, to, 1)), checks)
+		return err
+	}
+	if err := edit("promote.", "promote with "+awsKey+".", Agent); !errors.Is(err, ErrSecret) ||
+		!strings.Contains(err.Error(), "at line 11 (AWS access key ID) of the file") || strings.Contains(err.Error(), awsKey) {
+		t.Errorf("an edit that adds a key: %v", err)
+	}
+	for visibility, want := range map[string]string{"local": "saved on the server", "private": `unknown visibility "private"`} {
+		if err := edit("kind: reference\n", "kind: reference\nvisibility: "+visibility+"\n", Checks{}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Errorf("visibility: %s on the server: %v", visibility, err)
+		}
+	}
+	if _, err := store.VerifyNote("codex", p, []string{"linear:ENG-15", "https://console.example.com/?key=" + awsKey}); !errors.Is(err, ErrSecret) ||
+		!strings.Contains(err.Error(), "Source 2 holds what looks like a secret (AWS access key ID)") {
+		t.Errorf("a source with a key: %v", err)
+	}
+	if got := current(t, store, p); strings.Contains(got, awsKey) || strings.Contains(got, "visibility") || strings.Contains(got, "verified") {
+		t.Errorf("a refused change was saved:\n%s", got)
+	}
+}
+
 func TestArchiveNote(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "wong.db"))
 	if err != nil {

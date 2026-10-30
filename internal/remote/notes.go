@@ -13,6 +13,7 @@ import (
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/note"
+	"github.com/17tayyy/wong/internal/secrets"
 )
 
 // Reasons a note operation is refused; NoteError carries one with a message to show as it is.
@@ -22,7 +23,10 @@ var (
 	ErrTaken   = errors.New("path taken")
 	ErrChanged = errors.New("changed meanwhile")
 	ErrSimilar = errors.New("similar note exists")
+	ErrSecret  = errors.New("holds a secret")
 )
+
+const keepSecretsOut = "Take it out: secrets do not belong in the brain, which the server and every machine keep."
 
 // NoteError is a note operation refused for a reason the user or agent can act on.
 type NoteError struct {
@@ -46,11 +50,11 @@ type Brain struct {
 
 // Checks are what a write must pass besides a frontmatter that parses: agents get them, people in the dashboard do not.
 type Checks struct {
-	Tags, Links, Duplicates bool
+	Tags, Links, Duplicates, Secrets bool
 }
 
 // Agent is every check, for writes made by agents.
-var Agent = Checks{Tags: true, Links: true, Duplicates: true}
+var Agent = Checks{Tags: true, Links: true, Duplicates: true, Secrets: true}
 
 // Graph sees the brain's notes as a graph of links and tags.
 func (b *Brain) Graph() *graph.Graph {
@@ -81,6 +85,15 @@ func (b *Brain) guard(checks Checks, n *note.Note, target string, before *note.N
 	if before == nil || n.Pending != before.Pending {
 		if err := note.CheckPending(n.Pending); err != nil {
 			return refuse(ErrInvalid, "%v.", err)
+		}
+	}
+	if before == nil || n.Visibility != before.Visibility {
+		if err := note.CheckVisibility(n.Visibility); err != nil {
+			return refuse(ErrInvalid, "%v.", err)
+		}
+		if n.Visibility == note.Local {
+			return refuse(ErrInvalid, "visibility: local keeps a note on the machine that saves it, and this one is saved on the server, "+
+				"where every machine gets it. Leave visibility out here; a note that must stay on one machine is written on that machine.")
 		}
 	}
 	if checks.Tags {
@@ -223,6 +236,25 @@ func (s *Store) commit(machine, op string, ups []Upload) error {
 	return nil
 }
 
+// secretsIn refuses a new note with what looks like a secret in its fields, saying where without repeating it.
+func secretsIn(n *note.Note) error {
+	var where []string
+	for _, f := range []struct{ field, text string }{
+		{"name", n.Name}, {"description", n.Description}, {"tags", strings.Join(n.Tags, "\n")}, {"sources", strings.Join(n.Sources, "\n")},
+	} {
+		for _, s := range secrets.Scan([]byte(f.text)) {
+			where = append(where, fmt.Sprintf("its %s (%s)", f.field, s.Kind))
+		}
+	}
+	for _, s := range secrets.Scan([]byte(strings.TrimLeft(n.Body, "\n"))) {
+		where = append(where, fmt.Sprintf("line %d of its body (%s)", s.Line, s.Kind))
+	}
+	if len(where) == 0 {
+		return nil
+	}
+	return refuse(ErrSecret, "The note did not save: it holds what looks like a secret, in %s. %s", strings.Join(where, ", "), keepSecretsOut)
+}
+
 // shelf returns the folder and scope of me or a project id.
 func shelf(target string) (string, string, error) {
 	folder, scope, err := brain.Folder(target)
@@ -246,6 +278,11 @@ func (s *Store) CreateNote(machine, to string, n *note.Note, checks Checks) (str
 	n.Alias(stem)
 	if bad := slices.IndexFunc(n.Sources, func(s string) bool { return !check.ValidSource(s) }); bad >= 0 {
 		return "", "", refuse(ErrInvalid, "Source %q not understood: use linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.", n.Sources[bad])
+	}
+	if checks.Secrets {
+		if err := secretsIn(n); err != nil {
+			return "", "", err
+		}
 	}
 	data, err := n.Marshal()
 	if err != nil {
@@ -289,6 +326,9 @@ func (s *Store) EditNote(machine, ref, base string, data []byte, checks Checks) 
 	n, err := note.Parse(data)
 	if err != nil {
 		return "", refuse(ErrInvalid, "The note did not save: %v. Fix the frontmatter and save again.", err)
+	}
+	if found := secrets.Scan(data); checks.Secrets && len(found) > 0 {
+		return "", refuse(ErrSecret, "%s did not save: it would hold what looks like a secret, at %s of the file. %s", p, secrets.List(found), keepSecretsOut)
 	}
 	before, err := note.Parse(b.Files[p].Content)
 	if err != nil {
@@ -508,6 +548,9 @@ func (s *Store) VerifyNote(machine, ref string, sources []string) (string, error
 	}
 	if bad := slices.IndexFunc(sources, func(s string) bool { return !check.ValidSource(s) }); bad >= 0 {
 		return "", refuse(ErrInvalid, "Source %q not understood: use linear:<ID>, file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL.", sources[bad])
+	}
+	if found := secrets.Scan([]byte(strings.Join(sources, "\n"))); len(found) > 0 {
+		return "", refuse(ErrSecret, "Source %d holds what looks like a secret (%s), so %s was not verified. Cite it without the secret.", found[0].Line, found[0].Kind, f.Path)
 	}
 	project, _ := NoteProject(f.Path)
 	tasks, err := s.Tasks(project)
