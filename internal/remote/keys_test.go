@@ -39,7 +39,8 @@ func sealed(t *testing.T) (*Store, string, machine, machine, *seal.Device, *seal
 	if err := desktop.client.StartSeal(context.Background(), device, recovery, key); err != nil {
 		t.Fatal(err)
 	}
-	if err := desktop.client.Unlock(context.Background(), device); err != nil || desktop.client.Key == nil {
+	desktop.client.Device = device
+	if err := desktop.client.Unlock(context.Background()); err != nil || desktop.client.Key == nil {
 		t.Fatalf("the desktop could not unlock the brain it sealed: %v", err)
 	}
 	return store, url, desktop, laptop, device, key, code
@@ -71,8 +72,12 @@ func TestSealedBrainSyncsWithoutTheServerReadingIt(t *testing.T) {
 	rows.Close()
 
 	device := newDevice(t)
-	if err := laptop.client.Unlock(ctx, device); !errors.Is(err, ErrLocked) {
+	laptop.client.Device = device
+	if err := laptop.client.Unlock(ctx); !errors.Is(err, ErrLocked) {
 		t.Fatalf("a machine without a key unlocked the brain: %v", err)
+	}
+	if _, err := Pull(ctx, laptop.client, laptop.brain); !errors.Is(err, ErrLocked) {
+		t.Fatalf("a machine without the key pulled a sealed brain: %v", err)
 	}
 	if err := laptop.client.RequestKey(ctx, device); err != nil {
 		t.Fatal(err)
@@ -87,7 +92,7 @@ func TestSealedBrainSyncsWithoutTheServerReadingIt(t *testing.T) {
 	if err := desktop.client.ApproveKey(ctx, keys.Pending[0], desktop.client.Key); err != nil {
 		t.Fatal(err)
 	}
-	if err := laptop.client.Unlock(ctx, device); err != nil {
+	if err := laptop.client.Unlock(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if res, err := Pull(ctx, laptop.client, laptop.brain); err != nil || len(res.Updated) != 2 {
@@ -151,7 +156,8 @@ func TestRecoveryCodeLetsANewMachineIn(t *testing.T) {
 	if err := phone.client.KeepOwnKey(ctx, device, key); err != nil {
 		t.Fatal(err)
 	}
-	if err := phone.client.Unlock(ctx, device); err != nil {
+	phone.client.Device = device
+	if err := phone.client.Unlock(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Pull(ctx, phone.client, phone.brain); err != nil || read(t, filepath.Join(phone.brain, "me/x.md")) != "kept\n" {

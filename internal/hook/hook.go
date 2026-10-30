@@ -51,13 +51,26 @@ type Env struct {
 func SessionStart(ctx context.Context, in Input, env Env) string {
 	var b strings.Builder
 	if env.Remote != nil {
-		if _, err := remote.Pull(ctx, env.Remote, env.Brain); err != nil {
-			fmt.Fprintln(os.Stderr, "wong: pull:", err)
+		_, pullErr := remote.Pull(ctx, env.Remote, env.Brain)
+		if pullErr != nil {
+			fmt.Fprintln(os.Stderr, "wong: pull:", pullErr)
 		}
 		if st, err := remote.LoadState(env.Brain); err == nil && len(st.Conflicts) > 0 {
 			fmt.Fprintf(&b, "wong: %d notes of the brain changed both here and on another machine; the server's versions are in %s. "+
 				"Compare them, keep or merge, then run `wong resolve <path> --keep local|server` (ask the user if unsure).\n\n",
 				len(st.Conflicts), link.MemoryDir(env.Brain, env.Home, ".wong/conflicts"))
+		}
+		if errors.Is(pullErr, remote.ErrLocked) {
+			b.WriteString("wong: the brain is end-to-end encrypted and this machine has no key yet, so it did not sync. Tell the user to " +
+				"approve this machine from another with `wong keys approve`, or to run `wong keys recover` with the recovery code.\n\n")
+		}
+		if keys, err := env.Remote.Keys(ctx); err == nil && keys.Wrapped != nil && len(keys.Pending) > 0 {
+			names := make([]string, len(keys.Pending))
+			for i, p := range keys.Pending {
+				names[i] = p.Device
+			}
+			fmt.Fprintf(&b, "wong: %s wait for the key of the end-to-end encrypted brain. Tell the user to run `wong keys approve` "+
+				"in a terminal here and to approve each one only if it shows the same code.\n\n", strings.Join(names, ", "))
 		}
 	}
 	dir, isRepo := toplevel(in.Cwd)

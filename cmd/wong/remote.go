@@ -25,6 +25,7 @@ import (
 
 func newServeCmd() *cobra.Command {
 	var db, dir, account, addr, certFile, keyFile, signInURL, accountService, maxSize, maxFile string
+	var sealedOnly bool
 	var maxRequests int
 	var admin adminFlags
 	cmd := &cobra.Command{
@@ -61,7 +62,9 @@ func newServeCmd() *cobra.Command {
 			"brain, named after them and revoked like any other. The key that signs their\n" +
 			"registrations is kept beside the database, or in the accounts folder.\n\n" +
 			"--max-size, --max-file and --max-requests bound what each brain may take: its\n" +
-			"size on disk with its history, the size of one file, and API requests a minute.",
+			"size on disk with its history, the size of one file, and API requests a minute.\n" +
+			"--sealed keeps every brain end-to-end encrypted: a brain takes no file until a\n" +
+			"machine seals it, and the server never holds one it can read.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if (certFile == "") != (keyFile == "") {
@@ -70,7 +73,7 @@ func newServeCmd() *cobra.Command {
 			if account != "" && dir == "" {
 				return errors.New("--account goes with --accounts")
 			}
-			limits := remote.Limits{Requests: maxRequests}
+			limits := remote.Limits{Requests: maxRequests, Sealed: sealedOnly}
 			for _, l := range []struct {
 				flag, value string
 				to          *int64
@@ -197,6 +200,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&account, "account", "", "with --accounts: the account whose tokens --new-token, --tokens and --revoke-token act on")
 	cmd.Flags().StringVar(&addr, "addr", ":8787", "address to listen on")
 	cmd.Flags().StringVar(&maxSize, "max-size", "", "the most room each brain may take on disk, history included, such as 100M")
+	cmd.Flags().BoolVar(&sealedOnly, "sealed", false, "keep every brain end-to-end encrypted: a brain takes no file until a machine seals it")
 	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
@@ -523,7 +527,11 @@ func remoteClient(timeout time.Duration) (*remote.Client, error) {
 	if err != nil || !ok {
 		return nil, err
 	}
-	return remote.NewClient(cfg.URL, cfg.Token, timeout), nil
+	client := remote.NewClient(cfg.URL, cfg.Token, timeout)
+	if client.Device, err = remote.LoadDevice(); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // requireRemote is remoteClient for the commands that need a server.

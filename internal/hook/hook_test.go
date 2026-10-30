@@ -22,6 +22,7 @@ import (
 	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
+	"github.com/17tayyy/wong/internal/seal"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -343,5 +344,47 @@ func TestSessionStartCountsTheArchive(t *testing.T) {
 	got := SessionStart(t.Context(), Input{Cwd: repo}, env)
 	if !strings.Contains(got, "This project keeps 2 archived notes in ~/.wong/projects/acme/archive, out of your memory on purpose") || strings.Contains(got, "old-a") {
 		t.Errorf("session start:\n%s", got)
+	}
+}
+
+func TestSessionStartOnASealedBrain(t *testing.T) {
+	env, repo := newEnv(t)
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}))
+	defer srv.Close()
+	client := func(name string) *remote.Client {
+		token, err := store.NewToken(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := remote.NewClient(srv.URL, token, 5*time.Second)
+		if c.Device, err = seal.NewDevice(); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	desktop := client("desktop")
+	key, _ := seal.NewKey()
+	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
+	if err := desktop.StartSeal(context.Background(), desktop.Device, recovery, key); err != nil {
+		t.Fatal(err)
+	}
+
+	laptop := env
+	laptop.Brain = filepath.Join(t.TempDir(), "brain")
+	laptop.Remote = client("laptop")
+	if got := SessionStart(context.Background(), Input{Cwd: repo}, laptop); !strings.Contains(got, "this machine has no key yet") {
+		t.Errorf("a locked machine's session does not say so: %q", got)
+	}
+	if err := laptop.Remote.RequestKey(context.Background(), laptop.Remote.Device); err != nil {
+		t.Fatal(err)
+	}
+	env.Remote = desktop
+	if got := SessionStart(context.Background(), Input{Cwd: repo}, env); !strings.Contains(got, "laptop wait for the key") {
+		t.Errorf("the desktop's session does not say the laptop waits: %q", got)
 	}
 }

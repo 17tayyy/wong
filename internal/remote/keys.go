@@ -19,6 +19,8 @@ var (
 	ErrNoKey = errors.New("no such key or request")
 	// ErrOldClient refuses a client that does not encrypt, so it cannot write files in the clear into a sealed brain.
 	ErrOldClient = errors.New("this brain is end-to-end encrypted: update wong to sync it")
+	// ErrMustSeal refuses files for a brain that is not sealed yet, on a server that keeps every brain sealed.
+	ErrMustSeal = errors.New("this server keeps brains end-to-end encrypted: seal this one first with wong keys seal")
 )
 
 // KeyRequest is a device that asked for the brain's key and waits for one that holds it to approve.
@@ -28,10 +30,11 @@ type KeyRequest struct {
 	Created string `json:"created"`
 }
 
-// Keys is what a device learns about the keyring: whether the brain is sealed, the key wrapped for it, the key
-// wrapped for the recovery code, and the devices waiting for theirs.
+// Keys is what a device learns about the keyring: whether the brain is sealed or must be, the key wrapped for it, the
+// key wrapped for the recovery code, and the devices waiting for theirs.
 type Keys struct {
 	Sealed   bool         `json:"sealed"`
+	Required bool         `json:"required,omitempty"`
 	Wrapped  []byte       `json:"wrapped,omitempty"`
 	Recovery []byte       `json:"recovery,omitempty"`
 	Pending  []KeyRequest `json:"pending,omitempty"`
@@ -51,7 +54,7 @@ func (s *Store) Keys(device string) (Keys, error) {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return k, err
 	}
-	k.Sealed = k.Recovery != nil
+	k.Sealed, k.Required = k.Recovery != nil, s.limits.Sealed
 	rows, err := s.db.Query(`SELECT device, public, wrapped, created_at FROM keyring ORDER BY created_at, device`)
 	if err != nil {
 		return k, err

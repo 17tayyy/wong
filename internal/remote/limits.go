@@ -14,6 +14,7 @@ type Limits struct {
 	Size     int64
 	File     int64
 	Requests int
+	Sealed   bool
 }
 
 // ErrLimit marks a change or request refused because it goes past one of the brain's limits.

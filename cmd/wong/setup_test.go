@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/17tayyy/wong/internal/remote"
 )
@@ -134,4 +137,98 @@ func TestSetupWithoutAServer(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".config", "wong", "remote.yaml")); err == nil {
 		t.Error("setup without a server saved one")
 	}
+}
+
+func TestSetupSealsABrainAndOtherMachinesGetItsKey(t *testing.T) {
+	fakeClaude(t)
+	root := t.TempDir()
+	store, err := remote.Open(filepath.Join(root, "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	store.SetLimits(remote.Limits{Sealed: true})
+	srv := httptest.NewServer(remote.Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), remote.Webhooks{}))
+	defer srv.Close()
+	token := func(name string) string {
+		token, err := store.NewToken(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+
+	machine(t, root, "desktop", "deploy.md")
+	out, err := runWithInput(t, token("desktop")+"\n", "setup", srv.URL)
+	if err != nil {
+		t.Fatalf("desktop setup: %v\n%s", err, out)
+	}
+	code := regexp.MustCompile(`([A-Z2-7]{4}-){7}[A-Z2-7]{4}`).FindString(out)
+	if code == "" || !strings.Contains(out, "end-to-end encrypted") || !strings.Contains(out, "pushed: 2") {
+		t.Fatalf("the desktop's setup should seal the brain, show the recovery code and push:\n%s", out)
+	}
+	if sealed, err := store.Sealed(); err != nil || !sealed {
+		t.Fatalf("the brain is not sealed: %v", err)
+	}
+
+	laptop, _ := machine(t, root, "laptop", "oncall.md")
+	if _, err := runWithInput(t, token("laptop")+"\n", "setup", srv.URL); err == nil || !strings.Contains(err.Error(), "no key yet") {
+		t.Fatalf("a machine without the key got past setup: %v", err)
+	}
+	if err := runKeysRequest(t); err != nil {
+		t.Fatal(err)
+	}
+	laptopCode := regexp.MustCompile(`This machine's code: ([\d ]+)`).FindStringSubmatch(mustRun(t, "keys"))
+	if laptopCode == nil {
+		t.Fatal("wong keys does not show this machine's code")
+	}
+
+	machine(t, root, "desktop", "deploy.md")
+	if _, err := run(t, "keys", "approve", "laptop", "--code", "0000 0000 0000 0000 0000 0000"); err == nil {
+		t.Error("an approval with another code than the laptop's went through")
+	}
+	if out, err := run(t, "keys", "approve", "laptop", "--code", laptopCode[1]); err != nil || !strings.Contains(out, "laptop has the brain's key") {
+		t.Fatalf("approve: %v\n%s", err, out)
+	}
+
+	machine(t, root, "laptop", "oncall.md")
+	if out, err := run(t, "sync"); err != nil || !strings.Contains(out, "pulled: 2 updated") {
+		t.Fatalf("the laptop could not sync once approved: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(laptop, ".wong", "projects", "acme", "deploy.md")); err != nil {
+		t.Errorf("the desktop's note did not reach the laptop: %v", err)
+	}
+
+	phone, _ := machine(t, root, "phone", "notes.md")
+	if err := remote.SaveConfig(filepath.Join(phone, ".config", "wong", "remote.yaml"), remote.Config{URL: srv.URL, Token: token("phone")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runWithInput(t, "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH\n", "keys", "recover"); err == nil {
+		t.Error("a wrong recovery code opened the brain")
+	}
+	if out, err := runWithInput(t, strings.ToLower(code)+"\n", "keys", "recover"); err != nil || !strings.Contains(out, "has the brain's key") {
+		t.Fatalf("recover: %v\n%s", err, out)
+	}
+	if out, err := run(t, "pull"); err != nil || !strings.Contains(out, "pulled: 2 updated") {
+		t.Errorf("the phone could not pull with the recovered key: %v\n%s", err, out)
+	}
+}
+
+// runKeysRequest asks for the brain's key from the current machine, as setup does on a terminal.
+func runKeysRequest(t *testing.T) error {
+	t.Helper()
+	client, err := remoteClient(5 * time.Second)
+	if err != nil {
+		return err
+	}
+	return client.RequestKey(context.Background(), client.Device)
+}
+
+func mustRun(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := run(t, args...)
+	if err != nil {
+		t.Fatalf("%v: %v\n%s", args, err, out)
+	}
+	return out
 }

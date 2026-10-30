@@ -17,13 +17,15 @@ import (
 	"github.com/17tayyy/wong/internal/seal"
 )
 
-// Client talks to a wong server. Key, set once the brain's key is unlocked, makes it encrypt what it pushes and
-// decrypt what it pulls, for a sealed brain.
+// Client talks to a wong server. With this machine's Device, it opens the key of a sealed brain the first time it
+// syncs, and from then on its Key encrypts what it pushes and decrypts what it pulls.
 type Client struct {
-	URL   string
-	Token string
-	HTTP  *http.Client
-	Key   *seal.Key
+	URL    string
+	Token  string
+	HTTP   *http.Client
+	Device *seal.Device
+	Key    *seal.Key
+	clear  bool
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) *Client {
@@ -49,15 +51,30 @@ func (c *Client) Tasks(ctx context.Context, project string) ([]Task, error) {
 	return out.Tasks, err
 }
 
-// ReportFindings sends what this machine's check found in a project, replacing its previous report.
+// ReportFindings sends what this machine's check found in a project, replacing its previous report. A sealed brain
+// gets none, since findings name notes and quote them.
 func (c *Client) ReportFindings(ctx context.Context, project string, findings []check.Finding) error {
+	if err := c.Unlock(ctx); err != nil || c.Key != nil {
+		return err
+	}
 	return c.do(ctx, http.MethodPost, "/api/findings", findingsRequest{Project: project, Findings: findings}, &struct{}{})
 }
 
-// Keys returns the brain's keyring as this machine sees it.
+// Keys returns the brain's keyring as this machine sees it; a server too old to keep one has a brain in the clear.
 func (c *Client) Keys(ctx context.Context) (Keys, error) {
 	var out Keys
-	err := c.do(ctx, http.MethodGet, "/api/keys", nil, &out)
+	resp, err := c.send(ctx, http.MethodGet, "/api/keys", nil)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		err = json.NewDecoder(resp.Body).Decode(&out)
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+	default:
+		err = failed(resp)
+	}
 	return out, err
 }
 
@@ -101,16 +118,24 @@ func (c *Client) KeepOwnKey(ctx context.Context, device *seal.Device, key *seal.
 // ErrLocked marks a sealed brain whose key this machine does not hold yet.
 var ErrLocked = errors.New("this brain is end-to-end encrypted and this machine has no key yet: approve it from another machine with wong keys approve, or use the recovery code with wong keys recover")
 
-// Unlock reads the brain's key with this machine's device key when the brain is sealed, and sets it on the client.
-func (c *Client) Unlock(ctx context.Context, device *seal.Device) error {
+// Unlock learns whether the brain is sealed and, when it is, opens its key with this machine's Device; a client
+// that has not unlocked a sealed brain never syncs it.
+func (c *Client) Unlock(ctx context.Context) error {
+	if c.Key != nil || c.clear {
+		return nil
+	}
 	keys, err := c.Keys(ctx)
-	if err != nil || !keys.Sealed {
+	if err != nil {
 		return err
 	}
-	if keys.Wrapped == nil {
+	if !keys.Sealed {
+		c.clear = true
+		return nil
+	}
+	if keys.Wrapped == nil || c.Device == nil {
 		return ErrLocked
 	}
-	key, err := device.Unwrap(keys.Wrapped)
+	key, err := c.Device.Unwrap(keys.Wrapped)
 	if err != nil {
 		return fmt.Errorf("the brain's key does not open with this machine's key: %w", err)
 	}

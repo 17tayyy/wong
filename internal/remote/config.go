@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/17tayyy/wong/internal/seal"
 )
 
 // Config is where this machine's wong server is and the token it uses.
@@ -60,6 +62,46 @@ func SaveConfig(path string, cfg Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+// LoadDevice reads this machine's device key, beside its server's config, and makes it the first time: the key that
+// opens a sealed brain's key on this machine, and that never leaves it.
+func LoadDevice() (*seal.Device, error) {
+	path, err := ConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	path = filepath.Join(filepath.Dir(path), "device.key")
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return seal.DeviceFrom(data)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	device, err := seal.NewDevice()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := device.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return LoadDevice()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return device, f.Close()
 }
 
 var tailnet = netip.MustParsePrefix("100.64.0.0/10")

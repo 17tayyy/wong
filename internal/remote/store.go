@@ -212,6 +212,9 @@ func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, c
 	if err != nil {
 		return nil, nil, err
 	}
+	if !sealed && s.limits.Sealed && len(pushes) > 0 {
+		return nil, nil, ErrMustSeal
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, nil, err

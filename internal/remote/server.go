@@ -110,6 +110,10 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 				return
 			}
+			if errors.Is(err, ErrMustSeal) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			log.Error("push", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return

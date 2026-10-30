@@ -35,6 +35,9 @@ type Result struct {
 // Pull applies the server's changes to the files this machine has not changed since its last sync.
 func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 	var res Result
+	if err := c.Unlock(ctx); err != nil {
+		return res, err
+	}
 	st, err := LoadState(brain)
 	if err != nil {
 		return res, err
@@ -91,6 +94,9 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 // Push sends every file changed since the last sync, except those waiting for a conflict to be resolved.
 func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 	var res Result
+	if err := c.Unlock(ctx); err != nil {
+		return res, err
+	}
 	st, err := LoadState(brain)
 	if err != nil {
 		return res, err
@@ -335,7 +341,7 @@ func (c *Client) known(brain string, st State) (map[string]string, error) {
 		return known, nil
 	}
 	local, err := walk(brain, c.sum)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	for path := range local {

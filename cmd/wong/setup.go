@@ -25,6 +25,8 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			"  1. with a server, connects this machine: it shows a code to enter in the\n" +
 			"     dashboard, in a browser signed in to wong, or takes a token made on the\n" +
 			"     server with wong serve --new-token <name>, pasted or read from stdin;\n" +
+			"     seals a new brain on a server that keeps them end-to-end encrypted, or\n" +
+			"     waits for another machine to give this one the key of a sealed brain;\n" +
 			"     then pulls the brain, which is empty until the first machine pushes;\n" +
 			"  2. imports this machine's Claude Code memory into it, as wong import does;\n" +
 			"  3. with a server, pushes it, so the server holds the memory of every machine;\n" +
@@ -38,6 +40,12 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			if len(args) == 1 {
 				var err error
 				if client, err = setRemote(cmd, args[0]); err != nil {
+					return err
+				}
+				if client.Device, err = remote.LoadDevice(); err != nil {
+					return err
+				}
+				if err := prepareKeys(cmd, client, *brain); err != nil {
 					return err
 				}
 				if err := syncBrain(cmd, client, *brain, true, false); err != nil {
@@ -64,6 +72,21 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 	}
 	cmd.Flags().StringArrayVar(&maps, "map", nil, "send a directory or memory folder to a project: PATH=ID (ID \"me\" for global notes)")
 	return cmd
+}
+
+// prepareKeys seals a new brain on a server that keeps them sealed, or waits for this machine's key to a sealed one.
+func prepareKeys(cmd *cobra.Command, client *remote.Client, brain string) error {
+	keys, err := client.Keys(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("the server did not answer as expected, check the url and the token: %w", err)
+	}
+	switch {
+	case keys.Sealed && keys.Wrapped == nil:
+		return waitForKey(cmd, client)
+	case !keys.Sealed && keys.Required:
+		return sealBrain(cmd, client, brain)
+	}
+	return nil
 }
 
 // linkEverything links every repo wong knows to its project and makes me/ the memory of every other folder.
