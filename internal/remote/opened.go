@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -101,6 +102,7 @@ func (o *Opened) Refresh(ctx context.Context) error {
 		return err
 	}
 	var ups []Upload
+	var by []string
 	sums := map[string]string{}
 	for _, ch := range changes {
 		path, sum := o.paths[ch.Path], ""
@@ -119,15 +121,20 @@ func (o *Opened) Refresh(ctx context.Context) error {
 			up.Sha = Sha(content)
 		}
 		ups = append(ups, up)
+		by = append(by, cmp.Or(ch.Machine, "sync"))
 		sums[path] = sum
 	}
 	var clash []string
-	if len(ups) > 0 {
-		accepted, conflicts, err := o.Plain.Apply("sync", ups)
+	for i := 0; i < len(ups); {
+		j := i + 1
+		for j < len(ups) && by[j] == by[i] {
+			j++
+		}
+		accepted, conflicts, err := o.Plain.Apply(by[i], ups[i:j])
 		if err != nil {
 			return err
 		}
-		for _, up := range ups {
+		for _, up := range ups[i:j] {
 			if slices.Contains(accepted, up.Path) {
 				o.sums[up.Path], o.shas[up.Path] = sums[up.Path], up.Sha
 			}
@@ -135,6 +142,7 @@ func (o *Opened) Refresh(ctx context.Context) error {
 		for _, c := range conflicts {
 			clash = append(clash, c.Path)
 		}
+		i = j
 	}
 	o.cursor = cursor
 	if before == o.flushed {

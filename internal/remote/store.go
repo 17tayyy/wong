@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS cloud_ais (
 	created_at TEXT NOT NULL
 );`
 
-// Change is the current state of one file of the brain on the server.
+// Change is the current state of one file of the brain on the server, and the machine that wrote it.
 type Change struct {
 	Path     string `json:"path"`
 	Sha      string `json:"sha,omitempty"`
@@ -111,6 +111,7 @@ type Change struct {
 	Content  []byte `json:"content,omitempty"`
 	Modified string `json:"modified,omitempty"`
 	Seq      int64  `json:"seq"`
+	Machine  string `json:"machine,omitempty"`
 }
 
 // Upload is a change a client sends, based on the version it last synced (Base, empty for a new file).
@@ -175,7 +176,8 @@ func (s *Store) Close() error {
 
 // Changes returns every file changed after since, and the cursor to ask from next time.
 func (s *Store) Changes(since int64) ([]Change, int64, error) {
-	rows, err := s.db.Query(`SELECT path, sha, content, deleted, modified, seq FROM files WHERE seq > ? ORDER BY seq`, since)
+	rows, err := s.db.Query(`SELECT f.path, f.sha, f.content, f.deleted, f.modified, f.seq, COALESCE(h.machine, '')
+		FROM files f LEFT JOIN history h ON h.seq = f.seq WHERE f.seq > ? ORDER BY f.seq`, since)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -183,7 +185,7 @@ func (s *Store) Changes(since int64) ([]Change, int64, error) {
 	var changes []Change
 	for rows.Next() {
 		var c Change
-		if err := rows.Scan(&c.Path, &c.Sha, &c.Content, &c.Deleted, &c.Modified, &c.Seq); err != nil {
+		if err := rows.Scan(&c.Path, &c.Sha, &c.Content, &c.Deleted, &c.Modified, &c.Seq, &c.Machine); err != nil {
 			return nil, 0, err
 		}
 		changes = append(changes, c)
