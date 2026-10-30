@@ -364,3 +364,26 @@ func TestUnauthorizedPointsToOAuth(t *testing.T) {
 		t.Errorf("401 without a token: %d %q", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}
 }
+
+func TestASealedBrainAnswersNoTool(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped")); err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), "test"))
+	t.Cleanup(srv.Close)
+	c := client{t, srv.URL, token}
+	for _, tool := range []string{"get_context", "search_notes", "write_note"} {
+		if text, failed := c.tool(tool, `{}`); !failed || !strings.Contains(text, "end-to-end encrypted") {
+			t.Errorf("%s on a sealed brain: %s", tool, text)
+		}
+	}
+}

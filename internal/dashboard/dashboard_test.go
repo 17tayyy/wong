@@ -681,3 +681,41 @@ func TestConnectAnApp(t *testing.T) {
 		t.Errorf("a redirect the client did not register: %d", code)
 	}
 }
+
+func TestASealedBrainShowsNoNotes(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped")); err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("ab", 32)
+	if _, _, err := store.Apply("desktop", []remote.Upload{{Path: id, Sha: "sum", Content: []byte("\x01sealed bytes")}}); err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+	for _, path := range []string{"/", "/graph", "/history", "/notes/me/use-uv.md"} {
+		if code, body := b.get(path); code != http.StatusOK || !strings.Contains(body, "Your notes are encrypted") || strings.Contains(body, "sealed bytes") {
+			t.Errorf("%s on a sealed brain: %d", path, code)
+		}
+	}
+	if code, body := b.get("/device"); code != http.StatusOK || strings.Contains(body, "Your notes are encrypted") {
+		t.Errorf("Connect a machine should still work on a sealed brain: %d", code)
+	}
+}

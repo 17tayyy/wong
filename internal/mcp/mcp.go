@@ -227,6 +227,11 @@ func (s *Server) info() map[string]string {
 
 // call runs a tool and turns what it returns, or why it refused, into a tool result.
 func (s *Server) call(machine string, p params) map[string]any {
+	if sealed, err := s.store.Sealed(); err != nil || sealed {
+		s.log.Info("mcp", "tool", p.Name, "machine", machine, "refused", "sealed")
+		return failed("This brain is end-to-end encrypted: the wong server cannot read it, so it cannot answer " + p.Name +
+			". Its notes are on the user's machines, where Claude Code and other local agents read them directly.")
+	}
 	t, ok := byName[p.Name]
 	if !ok {
 		return failed("Unknown tool " + p.Name + ". The tools are " + strings.Join(toolNames(), ", ") + ".")

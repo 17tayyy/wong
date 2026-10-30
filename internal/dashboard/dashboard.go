@@ -58,7 +58,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -131,6 +131,16 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 		if r.Method == http.MethodPost && !sameOrigin(r) {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
+		}
+		if readsNotes(r.URL.Path) {
+			sealed, err := s.Store.Sealed()
+			if err != nil {
+				d.fail(w, err)
+				return
+			}
+			if sealed {
+				next = (*Dashboard).sealedPage
+			}
 		}
 		next(&Dashboard{brains: d.brains, opts: d.opts, guesses: d.guesses, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
 	}
