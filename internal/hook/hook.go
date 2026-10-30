@@ -61,8 +61,9 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 				len(st.Conflicts), link.MemoryDir(env.Brain, env.Home, ".wong/conflicts"))
 		}
 		if errors.Is(pullErr, remote.ErrLocked) {
-			b.WriteString("wong: the brain is end-to-end encrypted and this machine has no key yet, so it did not sync. Tell the user to " +
-				"approve this machine from another with `wong keys approve`, or to run `wong keys recover` with the recovery code.\n\n")
+			b.WriteString("wong: the brain is end-to-end encrypted and this machine has no key yet, so it did not sync; it asked for one. " +
+				"Tell the user to run `wong keys` here to see this machine's code and `wong keys approve` on a machine that has the key, " +
+				"approving it only if it shows the same code, or to run `wong keys recover` here with the recovery code.\n\n")
 		}
 		if keys, err := env.Remote.Keys(ctx); err == nil && keys.Wrapped != nil && len(keys.Pending) > 0 {
 			names := make([]string, len(keys.Pending))

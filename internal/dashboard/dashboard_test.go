@@ -688,7 +688,7 @@ func TestASealedBrainShowsNoNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped")); err != nil {
+	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped"), 0); err != nil {
 		t.Fatal(err)
 	}
 	id := strings.Repeat("ab", 32)

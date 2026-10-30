@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func sealed(t *testing.T) (*Store, string, machine, machine, *seal.Device, *seal
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := desktop.client.StartSeal(context.Background(), device, recovery, key); err != nil {
+	if err := desktop.client.StartSeal(context.Background(), device, recovery, key, 0); err != nil {
 		t.Fatal(err)
 	}
 	desktop.client.Device = device
@@ -187,7 +188,7 @@ func TestSealedBrainRefusesWhatDoesNotEncrypt(t *testing.T) {
 	if _, _, err := desktop.client.Push(ctx, []Upload{{Path: "me/plain.md", Sha: Sha([]byte("x")), Content: []byte("x")}}); err == nil {
 		t.Error("a file in the clear was pushed into a sealed brain")
 	}
-	if err := store.StartSeal("desktop", device.Public(), []byte("w"), device.Public(), []byte("w")); !errors.Is(err, ErrSealed) {
+	if err := store.StartSeal("desktop", device.Public(), []byte("w"), device.Public(), []byte("w"), 0); !errors.Is(err, ErrSealed) {
 		t.Errorf("a sealed brain was sealed again: %v", err)
 	}
 	stranger := newDevice(t)
@@ -203,20 +204,115 @@ func TestSealedBrainRefusesWhatDoesNotEncrypt(t *testing.T) {
 	}
 }
 
-func TestOnlyAnEmptyBrainIsSealed(t *testing.T) {
+func TestSealingABrainInTheClearReplacesItOnTheServer(t *testing.T) {
 	ctx := context.Background()
-	store, _, desktop, _ := setup(t)
-	write(t, filepath.Join(desktop.brain, "me/x.md"), "in the clear\n")
+	store, _, desktop, laptop := setup(t)
+	for _, name := range []string{"same", "behind", "edited-here", "edited-twice", "deleted-there"} {
+		write(t, filepath.Join(desktop.brain, "projects/acme", name+".md"), "Ship on Tuesdays.\n")
+	}
 	if _, err := Push(ctx, desktop.client, desktop.brain); err != nil {
 		t.Fatal(err)
 	}
-	device := newDevice(t)
-	if err := store.StartSeal("desktop", device.Public(), []byte("w"), device.Public(), []byte("w")); !errors.Is(err, ErrNotEmpty) {
-		t.Errorf("a brain holding files in the clear was sealed: %v", err)
+	if _, err := Pull(ctx, laptop.client, laptop.brain); err != nil {
+		t.Fatal(err)
 	}
-	if sealed, err := store.Sealed(); err != nil || sealed {
-		t.Errorf("the brain says it is sealed: %v", err)
+	if _, err := store.db.Exec(`INSERT INTO tasks (note, project, severity, ref, message, source, event, created_at)
+		VALUES ('projects/acme/same.md', 'acme', 'stale', 'app/billing.py', 'removed', 'github acme/acme-api@1a2b3c4', '{"path":"app/billing.py"}', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := store.db.Exec(`INSERT INTO findings (project, machine, note, severity, ref, message, reported_at)
+		VALUES ('acme', 'desktop', 'projects/acme/same.md', 'review', 'ENG-15', 'closed', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(desktop.brain, "projects/acme/behind.md"), "Ship on Wednesdays.\n")
+	write(t, filepath.Join(desktop.brain, "projects/acme/edited-twice.md"), "Desktop's version.\n")
+	removeFile(t, filepath.Join(desktop.brain, "projects/acme/deleted-there.md"))
+	if _, err := Push(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(laptop.brain, "projects/acme/edited-here.md"), "Laptop's version.\n")
+	write(t, filepath.Join(laptop.brain, "projects/acme/edited-twice.md"), "Laptop's version.\n")
+
+	device, key := newDevice(t), mustKey(t)
+	recovery, err := seal.RecoveryDevice(seal.NewRecovery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartSeal("desktop", device.Public(), []byte("w"), recovery.Public(), []byte("w"), 1); !errors.Is(err, ErrBehind) {
+		t.Fatalf("a machine that did not pull the latest changes sealed the brain: %v", err)
+	}
+	if _, err := Pull(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(desktop.brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := desktop.client.StartSeal(ctx, device, recovery, key, st.Cursor); err != nil {
+		t.Fatal(err)
+	}
+	removeFile(t, filepath.Join(desktop.brain, statePath))
+	desktop.client.Device, desktop.client.Key = device, key
+	if res, err := Push(ctx, desktop.client, desktop.brain); err != nil || len(res.Pushed) != 4 {
+		t.Fatalf("the desktop did not push the brain again encrypted: %+v %v", res, err)
+	}
+	var clear int
+	for _, q := range []string{
+		`SELECT COUNT(*) FROM history WHERE content LIKE '%Ship%' OR path LIKE '%acme%'`,
+		`SELECT COUNT(*) FROM files WHERE path LIKE '%acme%'`,
+		`SELECT COUNT(*) FROM findings`,
+		`SELECT COUNT(*) FROM tasks`,
+	} {
+		if err := store.db.QueryRow(q).Scan(&clear); err != nil || clear != 0 {
+			t.Errorf("the server kept something in the clear (%s): %d %v", q, clear, err)
+		}
+	}
+	events, _, err := store.Events(0)
+	if err != nil || len(events) != 1 || events[0].Remote != "acme/acme-api" {
+		t.Errorf("the open task's event was not kept for the machines: %+v %v", events, err)
+	}
+
+	laptopDevice := newDevice(t)
+	laptop.client = NewClient(laptop.client.URL, laptop.client.Token, laptop.client.HTTP.Timeout)
+	laptop.client.Device = laptopDevice
+	if _, err := Pull(ctx, laptop.client, laptop.brain); !errors.Is(err, ErrLocked) {
+		t.Fatalf("the laptop synced a brain sealed after it last did, without the key: %v", err)
+	}
+	keys, err := desktop.client.Keys(ctx)
+	if err != nil || len(keys.Pending) != 1 {
+		t.Fatalf("the laptop does not wait for the key: %+v %v", keys, err)
+	}
+	if err := desktop.client.ApproveKey(ctx, keys.Pending[0], key); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Pull(ctx, laptop.client, laptop.brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Updated, []string{"projects/acme/behind.md"}) || !slices.Equal(res.Conflicts, []string{"projects/acme/edited-twice.md"}) {
+		t.Errorf("the laptop should take the edit it was behind on and conflict on the file both changed: %+v", res)
+	}
+	if res, err := Push(ctx, laptop.client, laptop.brain); err != nil || !slices.Contains(res.Pushed, "projects/acme/edited-here.md") {
+		t.Errorf("the laptop's own edit did not push: %+v %v", res, err)
+	}
+	if !exists(filepath.Join(laptop.brain, "projects/acme/deleted-there.md")) {
+		t.Error("the laptop lost a file the server no longer has")
+	}
+	if _, err := Pull(ctx, desktop.client, desktop.brain); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(desktop.brain, "projects/acme/edited-here.md")); got != "Laptop's version.\n" {
+		t.Errorf("the laptop's edit did not reach the desktop: %q", got)
+	}
+}
+
+func mustKey(t *testing.T) *seal.Key {
+	t.Helper()
+	key, err := seal.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 func mustToken(t *testing.T, store *Store, name string) string {

@@ -25,12 +25,13 @@ const (
 
 var ownFolders = []string{".git", ".wong", ".obsidian", ".trash"}
 
-// State is what this machine last synced: the server's cursor, each file's sha, the conflicts left to resolve, and the notes it keeps to itself.
+// State is what this machine last synced: the server's cursor, each file's sha, the conflicts left to resolve, the notes it keeps to itself, and whether the brain was sealed then.
 type State struct {
 	Cursor    int64             `json:"cursor"`
 	Files     map[string]string `json:"files"`
 	Conflicts map[string]string `json:"conflicts,omitempty"`
 	Local     []string          `json:"local,omitempty"`
+	Sealed    bool              `json:"sealed,omitempty"`
 }
 
 type Result struct {
@@ -83,7 +84,7 @@ func Pull(ctx context.Context, c *Client, brain string) (Result, error) {
 	if err := c.Unlock(ctx); err != nil {
 		return res, err
 	}
-	st, err := loadState(brain, c.statePath())
+	st, err := c.load(ctx, brain)
 	if err != nil {
 		return res, err
 	}
@@ -153,7 +154,7 @@ func Push(ctx context.Context, c *Client, brain string) (Result, error) {
 	if err := c.Unlock(ctx); err != nil {
 		return res, err
 	}
-	st, err := loadState(brain, c.statePath())
+	st, err := c.load(ctx, brain)
 	if err != nil {
 		return res, err
 	}
@@ -306,6 +307,56 @@ func loadState(brain, path string) (State, error) {
 	if st.Conflicts == nil {
 		st.Conflicts = map[string]string{}
 	}
+	return st, nil
+}
+
+// load reads what this machine last synced. A state from before another machine sealed the brain names files by their
+// sha256 and counts from a cursor whose changes are gone: it starts over from the sealed files, taking as the last
+// synced version of each the server's when the server did not change it since, so this machine's edits push, or this
+// machine's when it did not, so the server's apply. A file changed on both sides conflicts, and one the server no
+// longer has stays here to push again.
+func (c *Client) load(ctx context.Context, brain string) (State, error) {
+	st, err := loadState(brain, c.statePath())
+	if err != nil || c.Key == nil || st.Sealed {
+		return st, err
+	}
+	st.Sealed = true
+	if st.Cursor == 0 && len(st.Files) == 0 && len(st.Conflicts) == 0 {
+		return st, nil
+	}
+	changes, _, err := c.Changes(ctx, 0)
+	if err != nil {
+		return st, err
+	}
+	server := map[string][]byte{}
+	for _, ch := range changes {
+		if ch, ok, err := c.unseal(ch, map[string]string{}); err != nil {
+			return st, err
+		} else if ok && !ch.Deleted {
+			server[ch.Path] = ch.Content
+		}
+	}
+	files := map[string]string{}
+	for path, sha := range st.Files {
+		content, ok := server[path]
+		if !ok {
+			continue
+		}
+		if Sha(content) == sha {
+			files[path] = c.sum(content)
+		} else if data, err := os.ReadFile(filepath.Join(brain, path)); err == nil && Sha(data) == sha {
+			files[path] = c.sum(data)
+		}
+	}
+	conflicts := map[string]string{}
+	for path, sha := range st.Conflicts {
+		if data, err := os.ReadFile(filepath.Join(brain, conflictsDir, path)); err == nil && sha != "" {
+			conflicts[path] = c.sum(data)
+		} else {
+			conflicts[path] = ""
+		}
+	}
+	st.Cursor, st.Files, st.Conflicts = 0, files, conflicts
 	return st, nil
 }
 

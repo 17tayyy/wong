@@ -48,6 +48,7 @@ type sealStart struct {
 	Wrapped         []byte `json:"wrapped"`
 	RecoveryPublic  []byte `json:"recovery_public"`
 	RecoveryWrapped []byte `json:"recovery_wrapped"`
+	Cursor          int64  `json:"cursor"`
 }
 
 type keyApproval struct {
@@ -184,7 +185,7 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				return
 			}
 			switch err := do(s, k, start); {
-			case errors.Is(err, ErrSealed), errors.Is(err, ErrNotEmpty), errors.Is(err, ErrNoKey):
+			case errors.Is(err, ErrSealed), errors.Is(err, ErrBehind), errors.Is(err, ErrNoKey):
 				http.Error(w, err.Error(), http.StatusConflict)
 			case err != nil:
 				log.Error("keys", "err", err)
@@ -196,7 +197,7 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 		})
 	}
 	mux.HandleFunc("POST /api/keys/start", keyCall(func(s Session, _ keyApproval, k sealStart) error {
-		return s.Store.StartSeal(s.Machine, k.Public, k.Wrapped, k.RecoveryPublic, k.RecoveryWrapped)
+		return s.Store.StartSeal(s.Machine, k.Public, k.Wrapped, k.RecoveryPublic, k.RecoveryWrapped, k.Cursor)
 	}))
 	mux.HandleFunc("POST /api/keys/request", keyCall(func(s Session, k keyApproval, _ sealStart) error {
 		return s.Store.RequestKey(s.Machine, k.Public)

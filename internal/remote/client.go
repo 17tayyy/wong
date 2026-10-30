@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -79,8 +80,9 @@ func (c *Client) Keys(ctx context.Context) (Keys, error) {
 	return out, err
 }
 
-// StartSeal makes the server's empty brain end-to-end encrypted, with key wrapped for this machine and the recovery code.
-func (c *Client) StartSeal(ctx context.Context, device, recovery *seal.Device, key *seal.Key) error {
+// StartSeal makes the server's brain end-to-end encrypted, with key wrapped for this machine and the recovery code; the
+// files it holds in the clear, which this machine pulled up to cursor, go from the server.
+func (c *Client) StartSeal(ctx context.Context, device, recovery *seal.Device, key *seal.Key, cursor int64) error {
 	wrapped, err := seal.Wrap(key, device.Public())
 	if err != nil {
 		return err
@@ -89,7 +91,7 @@ func (c *Client) StartSeal(ctx context.Context, device, recovery *seal.Device, k
 	if err != nil {
 		return err
 	}
-	start := sealStart{Public: device.Public(), Wrapped: wrapped, RecoveryPublic: recovery.Public(), RecoveryWrapped: recoveryWrapped}
+	start := sealStart{Public: device.Public(), Wrapped: wrapped, RecoveryPublic: recovery.Public(), RecoveryWrapped: recoveryWrapped, Cursor: cursor}
 	return c.do(ctx, http.MethodPost, "/api/keys/start", start, &struct{}{})
 }
 
@@ -117,10 +119,10 @@ func (c *Client) KeepOwnKey(ctx context.Context, device *seal.Device, key *seal.
 }
 
 // ErrLocked marks a sealed brain whose key this machine does not hold yet.
-var ErrLocked = errors.New("this brain is end-to-end encrypted and this machine has no key yet: approve it from another machine with wong keys approve, or use the recovery code with wong keys recover")
+var ErrLocked = errors.New("this brain is end-to-end encrypted and this machine has no key yet; it asked for one: run wong keys to see its code and approve it from a machine that has the key with wong keys approve, or use the recovery code here with wong keys recover")
 
 // Unlock learns whether the brain is sealed and, when it is, opens its key with this machine's Device; a client
-// that has not unlocked a sealed brain never syncs it.
+// that has not unlocked a sealed brain never syncs it, and asks for its key, for a machine that holds it to approve.
 func (c *Client) Unlock(ctx context.Context) error {
 	if c.Key != nil || c.clear {
 		return nil
@@ -134,6 +136,11 @@ func (c *Client) Unlock(ctx context.Context) error {
 		return nil
 	}
 	if keys.Wrapped == nil || c.Device == nil {
+		if c.Device != nil && !slices.ContainsFunc(keys.Pending, func(p KeyRequest) bool { return bytes.Equal(p.Public, c.Device.Public()) }) {
+			if err := c.RequestKey(ctx, c.Device); err != nil {
+				return err
+			}
+		}
 		return ErrLocked
 	}
 	key, err := c.Device.Unwrap(keys.Wrapped)

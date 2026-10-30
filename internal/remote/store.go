@@ -129,7 +129,7 @@ type Store struct {
 }
 
 func Open(file string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=secure_delete(1)")
 	if err != nil {
 		return nil, err
 	}

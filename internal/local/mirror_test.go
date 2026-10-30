@@ -65,7 +65,7 @@ func TestTheCopyOfASealedBrainServesAndSyncsIt(t *testing.T) {
 	key, _ := seal.NewKey()
 	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
 	cloud := client("desktop", key)
-	if err := cloud.StartSeal(ctx, cloud.Device, recovery, key); err != nil {
+	if err := cloud.StartSeal(ctx, cloud.Device, recovery, key, 0); err != nil {
 		t.Fatal(err)
 	}
 	brain := t.TempDir()

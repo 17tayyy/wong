@@ -84,7 +84,7 @@ func prepareKeys(cmd *cobra.Command, client *remote.Client, brain string) error 
 	case keys.Sealed && keys.Wrapped == nil:
 		return waitForKey(cmd, client)
 	case !keys.Sealed && keys.Required:
-		return sealBrain(cmd, client, brain)
+		return sealBrain(cmd, client, brain, false)
 	}
 	return nil
 }

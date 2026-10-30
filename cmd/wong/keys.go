@@ -31,6 +31,9 @@ func newKeysCmd(brain *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := client.Unlock(cmd.Context()); err != nil && !errors.Is(err, remote.ErrLocked) {
+				return err
+			}
 			keys, err := client.Keys(cmd.Context())
 			if err != nil {
 				return err
@@ -40,14 +43,14 @@ func newKeysCmd(brain *string) *cobra.Command {
 			case keys.Sealed && keys.Wrapped != nil:
 				fmt.Fprintln(out, "The brain is end-to-end encrypted, and this machine holds its key.")
 			case keys.Sealed:
-				fmt.Fprintln(out, "The brain is end-to-end encrypted, and this machine has no key yet: approve it from\nanother machine with wong keys approve, or use the recovery code with wong keys recover.")
+				fmt.Fprintln(out, "The brain is end-to-end encrypted, and this machine has no key yet. It asked for one: approve\nit from a machine that has the key with wong keys approve, checking it shows the code below,\nor use the recovery code here with wong keys recover.")
 			case keys.Required:
 				fmt.Fprintln(out, "The brain is not encrypted yet, and this server keeps every brain sealed: run wong keys seal.")
 			default:
 				fmt.Fprintln(out, "The brain is not end-to-end encrypted.")
 			}
 			fmt.Fprintf(out, "This machine's code: %s\n", seal.Fingerprint(client.Device.Public()))
-			if len(keys.Pending) > 0 {
+			if keys.Wrapped != nil && len(keys.Pending) > 0 {
 				fmt.Fprintln(out, "\nWaiting for the key:")
 				for _, p := range keys.Pending {
 					fmt.Fprintf(out, "  %-20s %s\n", p.Device, seal.Fingerprint(p.Public))
@@ -62,24 +65,29 @@ func newKeysCmd(brain *string) *cobra.Command {
 }
 
 func newKeysSealCmd(brain *string) *cobra.Command {
-	return &cobra.Command{
+	var agreed bool
+	cmd := &cobra.Command{
 		Use:   "seal",
 		Short: "Make the brain on the server end-to-end encrypted, from this machine",
 		Long: "Make the brain on the server end-to-end encrypted: this machine makes its key\n" +
-			"and a recovery code, then pushes the brain encrypted. The brain on the server must\n" +
-			"be empty, as it is in a new account.",
+			"and a recovery code, then pushes the brain encrypted. A brain the server holds in\n" +
+			"the clear is pulled first; its clear copies and their earlier versions are then\n" +
+			"deleted from the server, which keeps only the encrypted ones. Other machines sync\n" +
+			"again once one that holds the key approves them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := requireRemote(30 * time.Second)
 			if err != nil {
 				return err
 			}
-			if err := sealBrain(cmd, client, *brain); err != nil {
+			if err := sealBrain(cmd, client, *brain, agreed); err != nil {
 				return err
 			}
 			return syncBrain(cmd, client, *brain, false, true)
 		},
 	}
+	cmd.Flags().BoolVar(&agreed, "yes", false, "replace a brain the server holds in the clear without asking")
+	return cmd
 }
 
 func newKeysApproveCmd() *cobra.Command {
@@ -172,9 +180,37 @@ func newKeysRecoverCmd() *cobra.Command {
 	}
 }
 
-// sealBrain makes the server's empty brain end-to-end encrypted from this machine, shows the recovery code, and leaves
-// the client ready to push the brain encrypted.
-func sealBrain(cmd *cobra.Command, client *remote.Client, brain string) error {
+// sealBrain makes the server's brain end-to-end encrypted from this machine, shows the recovery code, and leaves the
+// client ready to push the brain encrypted. A brain the server holds in the clear is pulled first, and once the person
+// agrees its clear copies and their history go from the server, for the push to send them again encrypted.
+func sealBrain(cmd *cobra.Command, client *remote.Client, brain string, agreed bool) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+	in, terminal := cmd.InOrStdin().(*os.File)
+	terminal = terminal && isTerminal(in)
+	reader := bufio.NewReader(cmd.InOrStdin())
+	if _, err := remote.Pull(ctx, client, brain); err != nil {
+		return err
+	}
+	st, err := remote.LoadState(brain)
+	if err != nil {
+		return err
+	}
+	if len(st.Conflicts) > 0 {
+		return errors.New("some files changed both here and on the server: resolve them with wong resolve before sealing, which replaces the server's copies")
+	}
+	if len(st.Files) > 0 && !agreed {
+		if !terminal {
+			return errors.New("the server holds this brain in the clear: run wong keys seal in a terminal to agree to replacing it, or pass --yes")
+		}
+		fmt.Fprintf(out, "The server holds the %d files of this brain in the clear. Sealing replaces them with encrypted\n"+
+			"copies from this machine, which has them all, and deletes from the server their earlier versions.\n"+
+			"Seal the brain? [y/N] ", len(st.Files))
+		answer, _ := reader.ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+			return errors.New("the brain was not sealed")
+		}
+	}
 	key, err := seal.NewKey()
 	if err != nil {
 		return err
@@ -184,23 +220,20 @@ func sealBrain(cmd *cobra.Command, client *remote.Client, brain string) error {
 	if err != nil {
 		return err
 	}
-	if err := client.StartSeal(cmd.Context(), client.Device, recovery, key); err != nil {
+	if err := client.StartSeal(ctx, client.Device, recovery, key, st.Cursor); err != nil {
 		return err
 	}
 	if err := os.Remove(filepath.Join(brain, ".wong", "sync.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	client.Key = key
-	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "\nThe brain is now end-to-end encrypted: the server cannot read it. Its recovery code:\n\n    %s\n\n"+
 		"Write it down and keep it away from this machine. It opens the brain on a new machine if you lose\n"+
 		"every one you have; without it and without them, nobody can open the brain, not even the server.\n", code)
-	in, ok := cmd.InOrStdin().(*os.File)
-	if !ok || !isTerminal(in) {
+	if !terminal {
 		return nil
 	}
 	last := code[len(code)-4:]
-	reader := bufio.NewReader(in)
 	for {
 		fmt.Fprint(out, "\nType its last four characters to confirm you wrote it down: ")
 		line, err := reader.ReadString('\n')

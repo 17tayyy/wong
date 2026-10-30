@@ -358,7 +358,7 @@ func TestASealedBrainsMachinesApplyItsWebhooks(t *testing.T) {
 	desktop.client.Device = newDevice(t)
 	key, _ := seal.NewKey()
 	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
-	if err := desktop.client.StartSeal(ctx, desktop.client.Device, recovery, key); err != nil {
+	if err := desktop.client.StartSeal(ctx, desktop.client.Device, recovery, key, 0); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(desktop.brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")

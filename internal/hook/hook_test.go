@@ -452,7 +452,7 @@ func TestSessionStartOnASealedBrain(t *testing.T) {
 	desktop := client("desktop")
 	key, _ := seal.NewKey()
 	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
-	if err := desktop.StartSeal(context.Background(), desktop.Device, recovery, key); err != nil {
+	if err := desktop.StartSeal(context.Background(), desktop.Device, recovery, key, 0); err != nil {
 		t.Fatal(err)
 	}
 

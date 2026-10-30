@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -13,8 +14,8 @@ const SealHeader = "Wong-Seal"
 var (
 	// ErrSealed refuses to seal a brain that already is.
 	ErrSealed = errors.New("this brain is already end-to-end encrypted")
-	// ErrNotEmpty refuses to seal a brain that already holds files in the clear.
-	ErrNotEmpty = errors.New("this brain already holds files in the clear")
+	// ErrBehind refuses to seal a brain whose files changed on the server after the machine sealing it pulled them.
+	ErrBehind = errors.New("this brain changed on the server after this machine pulled it: pull and seal it again")
 	// ErrNoKey refuses an approval from a device that does not hold the brain's key, or for one that did not ask.
 	ErrNoKey = errors.New("no such key or request")
 	// ErrOldClient refuses a client that does not encrypt, so it cannot write files in the clear into a sealed brain.
@@ -76,9 +77,11 @@ func (s *Store) Keys(device string) (Keys, error) {
 	return k, rows.Err()
 }
 
-// StartSeal makes an empty brain end-to-end encrypted, with its key wrapped for the device that made it and for the
-// recovery code.
-func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recoveryWrapped []byte) error {
+// StartSeal makes the brain end-to-end encrypted, with its key wrapped for the device that seals it and for the
+// recovery code. A brain that holds files in the clear is sealed only by a machine that pulled them all, up to cursor,
+// to push them again encrypted: their clear copies and history go, with the findings and tasks that name them and the
+// database log that still holds them, and the events behind the open tasks stay for the machines to apply.
+func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recoveryWrapped []byte, cursor int64) error {
 	if len(wrapped) == 0 || len(recoveryWrapped) == 0 {
 		return ErrNoKey
 	}
@@ -87,18 +90,22 @@ func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recove
 		return err
 	}
 	defer tx.Rollback()
-	var sealed, files int
+	var sealed int
+	var latest sql.NullInt64
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM recovery`).Scan(&sealed); err != nil {
 		return err
 	}
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM files WHERE deleted = 0`).Scan(&files); err != nil {
+	if err := tx.QueryRow(`SELECT MAX(seq) FROM history`).Scan(&latest); err != nil {
 		return err
 	}
 	switch {
 	case sealed > 0:
 		return ErrSealed
-	case files > 0:
-		return ErrNotEmpty
+	case latest.Int64 > cursor:
+		return ErrBehind
+	}
+	if err := forgetClear(tx); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(`INSERT INTO recovery (id, public, wrapped) VALUES (1, ?, ?)`, recoveryPublic, recoveryWrapped); err != nil {
 		return err
@@ -106,7 +113,50 @@ func (s *Store) StartSeal(device string, public, wrapped, recoveryPublic, recove
 	if err := putKey(tx, device, public, wrapped); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if latest.Valid {
+		s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	}
+	return nil
+}
+
+// forgetClear drops what a brain in the clear keeps of its notes, keeping as events what its open tasks came from.
+func forgetClear(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT DISTINCT source, event FROM tasks WHERE closed_at IS NULL`)
+	if err != nil {
+		return err
+	}
+	type kept struct{ source, event string }
+	var events []kept
+	for rows.Next() {
+		var k kept
+		if err := rows.Scan(&k.source, &k.event); err != nil {
+			rows.Close()
+			return err
+		}
+		events = append(events, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, k := range events {
+		remote := ""
+		if repo, ok := strings.CutPrefix(k.source, "github "); ok {
+			remote, _, _ = strings.Cut(repo, "@")
+		}
+		if _, err := tx.Exec(`INSERT INTO events (source, remote, event, created_at) VALUES (?, ?, ?, ?)`, k.source, remote, k.event, utcNow()); err != nil {
+			return err
+		}
+	}
+	for _, table := range []string{"files", "history", "findings", "tasks"} {
+		if _, err := tx.Exec(`DELETE FROM ` + table); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RequestKey records that device waits for the brain's key, wrapped for its public key.

@@ -402,7 +402,7 @@ func TestASealedBrainAnswersNoTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped")); err != nil {
+	if err := store.StartSeal("desktop", []byte("public"), []byte("wrapped"), []byte("public"), []byte("wrapped"), 0); err != nil {
 		t.Fatal(err)
 	}
 	token, err := store.NewToken("claude")
