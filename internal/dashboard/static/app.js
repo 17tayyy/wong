@@ -759,4 +759,55 @@ document.documentElement.classList.add('js');
     if (innerWidth > 860) closeDrawer();
   });
   addEventListener('scroll', () => closeMenu(false), true);
+
+  // Opening a sealed brain here: the service worker keeps a key for this browser, asks a machine that has the brain's
+  // key to approve it, and once it does, serves the dashboard on the notes it decrypts in this browser.
+  const openHere = () => {
+    const unlock = $('[data-unlock]');
+    if (!unlock || !('serviceWorker' in navigator)) return;
+    const start = $('[data-unlock-start]', unlock);
+    const wait = $('[data-unlock-wait]', unlock);
+    const note = $('[data-unlock-note]', unlock);
+    const say = (text, alert) => {
+      note.hidden = !text;
+      note.textContent = text || '';
+      note.setAttribute('role', alert ? 'alert' : 'status');
+    };
+    const show = (s) => {
+      start.hidden = s.state === 'waiting' || s.state === 'starting';
+      wait.hidden = s.state !== 'waiting';
+      $('[data-unlock-code]', unlock).textContent = s.code || '';
+      say(s.state === 'starting' ? 'Opening the brain in this browser…' : s.state === 'failed' ? s.problem : '', s.state === 'failed');
+      if (s.state === 'open') location.reload();
+    };
+    const poll = async () => {
+      try {
+        const s = await (await fetch('/__wong/status')).json();
+        show(s);
+        if (s.state === 'waiting' || s.state === 'starting') setTimeout(poll, 2000);
+      } catch {
+        setTimeout(poll, 4000);
+      }
+    };
+    const controlled = () => navigator.serviceWorker.controller
+      ? Promise.resolve()
+      : new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
+    $('button', start).addEventListener('click', async () => {
+      $('button', start).disabled = true;
+      say('Getting this browser ready…');
+      try {
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        await controlled();
+        show(await (await fetch('/__wong/unlock', { method: 'POST' })).json());
+        poll();
+      } catch (err) {
+        say('This browser could not get ready: ' + err.message, true);
+      } finally {
+        $('button', start).disabled = false;
+      }
+    });
+    if (navigator.serviceWorker.controller) poll();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openHere);
+  else openHere();
 })();

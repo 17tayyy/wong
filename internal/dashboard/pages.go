@@ -34,6 +34,7 @@ type page struct {
 	AccountNav  bool
 	AccountPage *accountInfo
 	Encryption  *encryptionInfo
+	Browser     bool
 	Storage     string
 	Snack       *snack
 	Masthead    masthead

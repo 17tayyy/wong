@@ -2,8 +2,19 @@
 {{define "main"}}
 <div class="page">
   <h1>Your notes are encrypted</h1>
-  <p class="desc">This brain is end-to-end encrypted: its key lives only on your machines, and this server keeps what it cannot read, so its notes do not show here.</p>
-  <div class="callout gray">{{icon "info"}}<p>Your agents read and write the notes on your machines as always. Opening them in this browser comes with the dashboard that decrypts on your side.</p></div>
-  <div class="formbar"><a class="btn" href="/encryption">{{icon "key-round"}}Encryption</a><a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{if .AccountNav}}<a class="btn ghost" href="/account">{{icon "circle-user"}}Account</a>{{end}}</div>
+  <p class="desc">This brain is end-to-end encrypted: its key lives only on your machines, and this server keeps what it cannot read.</p>
+  {{if .Browser}}
+  <section class="part" aria-labelledby="unlock-h" data-unlock>
+    <h2 id="unlock-h">Open them in this browser</h2>
+    <p class="desc">This browser can keep a key of its own and decrypt the notes here, as WhatsApp Web does. A machine that has the key approves it once, after you check that both show the same code.</p>
+    <div class="formbar" data-unlock-start><button class="btn primary" type="button">{{icon "key-round"}}Open in this browser</button></div>
+    <div class="callout gray" data-unlock-wait hidden>{{icon "laptop"}}<div><p><strong>Waiting for a machine to approve this browser.</strong> Its code is <code class="chip fingerprint" data-unlock-code></code></p><p>On a machine that has the key, open Encryption in the dashboard <code>wong open</code> serves, or run <code>wong keys approve</code>, and approve this browser only if it shows the same code. This page opens your notes as soon as it does.</p></div></div>
+    <p class="part-note" data-unlock-note hidden role="status"></p>
+    <noscript><p class="part-note">Opening the notes here needs JavaScript.</p></noscript>
+  </section>
+  {{else}}
+  <div class="callout gray">{{icon "info"}}<p>Your agents read and write the notes on your machines as always. On a machine that has the key, <code>wong open</code> shows them in its own dashboard.</p></div>
+  {{end}}
+  <div class="formbar">{{if not .Browser}}<a class="btn" href="/encryption">{{icon "key-round"}}Encryption</a>{{else}}<a class="btn ghost" href="/encryption">{{icon "key-round"}}Encryption</a>{{end}}<a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{if .AccountNav}}<a class="btn ghost" href="/account">{{icon "circle-user"}}Account</a>{{end}}</div>
 </div>
 {{end}}

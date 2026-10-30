@@ -101,6 +101,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
 	mux.HandleFunc("GET /webhooks", d.session((*Dashboard).webhooks))
 	mux.HandleFunc("GET /encryption", d.session((*Dashboard).encryption))
+	d.browserRoutes(mux)
 	mux.HandleFunc("POST /encryption", d.session((*Dashboard).changeEncryption))
 	mux.HandleFunc("POST /webhooks/{hook}", d.session((*Dashboard).setWebhook))
 	if opts.OAuth != nil {

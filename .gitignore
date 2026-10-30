@@ -1,2 +1,4 @@
 /wong
 /dist/
+/internal/dashboard/web/wong.wasm*
+/internal/dashboard/web/wasm_exec.js
