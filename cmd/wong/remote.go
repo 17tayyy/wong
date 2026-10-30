@@ -468,7 +468,11 @@ func syncBrain(cmd *cobra.Command, client *remote.Client, brain string, pull, pu
 		}
 		fmt.Fprintf(out, "pushed: %d\n", len(res.Pushed))
 		if len(res.Refused) > 0 {
-			fmt.Fprintf(out, "%d files were not pushed; fix them and push again:\n", len(res.Refused))
+			if len(res.Refused) == 1 {
+				fmt.Fprintln(out, "1 file was not pushed; fix it and push again:")
+			} else {
+				fmt.Fprintf(out, "%d files were not pushed; fix them and push again:\n", len(res.Refused))
+			}
 			for _, r := range res.Refused {
 				fmt.Fprintf(out, "   %s: %s\n", r.Path, r.Reason)
 			}
