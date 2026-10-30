@@ -1,6 +1,8 @@
 package importer
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -416,6 +418,34 @@ func TestApplyReportsNotesChangedOnBothSides(t *testing.T) {
 	}
 	if got := read(t, dst); !strings.Contains(got, "Fixed in the brain.") || strings.Contains(got, "Added later") {
 		t.Errorf("brain note = %q", got)
+	}
+}
+
+func TestApplyLeavesOutNotesTheBrainRemoved(t *testing.T) {
+	f := newFixture(t)
+	f.memory(t, filepath.Join(f.home, "side_project"), map[string]string{"a.md": noteText("a", "project"), "b.md": noteText("b", "project")},
+		"# Memory Index\n\n- [a](a.md) — about a\n- [b](b.md) — about b\n")
+	if _, err := Apply(f.brain, plan(t, f, nil), false); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(f.brain, "projects/side_project/MEMORY.md")
+	if err := os.Remove(filepath.Join(f.brain, "projects/side_project/b.md")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, index, "# Memory Index\n\n- [a](a.md) — about a\n")
+
+	res, err := Apply(f.brain, plan(t, f, nil), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.brain, "projects/side_project/b.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a note the brain removed came back: %v", err)
+	}
+	if got := read(t, index); strings.Contains(got, "b.md") {
+		t.Errorf("the index lists the removed note again:\n%s", got)
+	}
+	if res.Kept != 1 || res.Written != 0 {
+		t.Errorf("result = %+v", res)
 	}
 }
 

@@ -100,11 +100,17 @@ func Plan(projectsDir, home string, overrides map[string]string) ([]Source, erro
 	return sources, nil
 }
 
-// Apply writes notes and merged indexes into brain, updating only what the brain has not changed since the last import.
+// Apply writes notes and merged indexes into brain, updating only what the brain has not changed since the last import
+// and never bringing back a note the brain removed or moved after importing it.
 func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 	var res Result
+	imported, err := loadImported(brain)
+	if err != nil {
+		return res, err
+	}
 	files := map[string][]byte{}
 	origin := map[string]string{}
+	gone := map[string]bool{}
 	var order, problems []string
 	for _, group := range byTarget(sources) {
 		target := group[0].Target
@@ -127,6 +133,14 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 				}
 				file := filepath.Base(path)
 				rel := filepath.Join(target, file)
+				if gone[rel] {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(brain, rel)); errors.Is(err, fs.ErrNotExist) && imported[rel] != "" {
+					gone[rel] = true
+					res.Kept++
+					continue
+				}
 				if prev, ok := files[rel]; ok {
 					if !bytes.Equal(prev, data) {
 						problems = append(problems, rel+": two memory folders have different notes with this file name")
@@ -143,6 +157,7 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 		if err != nil {
 			return res, err
 		}
+		index = dropLines(index, func(file string) bool { return gone[filepath.Join(target, file)] })
 		rel := filepath.Join(target, indexName)
 		files[rel] = index
 		order = append(order, rel)
@@ -156,10 +171,6 @@ func Apply(brain string, sources []Source, dryRun bool) (Result, error) {
 		return res, fmt.Errorf("nothing imported:\n  %s", strings.Join(problems, "\n  "))
 	}
 
-	imported, err := loadImported(brain)
-	if err != nil {
-		return res, err
-	}
 	var writes, synced []string
 	merged := map[string]bool{}
 	for _, rel := range order {
@@ -379,6 +390,17 @@ func addLines(existing, want []byte) []byte {
 		out = append(out, '\n')
 	}
 	return append(out, []byte(strings.Join(add, "\n")+"\n")...)
+}
+
+// dropLines leaves out of an index the lines that link to a note the brain removed.
+func dropLines(index []byte, removed func(file string) bool) []byte {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(string(index), "\n") {
+		if !slices.ContainsFunc(indexLinkRE.FindAllStringSubmatch(line, -1), func(l []string) bool { return removed(l[1]) }) {
+			b.WriteString(line)
+		}
+	}
+	return []byte(b.String())
 }
 
 func mergeIndex(group []Source, entries []entry) ([]byte, error) {
