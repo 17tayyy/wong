@@ -88,7 +88,7 @@ func Start(brain string, cloud *remote.Client, version string, log *slog.Logger)
 		return nil, err
 	}
 	signins := remote.NewSignIns()
-	web, err := dashboard.Handler(store, log, dashboard.Options{Devices: remote.NewDevices(), SignIns: signins})
+	web, err := dashboard.Handler(store, log, dashboard.Options{Devices: remote.NewDevices(), SignIns: signins, Keyring: keyring{cloud}})
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -166,6 +166,29 @@ func (m *Mirror) Run(ctx context.Context, interval time.Duration) error {
 		}
 	}
 }
+
+// keyring acts on the brain's keyring on its server with this machine's key, for the copy's Encryption page.
+type keyring struct{ c *remote.Client }
+
+func (k keyring) Keys(ctx context.Context) (remote.Keys, error) { return k.c.Keys(ctx) }
+
+func (k keyring) Self() []byte { return k.c.Device.Public() }
+
+func (k keyring) Approve(ctx context.Context, req remote.KeyRequest) error {
+	if err := k.c.Unlock(ctx); err != nil {
+		return err
+	}
+	return k.c.ApproveKey(ctx, req, k.c.Key)
+}
+
+func (k keyring) LetCloudAIs(ctx context.Context) error {
+	if err := k.c.Unlock(ctx); err != nil {
+		return err
+	}
+	return k.c.LetCloudAIs(ctx, k.c.Key)
+}
+
+func (k keyring) StopCloudAIs(ctx context.Context) error { return k.c.StopCloudAIs(ctx) }
 
 // ignoreCopy keeps the copy, its sync state and its token out of the brain's own git, which commits the rest.
 func ignoreCopy(brain string) error {

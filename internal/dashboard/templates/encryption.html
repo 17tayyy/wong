@@ -1,0 +1,58 @@
+{{define "crumbs"}}{{icon "key-round"}}<span>Encryption</span>{{end}}
+{{define "main"}}
+{{with .Encryption}}
+<div class="page">
+  <h1>Encryption</h1>
+  {{if .Sealed}}
+  <p class="desc">Your notes are end-to-end encrypted: their key lives only on your machines, and this server keeps what it cannot read.</p>
+  {{else}}
+  <p class="desc">Your notes are not end-to-end encrypted, so this server can read them.</p>
+  {{end}}
+  {{with $.Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
+  {{with .Warning}}<div class="callout yellow" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+
+  {{if not .Sealed}}
+  <div class="callout gray">{{icon "info"}}<p>Seal them from a machine that has the brain with <code>wong keys seal</code>. It makes the key and a recovery code, then replaces what this server keeps with copies it cannot read.{{if .Required}} This server takes no notes until you do.{{end}}</p></div>
+  {{else}}
+  <section class="part" aria-labelledby="machines-h">
+    <h2 id="machines-h">Machines with the key</h2>
+    <div class="props">
+      {{range .Machines}}<div class="prop machine"><span class="k">{{icon "laptop"}}<span>{{.Name}}</span></span><span class="v">{{if .Self}}This machine{{else}}<span class="muted">Since {{day .Since}}</span>{{end}}</span></div>{{end}}
+    </div>
+  </section>
+
+  {{if .Waiting}}
+  <section class="part" aria-labelledby="waiting-h">
+    <h2 id="waiting-h">Waiting for the key</h2>
+    <p class="desc">Approve a machine only if it shows the same code, which <code>wong keys</code> prints on it. Leave any machine you did not connect yourself waiting.</p>
+    <div class="props">
+      {{range .Waiting}}<div class="prop machine"><span class="k">{{icon "laptop"}}<span>{{.Name}}</span></span><span class="v"><code class="chip fingerprint">{{.Code}}</code>{{if $.Encryption.Holds}}<form method="post" action="/encryption"><input type="hidden" name="machine" value="{{.Name}}"><input type="hidden" name="code" value="{{.Code}}"><button class="btn small" name="do" value="approve">Approve</button></form>{{end}}</span></div>{{end}}
+    </div>
+    {{if not .Holds}}<p class="part-note">This browser does not hold the key, so it cannot give it. Approve them on a machine that does: with <code>wong keys approve</code>, or on its dashboard, opened with <code>wong open</code>.</p>{{end}}
+  </section>
+  {{end}}
+
+  <section class="part" aria-labelledby="cloud-h">
+    <h2 id="cloud-h">AIs in the cloud<span class="pill gray">{{if .CloudAIs}}On{{else}}Off{{end}}</span></h2>
+    <p class="desc">The AIs that run on your machines read the notes there. Those that run in the cloud and connect to this brain over MCP, like claude.ai or ChatGPT, can read them only if you let this server open the brain for them, call by call.</p>
+    {{if .CloudAIs}}
+    <div class="callout gray">{{icon "info"}}<p>While this is on, this server can read your notes to answer those AIs, and each one sends what it reads to the company that runs it.</p></div>
+    <form class="formbar" method="post" action="/encryption"><button class="btn" name="do" value="cloud-off">Turn off</button><span class="muted">The server forgets the key, and the AIs you connected stop reading the brain.</span></form>
+    {{else if .Holds}}
+    <form class="formbar consent" method="post" action="/encryption">
+      <label><input type="checkbox" name="understood" value="yes" required><span>I understand that while this is on, this server can read my notes, and each AI sends what it reads to the company that runs it.</span></label>
+      <button class="btn" name="do" value="cloud-on">Let them read the brain</button>
+    </form>
+    {{else}}
+    <p class="part-note">This browser does not hold the key, so it cannot turn this on. Do it on a machine that does: with <code>wong keys cloud-ai on</code>, or on its dashboard, opened with <code>wong open</code>.</p>
+    {{end}}
+  </section>
+
+  <section class="part" aria-labelledby="recovery-h">
+    <h2 id="recovery-h">Recovery code</h2>
+    <p class="desc">If you lose every machine, the recovery code you wrote down when you sealed the brain opens it on a new one with <code>wong keys recover</code>. Without the code or your machines nobody can open the brain, not even this server.</p>
+  </section>
+  {{end}}
+</div>
+{{end}}
+{{end}}

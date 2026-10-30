@@ -37,6 +37,7 @@ type Options struct {
 	OAuth     *remote.OAuth
 	SignInURL string
 	Account   *AccountService
+	Keyring   Keyring
 }
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.
@@ -58,7 +59,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed", "encryption"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -99,6 +100,8 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("POST /changes/{seq}/restore", d.session((*Dashboard).restore))
 	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
 	mux.HandleFunc("GET /webhooks", d.session((*Dashboard).webhooks))
+	mux.HandleFunc("GET /encryption", d.session((*Dashboard).encryption))
+	mux.HandleFunc("POST /encryption", d.session((*Dashboard).changeEncryption))
 	mux.HandleFunc("POST /webhooks/{hook}", d.session((*Dashboard).setWebhook))
 	if opts.OAuth != nil {
 		mux.HandleFunc("GET /oauth/authorize", d.session((*Dashboard).authorize))

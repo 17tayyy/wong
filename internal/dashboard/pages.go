@@ -33,6 +33,7 @@ type page struct {
 	SignInURL   string
 	AccountNav  bool
 	AccountPage *accountInfo
+	Encryption  *encryptionInfo
 	Storage     string
 	Snack       *snack
 	Masthead    masthead

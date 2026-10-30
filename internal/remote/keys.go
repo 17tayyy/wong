@@ -32,13 +32,15 @@ type KeyRequest struct {
 }
 
 // Keys is what a device learns about the keyring: whether the brain is sealed or must be, the key wrapped for it, the
-// key wrapped for the recovery code, and the devices waiting for theirs.
+// key wrapped for the recovery code, the devices waiting for theirs and those that hold it, and whether the AIs that
+// run in the cloud may read the brain, with the server's key to let them.
 type Keys struct {
 	Sealed      bool         `json:"sealed"`
 	Required    bool         `json:"required,omitempty"`
 	Wrapped     []byte       `json:"wrapped,omitempty"`
 	Recovery    []byte       `json:"recovery,omitempty"`
 	Pending     []KeyRequest `json:"pending,omitempty"`
+	Holders     []KeyRequest `json:"holders,omitempty"`
 	CloudAIs    bool         `json:"cloud_ais,omitempty"`
 	CloudPublic []byte       `json:"cloud_public,omitempty"`
 }
@@ -82,6 +84,9 @@ func (s *Store) Keys(device string) (Keys, error) {
 			k.Pending = append(k.Pending, r)
 		case r.Device == device:
 			k.Wrapped = wrapped
+			fallthrough
+		default:
+			k.Holders = append(k.Holders, r)
 		}
 	}
 	return k, rows.Err()

@@ -7,7 +7,7 @@ import (
 
 // readsNotes tells the pages that show a brain's notes, which a sealed brain stands in for, from those that work without them.
 func readsNotes(path string) bool {
-	for _, open := range []string{"/account", "/device", "/webhooks", "/oauth"} {
+	for _, open := range []string{"/account", "/device", "/webhooks", "/oauth", "/encryption"} {
 		if path == open || strings.HasPrefix(path, open+"/") {
 			return false
 		}
