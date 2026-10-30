@@ -100,6 +100,11 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 				store.SetLimits(limits)
+				cloud, err := remote.NewCloudAIs(db + ".cloud-key")
+				if err != nil {
+					return err
+				}
+				store.SetCloudAIs(cloud)
 				brains = store
 			} else {
 				folder, err := remote.OpenFolder(dir)
@@ -111,6 +116,11 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 				folder.SetLimits(limits)
+				cloud, err := remote.NewCloudAIs(filepath.Join(dir, ".cloud-key"))
+				if err != nil {
+					return err
+				}
+				folder.SetCloudAIs(cloud)
 				brains = folder
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)

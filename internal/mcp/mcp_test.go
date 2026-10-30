@@ -15,6 +15,7 @@ import (
 
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/remote"
+	"github.com/17tayyy/wong/internal/seal"
 )
 
 const deploy = "---\nname: deploy-runbook\ndescription: How a release goes out\nkind: reference\nscope: project:acme\n---\nMerge to `main`, then promote.\n"
@@ -416,5 +417,43 @@ func TestASealedBrainAnswersNoTool(t *testing.T) {
 		if text, failed := c.tool(tool, `{}`); !failed || !strings.Contains(text, "end-to-end encrypted") {
 			t.Errorf("%s on a sealed brain: %s", tool, text)
 		}
+	}
+}
+
+func TestASealedBrainAnswersTheCloudAIsItLetIn(t *testing.T) {
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	cloud, err := remote.NewCloudAIs(filepath.Join(t.TempDir(), "cloud-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetCloudAIs(cloud)
+	key, _ := seal.NewKey()
+	device, _ := seal.NewDevice()
+	wrapped, _ := seal.Wrap(key, device.Public())
+	if err := store.StartSeal("desktop", device.Public(), wrapped, device.Public(), wrapped, 0); err != nil {
+		t.Fatal(err)
+	}
+	runbook := []byte("---\nname: deploy-runbook\ndescription: How a release goes out\nkind: reference\nscope: project:acme\n---\nShip on Tuesdays.\n")
+	id, blob, _ := key.Seal("projects/acme/deploy-runbook.md", runbook)
+	if _, _, err := store.Apply("desktop", []remote.Upload{{Path: id, Sha: key.Sum(runbook), Content: blob}}); err != nil {
+		t.Fatal(err)
+	}
+	forCloud, _ := seal.Wrap(key, cloud.Public())
+	if err := store.LetCloudAIs("desktop", forCloud); err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("claude.ai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), "test"))
+	t.Cleanup(srv.Close)
+	c := client{t, srv.URL, token}
+	if text, failed := c.tool("search_notes", `{"query":"Tuesdays"}`); failed || !strings.Contains(text, "projects/acme/deploy-runbook.md") {
+		t.Errorf("search_notes on a brain open to the cloud AIs: %s", text)
 	}
 }

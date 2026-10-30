@@ -63,6 +63,7 @@ type Folder struct {
 	mu     sync.Mutex
 	open   map[string]*Store
 	limits Limits
+	cloud  *CloudAIs
 }
 
 func OpenFolder(dir string) (*Folder, error) {
@@ -135,7 +136,7 @@ func (f *Folder) brain(id string, create bool) (*Store, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	s.id, s.limits = id, f.limits
+	s.id, s.limits, s.cloud = id, f.limits, f.cloud
 	f.open[id] = s
 	return s, missing, nil
 }
@@ -147,6 +148,16 @@ func (f *Folder) SetLimits(l Limits) {
 	f.limits = l
 	for _, s := range f.open {
 		s.limits = l
+	}
+}
+
+// SetCloudAIs gives each account's brain the server's key for the cloud AIs.
+func (f *Folder) SetCloudAIs(c *CloudAIs) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cloud = c
+	for _, s := range f.open {
+		s.cloud = c
 	}
 }
 

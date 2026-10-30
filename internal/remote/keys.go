@@ -34,11 +34,13 @@ type KeyRequest struct {
 // Keys is what a device learns about the keyring: whether the brain is sealed or must be, the key wrapped for it, the
 // key wrapped for the recovery code, and the devices waiting for theirs.
 type Keys struct {
-	Sealed   bool         `json:"sealed"`
-	Required bool         `json:"required,omitempty"`
-	Wrapped  []byte       `json:"wrapped,omitempty"`
-	Recovery []byte       `json:"recovery,omitempty"`
-	Pending  []KeyRequest `json:"pending,omitempty"`
+	Sealed      bool         `json:"sealed"`
+	Required    bool         `json:"required,omitempty"`
+	Wrapped     []byte       `json:"wrapped,omitempty"`
+	Recovery    []byte       `json:"recovery,omitempty"`
+	Pending     []KeyRequest `json:"pending,omitempty"`
+	CloudAIs    bool         `json:"cloud_ais,omitempty"`
+	CloudPublic []byte       `json:"cloud_public,omitempty"`
 }
 
 // Sealed reports whether the brain is end-to-end encrypted, which it is from the moment its recovery key is kept.
@@ -56,6 +58,14 @@ func (s *Store) Keys(device string) (Keys, error) {
 		return k, err
 	}
 	k.Sealed, k.Required = k.Recovery != nil, s.limits.Sealed
+	if s.cloud != nil {
+		k.CloudPublic = s.cloud.Public()
+	}
+	var cloud int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM cloud_ais`).Scan(&cloud); err != nil {
+		return k, err
+	}
+	k.CloudAIs = cloud > 0
 	rows, err := s.db.Query(`SELECT device, public, wrapped, created_at FROM keyring ORDER BY created_at, device`)
 	if err != nil {
 		return k, err

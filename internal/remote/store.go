@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS recovery (
 	id      INTEGER PRIMARY KEY CHECK (id = 1),
 	public  BLOB NOT NULL,
 	wrapped BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cloud_ais (
+	id         INTEGER PRIMARY KEY CHECK (id = 1),
+	wrapped    BLOB NOT NULL,
+	device     TEXT NOT NULL,
+	created_at TEXT NOT NULL
 );`
 
 // Change is the current state of one file of the brain on the server.
@@ -126,6 +132,7 @@ type Store struct {
 	db     *sql.DB
 	id     string
 	limits Limits
+	cloud  *CloudAIs
 }
 
 func Open(file string) (*Store, error) {

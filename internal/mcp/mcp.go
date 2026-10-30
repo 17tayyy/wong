@@ -225,13 +225,36 @@ func (s *Server) info() map[string]string {
 	return map[string]string{"name": "wong", "title": "wong", "version": s.version}
 }
 
-// call runs a tool and turns what it returns, or why it refused, into a tool result.
+// call runs a tool and turns what it returns, or why it refused, into a tool result. On a sealed brain it runs on the
+// brain opened in memory, when its account let the AIs that run in the cloud read it.
 func (s *Server) call(machine string, p params) map[string]any {
-	if sealed, err := s.store.Sealed(); err != nil || sealed {
-		s.log.Info("mcp", "tool", p.Name, "machine", machine, "refused", "sealed")
-		return failed("This brain is end-to-end encrypted: the wong server cannot read it, so it cannot answer " + p.Name +
-			". Its notes are on the user's machines, where Claude Code and other local agents read them directly.")
+	sealed, err := s.store.Sealed()
+	if err == nil && !sealed {
+		return s.run(machine, p)
 	}
+	var out map[string]any
+	opened := false
+	if err == nil {
+		opened, err = s.store.OpenForCloudAIs(machine, func(plain *remote.Store) error {
+			out = (&Server{brains: s.brains, store: plain, log: s.log, version: s.version, limits: s.limits}).run(machine, p)
+			return nil
+		})
+	}
+	switch {
+	case err != nil:
+		s.log.Error("mcp", "tool", p.Name, "machine", machine, "err", err)
+		return failed("The wong server could not open the encrypted brain to run " + p.Name + ", and kept none of its changes; try again. Its log has the details.")
+	case !opened:
+		s.log.Info("mcp", "tool", p.Name, "machine", machine, "refused", "sealed")
+		return failed("This brain is end-to-end encrypted and its owner has not let the AIs that run in the cloud read it, so the wong server " +
+			"cannot answer " + p.Name + ". Its notes are on the user's machines, where Claude Code and other local agents read them directly. " +
+			"The user can let cloud AIs in by running wong keys cloud-ai on, on a machine that holds the key.")
+	}
+	return out
+}
+
+// run runs a tool on the brain in the clear.
+func (s *Server) run(machine string, p params) map[string]any {
 	t, ok := byName[p.Name]
 	if !ok {
 		return failed("Unknown tool " + p.Name + ". The tools are " + strings.Join(toolNames(), ", ") + ".")

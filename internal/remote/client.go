@@ -118,6 +118,27 @@ func (c *Client) KeepOwnKey(ctx context.Context, device *seal.Device, key *seal.
 	return c.do(ctx, http.MethodPost, "/api/keys/own", keyApproval{Public: device.Public(), Wrapped: wrapped}, &struct{}{})
 }
 
+// LetCloudAIs lets the AIs that run in the cloud read the sealed brain, giving the server key wrapped for its own key.
+func (c *Client) LetCloudAIs(ctx context.Context, key *seal.Key) error {
+	keys, err := c.Keys(ctx)
+	if err != nil {
+		return err
+	}
+	if keys.CloudPublic == nil {
+		return ErrCloudAIsOff
+	}
+	wrapped, err := seal.Wrap(key, keys.CloudPublic)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, "/api/keys/cloud-ais", keyApproval{Wrapped: wrapped}, &struct{}{})
+}
+
+// StopCloudAIs closes the sealed brain to the AIs that run in the cloud: the server forgets the key it was given.
+func (c *Client) StopCloudAIs(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/api/keys/cloud-ais", struct{}{}, &struct{}{})
+}
+
 // ErrLocked marks a sealed brain whose key this machine does not hold yet.
 var ErrLocked = errors.New("this brain is end-to-end encrypted and this machine has no key yet; it asked for one: run wong keys to see its code and approve it from a machine that has the key with wong keys approve, or use the recovery code here with wong keys recover")
 

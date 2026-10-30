@@ -49,6 +49,12 @@ func newKeysCmd(brain *string) *cobra.Command {
 			default:
 				fmt.Fprintln(out, "The brain is not end-to-end encrypted.")
 			}
+			switch {
+			case keys.Sealed && keys.CloudAIs:
+				fmt.Fprintln(out, "The AIs that run in the cloud can read it; wong keys cloud-ai off stops them.")
+			case keys.Sealed:
+				fmt.Fprintln(out, "The AIs that run in the cloud, like claude.ai, cannot read it; wong keys cloud-ai on lets them.")
+			}
 			fmt.Fprintf(out, "This machine's code: %s\n", seal.Fingerprint(client.Device.Public()))
 			if keys.Wrapped != nil && len(keys.Pending) > 0 {
 				fmt.Fprintln(out, "\nWaiting for the key:")
@@ -60,7 +66,7 @@ func newKeysCmd(brain *string) *cobra.Command {
 			return nil
 		},
 	}
-	keys.AddCommand(newKeysSealCmd(brain), newKeysApproveCmd(), newKeysRecoverCmd())
+	keys.AddCommand(newKeysSealCmd(brain), newKeysApproveCmd(), newKeysRecoverCmd(), newKeysCloudCmd())
 	return keys
 }
 
@@ -150,6 +156,70 @@ func newKeysApproveCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&code, "code", "", "the code the waiting machine shows, to approve it without asking")
+	return cmd
+}
+
+func newKeysCloudCmd() *cobra.Command {
+	var agreed bool
+	cmd := &cobra.Command{
+		Use:   "cloud-ai [on|off]",
+		Short: "Let the AIs that run in the cloud read the encrypted brain, or stop them",
+		Long: "The AIs that run on your machines read the brain there. Those that run in the\n" +
+			"cloud, like claude.ai, ChatGPT or a cloud agent connected to wong over MCP, can\n" +
+			"only read it through the server: on gives the server the brain's key to open it\n" +
+			"for them, call by call, and each one still asks you before it connects. While it\n" +
+			"is on, the server can read the brain. Off makes the server forget the key.",
+		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
+		ValidArgs: []string{"on", "off"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			out := cmd.OutOrStdout()
+			client, err := requireRemote(30 * time.Second)
+			if err != nil {
+				return err
+			}
+			if err := client.Unlock(ctx); err != nil {
+				return err
+			}
+			keys, err := client.Keys(ctx)
+			if err != nil {
+				return err
+			}
+			if !keys.Sealed {
+				return errors.New("the brain is not end-to-end encrypted: the server reads it already")
+			}
+			switch {
+			case len(args) == 0 && keys.CloudAIs:
+				fmt.Fprintln(out, "The AIs that run in the cloud can read the brain; wong keys cloud-ai off stops them.")
+			case len(args) == 0:
+				fmt.Fprintln(out, "The AIs that run in the cloud cannot read the brain; wong keys cloud-ai on lets them.")
+			case args[0] == "off":
+				if err := client.StopCloudAIs(ctx); err != nil {
+					return err
+				}
+				fmt.Fprintln(out, "The server forgot the brain's key: the AIs that run in the cloud cannot read it any more.")
+			default:
+				if !agreed {
+					in, ok := cmd.InOrStdin().(*os.File)
+					if !ok || !isTerminal(in) {
+						return errors.New("run it in a terminal to agree, or pass --yes")
+					}
+					fmt.Fprint(out, "While this is on, the wong server can open the brain to answer the AIs you connect to it, like\n"+
+						"claude.ai or ChatGPT, and each AI sends what it reads to the company that runs it. Let them in? [y/N] ")
+					answer, _ := bufio.NewReader(in).ReadString('\n')
+					if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+						return errors.New("the AIs that run in the cloud still cannot read the brain")
+					}
+				}
+				if err := client.LetCloudAIs(ctx, client.Key); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "The AIs that run in the cloud can read the brain now. Connect one to %s/mcp: it asks you to\napprove it in the browser.\n", client.URL)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&agreed, "yes", false, "let them in without asking")
 	return cmd
 }
 

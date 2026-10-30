@@ -185,7 +185,7 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				return
 			}
 			switch err := do(s, k, start); {
-			case errors.Is(err, ErrSealed), errors.Is(err, ErrBehind), errors.Is(err, ErrNoKey):
+			case errors.Is(err, ErrSealed), errors.Is(err, ErrBehind), errors.Is(err, ErrNoKey), errors.Is(err, ErrCloudAIsOff):
 				http.Error(w, err.Error(), http.StatusConflict)
 			case err != nil:
 				log.Error("keys", "err", err)
@@ -207,6 +207,12 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 	}))
 	mux.HandleFunc("POST /api/keys/own", keyCall(func(s Session, k keyApproval, _ sealStart) error {
 		return s.Store.KeepOwnKey(s.Machine, k.Public, k.Wrapped)
+	}))
+	mux.HandleFunc("POST /api/keys/cloud-ais", keyCall(func(s Session, k keyApproval, _ sealStart) error {
+		return s.Store.LetCloudAIs(s.Machine, k.Wrapped)
+	}))
+	mux.HandleFunc("DELETE /api/keys/cloud-ais", keyCall(func(s Session, _ keyApproval, _ sealStart) error {
+		return s.Store.StopCloudAIs()
 	}))
 	hookBrains(mux, brains, log, hooks)
 	return mux
