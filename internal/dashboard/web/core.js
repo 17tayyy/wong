@@ -2,14 +2,26 @@
 // this browser's token and device key, open the sealed brain with them, and answer the pages from it.
 
 let runtime;
+let stage = '';
+
+// reached records how far starting got, for the page to say where it waits; a worker tells the page as it goes.
+function reached(s) {
+  stage = s;
+  if (self.onstage) self.onstage(s);
+}
 
 // dashboard starts wong once, and opens the brain again with the key this browser kept.
 function dashboard() {
   runtime ??= (async () => {
+    reached('downloading');
+    const res = await fetch('/static/web/wong.wasm');
+    reached('compiling');
+    const module = await WebAssembly.compileStreaming(res);
+    reached('starting');
     const go = new Go();
-    const { instance } = await WebAssembly.instantiateStreaming(fetch('/static/web/wong.wasm'), go.importObject);
-    go.run(instance);
+    go.run(await WebAssembly.instantiate(module, go.importObject));
     while (!self.wong) await new Promise((r) => setTimeout(r, 5));
+    reached('ready');
     const kept = await keep('readonly', (s) => s.get('self'));
     if (kept) self.wong.start(self.location.origin, kept.token, kept.device);
     return self.wong;
@@ -45,6 +57,7 @@ async function status() {
 async function unlock() {
   const w = await dashboard();
   let kept = await keep('readonly', (s) => s.get('self'));
+  reached('asking');
   if (!kept) {
     const res = await fetch('/browser/token', { method: 'POST' });
     if (!res.ok || !(res.headers.get('Content-Type') || '').startsWith('application/json')) {

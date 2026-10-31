@@ -774,7 +774,15 @@ document.documentElement.classList.add('js');
   // in place. A screen over the app follows each step, and the app stays out of reach until it ends or is cancelled.
   const serverPath = /^\/(api|static|hooks|mcp|oauth|\.well-known|login|signin|account|device|webhooks|browser|logout|__wong)(\/|$)/;
   const ours = (url) => url.origin === location.origin && !serverPath.test(url.pathname);
-  const within = (promise, ms, problem) => Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(problem)), ms))]);
+  const within = (promise, ms, problem) =>
+    Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(typeof problem === 'function' ? problem() : problem)), ms))]);
+  const stages = {
+    downloading: 'Getting the dashboard',
+    compiling: 'Preparing the dashboard to run',
+    starting: 'Starting the dashboard',
+    ready: 'Making the key',
+    asking: 'Asking the server for this browser’s place',
+  };
   const asJSON = async (res) => {
     if (!(res.headers.get('Content-Type') || '').startsWith('application/json')) {
       throw new Error(`What keeps this browser's key did not answer (the page got ${res.status} from the server).`);
@@ -803,6 +811,7 @@ document.documentElement.classList.add('js');
   const viaServiceWorker = {
     unlock: async () => asJSON(await fetch('/__wong/unlock', { method: 'POST' })),
     status: async () => asJSON(await fetch('/__wong/status')),
+    stage: async () => (await asJSON(await fetch('/__wong/stage'))).stage,
     open: () => location.reload(),
   };
 
@@ -810,10 +819,15 @@ document.documentElement.classList.add('js');
     worker: null,
     calls: new Map(),
     next: 0,
+    last: '',
     call(op, ...args) {
       if (!this.worker) {
         this.worker = new Worker('/static/web/worker.js');
         this.worker.onmessage = ({ data }) => {
+          if (data.stage) {
+            this.last = data.stage;
+            return;
+          }
           const c = this.calls.get(data.id);
           this.calls.delete(data.id);
           if (c) data.error ? c.no(new Error(data.error)) : c.ok(data.result);
@@ -831,6 +845,7 @@ document.documentElement.classList.add('js');
     },
     unlock() { return this.call('unlock'); },
     status() { return this.call('status'); },
+    stage() { return Promise.resolve(this.last); },
     open() { routeHere(); },
   };
 
@@ -1070,10 +1085,21 @@ document.documentElement.classList.add('js');
       try {
         await download(mine);
         if (mine !== run) return;
-        at('key', 'It never leaves this browser.');
+        at('key', 'Checking what this browser can run…');
         driver = await pick();
         if (mine !== run) return;
-        follow(await within(driver.unlock(), 90000, 'This browser took too long to make its key. Check the connection and try again.'), mine);
+        const since = Date.now();
+        let stage = '';
+        const tick = setInterval(async () => {
+          stage = (await driver.stage().catch(() => '')) || stage;
+          if (mine === run && stage) at('key', `${stages[stage] || stage}… ${Math.round((Date.now() - since) / 1000)} s`);
+        }, 1000);
+        try {
+          follow(await within(driver.unlock(), 90000, () =>
+            `This browser took more than 90 seconds at “${stages[stage] || 'Starting the dashboard'}” (${driver === viaWorker ? 'worker' : 'service worker'}). Try again, and if it stops at the same step, tell us which.`), mine);
+        } finally {
+          clearInterval(tick);
+        }
       } catch (err) {
         if (mine === run) fail(err.message);
       }

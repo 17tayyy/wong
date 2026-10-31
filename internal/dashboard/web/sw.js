@@ -14,6 +14,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === '/__wong/ping') return e.respondWith(json({ ok: true }));
+  if (url.pathname === '/__wong/stage') return e.respondWith(json({ stage }));
   if (url.pathname === '/__wong/unlock' && e.request.method === 'POST') return e.respondWith(unlock().then(json).catch(failed));
   if (url.pathname === '/__wong/status') return e.respondWith(status().then(json).catch(failed));
   if (url.pathname === '/logout' && e.request.method === 'POST') return e.respondWith(forget().catch(() => {}).then(() => fetch(e.request)));
