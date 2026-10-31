@@ -101,6 +101,9 @@ func (rt *runtime) start(_ js.Value, args []js.Value) any {
 			rt.fail(err)
 			return
 		}
+		if st, err := client.Standing(ctx); err == nil {
+			opened.Plain.SetStanding(st)
+		}
 		session, err := opened.Plain.NewSession("you")
 		if err != nil {
 			rt.fail(err)

@@ -163,9 +163,10 @@ func (f *Folder) SetCloudAIs(c *CloudAIs) {
 
 // AccountInfo is what a sign-up or monitoring service needs to know of an account.
 type AccountInfo struct {
-	Account    string `json:"account"`
-	Size       int64  `json:"size"`
-	LastChange string `json:"last_change,omitempty"`
+	Account    string   `json:"account"`
+	Size       int64    `json:"size"`
+	LastChange string   `json:"last_change,omitempty"`
+	Standing   Standing `json:"standing"`
 }
 
 // Accounts lists the folder's accounts with the room each takes and when it last changed.
@@ -187,6 +188,9 @@ func (f *Folder) Accounts() ([]AccountInfo, error) {
 		if info.LastChange, err = s.LastChange(); err != nil {
 			return nil, err
 		}
+		if info.Standing, err = s.Standing(); err != nil {
+			return nil, err
+		}
 		accounts = append(accounts, info)
 	}
 	return accounts, nil
@@ -206,6 +210,30 @@ func (f *Folder) IDs() ([]string, error) {
 	}
 	slices.Sort(ids)
 	return ids, nil
+}
+
+// Delete removes an account and its brain from this server; the service that runs the accounts removes its backups.
+func (f *Folder) Delete(id string) error {
+	if err := ValidAccount(id); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var errs []error
+	if s, ok := f.open[id]; ok {
+		errs = append(errs, s.Close())
+		delete(f.open, id)
+	}
+	file := filepath.Join(f.dir, id+".db")
+	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s", ErrNoAccount, id)
+	}
+	for _, name := range []string{file, file + "-wal", file + "-shm"} {
+		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (f *Folder) Close() error {

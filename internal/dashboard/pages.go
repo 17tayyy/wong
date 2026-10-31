@@ -34,6 +34,7 @@ type page struct {
 	AccountNav  bool
 	AccountPage *accountInfo
 	Encryption  *encryptionInfo
+	Standing    remote.Standing
 	Browser     bool
 	Storage     string
 	Snack       *snack
@@ -166,7 +167,12 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 	if d.account != "" {
 		p.Server = d.account
 	}
-	if limit := d.store.Limits().Size; limit > 0 {
+	st, err := d.store.Standing()
+	if err != nil {
+		return p, err
+	}
+	p.Standing = st
+	if limit := d.store.SizeLimit(); limit > 0 {
 		size, err := d.store.Size()
 		if err != nil {
 			return p, err

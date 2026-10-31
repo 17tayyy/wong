@@ -45,6 +45,23 @@
       <div class="prop"><span class="k">{{icon "link"}}MCP address</span><span class="v"><code class="chip">{{.MCP}}</code></span></div>
     </div>
   </section>
+
+  <section class="part" aria-labelledby="data-h">
+    <h2 id="data-h">Your data</h2>
+    <p class="desc">Every machine that has the key keeps your whole brain in <code>~/.wong</code>, as Markdown files. To download it from here as a zip, open your notes in this browser first: this server cannot read them.</p>
+    <div class="formbar"><a class="btn" href="/export">{{icon "archive"}}Download a zip</a></div>
+  </section>
+
+  <section class="part" aria-labelledby="delete-h">
+    <h2 id="delete-h">Delete this account</h2>
+    <p class="desc">This server forgets the account and its brain at once, and its backups within 7 days. Your machines keep their copy. Cancel your subscription first, from Manage payment, if you have one.</p>
+    {{with .Problem}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+    <form class="formbar" method="post" action="/account/delete">
+      <label class="sr" for="delete-confirm">Type the account name to confirm</label>
+      <input id="delete-confirm" name="confirm" autocomplete="off" required placeholder="Type {{.Account}} to confirm" pattern="{{.Account}}">
+      <button class="btn danger">Delete account</button>
+    </form>
+  </section>
 </div>
 {{end}}
 {{end}}

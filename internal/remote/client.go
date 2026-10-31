@@ -46,6 +46,25 @@ func (c *Client) Push(ctx context.Context, pushes []Upload) ([]string, []Change,
 	return out.Accepted, out.Conflicts, err
 }
 
+// Standing returns what the service that runs the accounts says of this one; a server that keeps no standing has
+// nothing to say.
+func (c *Client) Standing(ctx context.Context) (Standing, error) {
+	var out Standing
+	resp, err := c.send(ctx, http.MethodGet, "/api/standing", nil)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		err = json.NewDecoder(resp.Body).Decode(&out)
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+	default:
+		err = failed(resp)
+	}
+	return out, err
+}
+
 // Tasks returns the open tasks of a project, "me" for the global notes.
 func (c *Client) Tasks(ctx context.Context, project string) ([]Task, error) {
 	var out tasksResponse

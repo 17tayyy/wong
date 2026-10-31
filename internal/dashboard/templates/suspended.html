@@ -1,0 +1,8 @@
+{{define "crumbs"}}{{icon "triangle-alert"}}<span>Suspended</span>{{end}}
+{{define "main"}}
+<div class="page">
+  <h1>This account is suspended</h1>
+  <div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.Error}}</p></div>
+  <p class="part-note">Your machines keep their copy of the brain in <code>~/.wong</code>, as Markdown files.</p>
+</div>
+{{end}}

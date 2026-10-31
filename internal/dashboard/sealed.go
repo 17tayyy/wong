@@ -25,3 +25,15 @@ func (d *Dashboard) sealedPage(w http.ResponseWriter, r *http.Request, machine s
 	p.Title, p.Browser = "Encrypted", browserBundle()
 	d.render(w, "sealed", p)
 }
+
+// suspendedPage stands in for every page of an account the service suspended, saying why.
+func (d *Dashboard) suspendedPage(w http.ResponseWriter, r *http.Request, machine string, why error) {
+	p, err := d.base(r, "", machine, &brain{})
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	p.Title, p.Error = "Suspended", why.Error()
+	w.WriteHeader(http.StatusForbidden)
+	d.render(w, "suspended", p)
+}

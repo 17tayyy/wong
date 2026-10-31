@@ -68,6 +68,10 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				http.Error(w, fmt.Sprintf("too many requests: this brain takes %d a minute", s.Store.limits.Requests), http.StatusTooManyRequests)
 				return
 			}
+			if err := s.Store.Usable(); err != nil {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
 			if r.Header.Get(SealHeader) == "" {
 				sealed, err := s.Store.Sealed()
 				if err != nil {
@@ -120,12 +124,26 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
+			if errors.Is(err, ErrReadOnly) || errors.Is(err, ErrSuspended) {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
 			log.Error("push", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		log.Info("push", "machine", s.Who(), "accepted", len(accepted), "conflicts", len(conflicts))
 		writeJSON(w, pushResponse{Accepted: accepted, Conflicts: conflicts})
+	}))
+	mux.HandleFunc("GET /api/standing", metered(func(w http.ResponseWriter, _ *http.Request, s Session) {
+		st, err := s.Store.Standing()
+		if err != nil {
+			log.Error("standing", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		st.Size = 0
+		writeJSON(w, st)
 	}))
 	mux.HandleFunc("GET /api/tasks", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
 		tasks, err := s.Store.Tasks(r.URL.Query().Get("project"))

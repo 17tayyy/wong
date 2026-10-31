@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -71,6 +72,41 @@ func (s *AccountService) describe(ctx context.Context, account string, q url.Val
 	return &v, nil
 }
 
+// forget asks the service to close an account before the server deletes its brain: it ends what the service keeps of
+// it and says where to send the person after, or refuses with a reason the person can act on.
+func (s *AccountService) forget(ctx context.Context, account string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, strings.ReplaceAll(s.URL, "{account}", url.PathEscape(account)), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("Accept", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	var out struct {
+		Redirect string `json:"redirect"`
+		Error    string `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 16<<10)).Decode(&out)
+	switch {
+	case res.StatusCode == http.StatusOK:
+		return out.Redirect, nil
+	case out.Error != "":
+		return "", &refusal{out.Error}
+	}
+	return "", fmt.Errorf("the account service answered %s", res.Status)
+}
+
+// refusal is the service declining to close an account, with what the person can do about it.
+type refusal struct{ msg string }
+
+func (e *refusal) Error() string { return e.msg }
+
 // accountInfo is the Account page: the plan as the account service tells it, the brain's room and machines, and the
 // address MCP clients connect to.
 type accountInfo struct {
@@ -80,9 +116,48 @@ type accountInfo struct {
 	Storage  string
 	Machines []machineSeen
 	MCP      string
+	Problem  string
 }
 
 func (d *Dashboard) accountPage(w http.ResponseWriter, r *http.Request, machine string) {
+	d.renderAccount(w, r, machine, "")
+}
+
+// deleteAccount closes the account with the service, deletes its brain from this server, and signs the person out.
+func (d *Dashboard) deleteAccount(w http.ResponseWriter, r *http.Request, machine string) {
+	deleter, ok := d.brains.(interface{ Delete(string) error })
+	if d.account == "" || !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.TrimSpace(r.FormValue("confirm")) != d.account {
+		d.renderAccount(w, r, machine, "Type the account name, "+d.account+", to delete it.")
+		return
+	}
+	to, err := d.opts.Account.forget(r.Context(), d.account)
+	var no *refusal
+	switch {
+	case errors.As(err, &no):
+		d.renderAccount(w, r, machine, no.msg)
+		return
+	case err != nil:
+		d.log.Error("account service", "account", d.account, "err", err)
+		d.renderAccount(w, r, machine, "The account service did not answer, so nothing was deleted. Try again in a minute.")
+		return
+	}
+	if err := deleter.Delete(d.account); err != nil {
+		d.fail(w, err)
+		return
+	}
+	d.log.Info("account deleted", "account", d.account, "by", machine)
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	if to == "" {
+		to = "/login"
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+func (d *Dashboard) renderAccount(w http.ResponseWriter, r *http.Request, machine, problem string) {
 	if d.account == "" {
 		http.NotFound(w, r)
 		return
@@ -105,7 +180,7 @@ func (d *Dashboard) accountPage(w http.ResponseWriter, r *http.Request, machine 
 		return
 	}
 	a.Storage = remote.Bytes(size)
-	if limit := d.store.Limits().Size; limit > 0 {
+	if limit := d.store.SizeLimit(); limit > 0 {
 		a.Storage += " of " + remote.Bytes(limit)
 	}
 	q := r.URL.Query()
@@ -116,7 +191,11 @@ func (d *Dashboard) accountPage(w http.ResponseWriter, r *http.Request, machine 
 		d.log.Warn("account service", "account", d.account, "err", err)
 		a.Down = true
 	}
+	a.Problem = problem
 	p.AccountPage = a
+	if problem != "" {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}
 	d.render(w, "account", p)
 }
 

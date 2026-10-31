@@ -183,6 +183,42 @@ func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog
 		}
 		writeJSON(w, adminAccount{Account: account})
 	}))
+	mux.HandleFunc("PUT /admin/accounts/{account}/standing", admin(func(w http.ResponseWriter, r *http.Request) {
+		var st Standing
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&st); err != nil {
+			http.Error(w, "invalid standing", http.StatusBadRequest)
+			return
+		}
+		store, err := folder.Store(r.PathValue("account"))
+		if errors.Is(err, ErrNoAccount) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err == nil {
+			err = store.SetStanding(st)
+		}
+		if err != nil {
+			log.Error("admin", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Info("account standing", "account", r.PathValue("account"), "mode", st.Mode, "size", st.Size)
+		writeJSON(w, st)
+	}))
+	mux.HandleFunc("DELETE /admin/accounts/{account}", admin(func(w http.ResponseWriter, r *http.Request) {
+		err := folder.Delete(r.PathValue("account"))
+		if errors.Is(err, ErrNoAccount) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			log.Error("admin", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Info("account deleted", "account", r.PathValue("account"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	mux.HandleFunc("GET /admin/accounts", func(w http.ResponseWriter, r *http.Request) {
 		if !admitted(r) {
 			http.NotFound(w, r)

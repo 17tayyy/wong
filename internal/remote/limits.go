@@ -52,17 +52,26 @@ func (s *Store) room(pushes []Upload) error {
 		}
 		adding += 2 * int64(len(p.Content))
 	}
-	if s.limits.Size == 0 || adding == 0 {
+	limit := s.SizeLimit()
+	if limit == 0 || adding == 0 {
 		return nil
 	}
 	size, err := s.Size()
 	if err != nil {
 		return err
 	}
-	if size+adding > s.limits.Size {
-		return refuse(ErrLimit, "This brain takes %s of the %s it may, and the change does not fit. Deleting notes frees no room, since the brain keeps their history: ask whoever runs the server for more.", Bytes(size), Bytes(s.limits.Size))
+	if size+adding > limit {
+		return refuse(ErrLimit, "This brain takes %s of the %s it may, and the change does not fit. Deleting notes frees no room, since the brain keeps their history: ask whoever runs the server for more.", Bytes(size), Bytes(limit))
 	}
 	return nil
+}
+
+// SizeLimit is how much this brain may take: what the service that runs the accounts gave it, or the server's limit.
+func (s *Store) SizeLimit() int64 {
+	if st, err := s.Standing(); err == nil && st.Size > 0 {
+		return st.Size
+	}
+	return s.limits.Size
 }
 
 // Bytes writes a size the way people read it.

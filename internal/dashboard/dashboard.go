@@ -59,7 +59,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed", "encryption"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed", "encryption", "suspended"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -110,7 +110,9 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	}
 	if opts.Account != nil {
 		mux.HandleFunc("GET /account", d.session((*Dashboard).accountPage))
+		mux.HandleFunc("POST /account/delete", d.session((*Dashboard).deleteAccount))
 	}
+	mux.HandleFunc("GET /export", d.session((*Dashboard).export))
 	mux.HandleFunc("GET /device", d.session((*Dashboard).device))
 	mux.HandleFunc("POST /device", d.session((*Dashboard).approveDevice))
 	return securityHeaders(mux), nil
@@ -144,6 +146,11 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 			}
 			if sealed {
 				next = (*Dashboard).sealedPage
+			}
+		}
+		if err := s.Store.Usable(); err != nil {
+			next = func(d *Dashboard, w http.ResponseWriter, r *http.Request, machine string) {
+				d.suspendedPage(w, r, machine, err)
 			}
 		}
 		next(&Dashboard{brains: d.brains, opts: d.opts, guesses: d.guesses, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)

@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS recovery (
 	public  BLOB NOT NULL,
 	wrapped BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS standing (
+	id         INTEGER PRIMARY KEY CHECK (id = 1),
+	mode       TEXT NOT NULL DEFAULT '',
+	notice     TEXT NOT NULL DEFAULT '',
+	link       TEXT NOT NULL DEFAULT '',
+	until      TEXT NOT NULL DEFAULT '',
+	size       INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cloud_ais (
 	id         INTEGER PRIMARY KEY CHECK (id = 1),
 	wrapped    BLOB NOT NULL,
@@ -128,10 +137,11 @@ type Upload struct {
 var ErrBadPush = errors.New("bad push")
 
 type Store struct {
-	db     *sql.DB
-	id     string
-	limits Limits
-	cloud  *CloudAIs
+	db       *sql.DB
+	id       string
+	limits   Limits
+	cloud    *CloudAIs
+	standing standingCache
 }
 
 func Open(file string) (*Store, error) {
@@ -219,6 +229,9 @@ func NewOp(kind string) string {
 }
 
 func (s *Store) apply(machine, op string, pushes []Upload) (accepted []string, conflicts []Change, err error) {
+	if err := s.writable(); err != nil {
+		return nil, nil, err
+	}
 	if err := s.room(pushes); err != nil {
 		return nil, nil, err
 	}
