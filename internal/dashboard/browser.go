@@ -37,6 +37,7 @@ func browserBundle() bool {
 
 func (d *Dashboard) browserRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /browser/token", d.session((*Dashboard).browserToken))
+	mux.HandleFunc("POST /browser/report", d.session((*Dashboard).browserReport))
 	if !browserBundle() {
 		return
 	}
@@ -128,6 +129,21 @@ func (d *Dashboard) browserToken(w http.ResponseWriter, r *http.Request, machine
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]string{"token": token, "name": name})
+}
+
+// browserReport logs why a browser could not open a sealed brain: the problem, the step and the mode it was in,
+// and the browser it is, never anything of the notes.
+func (d *Dashboard) browserReport(w http.ResponseWriter, r *http.Request, machine string) {
+	field := func(name string) string {
+		v := r.FormValue(name)
+		if len(v) > 500 {
+			v = v[:500]
+		}
+		return v
+	}
+	d.log.Warn("browser could not open the brain", "problem", field("problem"), "step", field("step"), "detail", field("detail"),
+		"mode", field("mode"), "browser", browserName(r.UserAgent()), "agent", r.UserAgent(), "by", machine)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // browserName names a browser after what it is and where it runs, as its user agent tells: "safari-on-iphone".

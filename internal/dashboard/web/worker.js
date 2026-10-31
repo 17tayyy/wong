@@ -1,6 +1,11 @@
 // The worker that opens a sealed brain in a browser whose service workers do not run, as on iPhone browsers other
 // than Safari: the page asks it for each page and renders what it answers, and the work stays off the page's thread.
-importScripts('/static/web/wasm_exec.js', '/static/web/core.js');
+try {
+  importScripts('/static/web/wasm_exec.js', '/static/web/core.js');
+} catch (err) {
+  self.postMessage({ problem: 'The worker could not load its scripts: ' + err.message });
+  throw err;
+}
 
 const ops = { unlock, status, forget, serve };
 

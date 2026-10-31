@@ -829,20 +829,31 @@ document.documentElement.classList.add('js');
             this.last = data.stage;
             return;
           }
+          if (data.problem) {
+            this.stop(data.problem);
+            return;
+          }
           const c = this.calls.get(data.id);
           this.calls.delete(data.id);
           if (c) data.error ? c.no(new Error(data.error)) : c.ok(data.result);
         };
         this.worker.onerror = (e) => {
-          for (const c of this.calls.values()) c.no(new Error(e.message || 'The worker that opens your notes stopped.'));
-          this.calls.clear();
+          e.preventDefault();
+          this.stop((e.message || 'The worker that opens your notes stopped.') + (e.filename ? ` (${e.filename.replace(location.origin, '')}:${e.lineno})` : ''));
         };
+        this.worker.onmessageerror = () => this.stop('The worker sent a message this page could not read.');
       }
+      if (this.problem) return Promise.reject(new Error(this.problem));
       return new Promise((ok, no) => {
         const id = ++this.next;
         this.calls.set(id, { ok, no });
         this.worker.postMessage({ id, op, args });
       });
+    },
+    stop(problem) {
+      this.problem = problem;
+      for (const c of this.calls.values()) c.no(new Error(problem));
+      this.calls.clear();
     },
     unlock() { return this.call('unlock'); },
     status() { return this.call('status'); },
@@ -980,6 +991,7 @@ document.documentElement.classList.add('js');
       if (sub != null) $('[data-sub]', step(name)).textContent = sub;
     };
     const fail = (text) => {
+      report(text);
       run++;
       const active = $('[data-state="active"]', overlay);
       if (active) {
@@ -1001,6 +1013,18 @@ document.documentElement.classList.add('js');
       overlay.hidden = true;
       app.inert = false;
       $('[data-unlock-start]', unlock).focus();
+    };
+    // report tells the server what went wrong here, the step and the mode, and nothing of the notes, so a browser that
+    // cannot open them can be fixed.
+    const report = (text) => {
+      const active = $('[data-state="active"]', overlay);
+      const body = new URLSearchParams({
+        problem: text,
+        step: active ? active.dataset.step : '',
+        detail: active ? $('[data-sub]', active)?.textContent || '' : '',
+        mode: driver === viaWorker ? 'worker' : driver === viaServiceWorker ? 'service worker' : remember.get() || '',
+      });
+      fetch('/browser/report', { method: 'POST', body }).catch(() => {});
     };
     const controlled = () => navigator.serviceWorker.controller
       ? Promise.resolve()
@@ -1100,9 +1124,12 @@ document.documentElement.classList.add('js');
           const unlocking = driver.unlock();
           unlocking.catch(() => {});
           if (driver === viaWorker) {
-            await within(new Promise((ok) => {
-              const check = setInterval(() => viaWorker.last && (clearInterval(check), ok()), 100);
-            }), 15000, 'This browser did not start the worker that decrypts your notes. Close other tabs and try again, or open this page in another browser.');
+            await within(Promise.race([
+              new Promise((ok) => {
+                const check = setInterval(() => viaWorker.last && (clearInterval(check), ok()), 100);
+              }),
+              unlocking.then(() => {}),
+            ]), 15000, 'This browser did not start the worker that decrypts your notes. Close other tabs and try again, or open this page in another browser.');
           }
           follow(await within(unlocking, 90000, () =>
             `This browser took more than 90 seconds at “${stages[stage] || 'Starting the dashboard'}” (${driver === viaWorker ? 'worker' : 'service worker'}). Try again, and if it stops at the same step, tell us which.`), mine);
