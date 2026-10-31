@@ -501,6 +501,10 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
   .steps [data-state="active"] .mark { animation: none; border-color: var(--text); }
 }
 
+.check ol { margin: 24px 0 0; padding: 0; list-style: none; font: 13.5px/1.6 var(--mono); }
+.check li { padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.check li.bad { color: var(--red-fg); }
+
 /* Connect a machine */
 .device { margin-top: 24px; }
 .formbar.device input { flex: 0 1 220px; min-width: 0; height: 32px; padding: 0 10px; font: 15px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }

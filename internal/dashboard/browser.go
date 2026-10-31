@@ -51,6 +51,20 @@ func (d *Dashboard) browserRoutes(mux *http.ServeMux) {
 			serveWeb(w, r, "web/"+name, "text/javascript; charset=utf-8", "")
 		})
 	}
+	mux.HandleFunc("GET /static/web/check.js", func(w http.ResponseWriter, r *http.Request) {
+		serveWeb(w, r, "web/check.js", "text/javascript; charset=utf-8", "")
+	})
+	mux.HandleFunc("GET /static/web/probe.js", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("policy") == "none" {
+			w.Header().Del("Content-Security-Policy")
+		} else {
+			w.Header().Set("Content-Security-Policy", runsWasm)
+		}
+		serveWeb(w, r, "web/probe.js", "text/javascript; charset=utf-8", "")
+	})
+	mux.HandleFunc("GET /browser/check", d.session(func(_ *Dashboard, w http.ResponseWriter, r *http.Request, _ string) {
+		serveWeb(w, r, "web/check.html", "text/html; charset=utf-8", "")
+	}))
 	mux.HandleFunc("GET /static/web/worker.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", runsWasm)
 		serveWeb(w, r, "web/worker.js", "text/javascript; charset=utf-8", "")
@@ -136,12 +150,16 @@ func (d *Dashboard) browserToken(w http.ResponseWriter, r *http.Request, machine
 func (d *Dashboard) browserReport(w http.ResponseWriter, r *http.Request, machine string) {
 	field := func(name string) string {
 		v := r.FormValue(name)
-		if len(v) > 500 {
-			v = v[:500]
+		if len(v) > 2000 {
+			v = v[:2000]
 		}
 		return v
 	}
-	d.log.Warn("browser could not open the brain", "problem", field("problem"), "step", field("step"), "detail", field("detail"),
+	msg := "browser could not open the brain"
+	if field("step") == "check" {
+		msg = "browser check"
+	}
+	d.log.Warn(msg, "problem", field("problem"), "step", field("step"), "detail", field("detail"),
 		"mode", field("mode"), "browser", browserName(r.UserAgent()), "agent", r.UserAgent(), "by", machine)
 	w.WriteHeader(http.StatusNoContent)
 }
