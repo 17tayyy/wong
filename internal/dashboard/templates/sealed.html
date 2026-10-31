@@ -6,9 +6,10 @@
   {{if .Browser}}
   <section class="part" aria-labelledby="unlock-h" data-unlock>
     <h2 id="unlock-h">Open them in this browser</h2>
-    <p class="desc">This browser can make a key of its own and decrypt your notes here. A machine that already has the brain's key approves it once, after you check that both show the same code. Each browser and phone is approved on its own.</p>
+    <p class="desc">This browser can make a key of its own and decrypt your notes here. A machine that already has the brain's key approves it once, after you check that both show the same code. Each browser is approved on its own.</p>
     <div class="formbar"><button class="btn primary" type="button" data-unlock-start>{{icon "key-round"}}Open in this browser</button></div>
     <p class="part-note" data-unlock-unsupported hidden role="alert">This browser cannot keep a key of its own. Private windows often block it: open this page in a normal window.</p>
+    <p class="part-note" data-unlock-webkit hidden role="status">Opening your notes in the browser does not work yet in Safari or on an iPhone or iPad. Use Chrome, Edge or Firefox on a computer, or <code>wong open</code> on a machine that has the key.</p>
     <noscript><p class="part-note">Opening your notes here needs JavaScript.</p></noscript>
   </section>
   <div class="unlock" role="dialog" aria-modal="true" aria-labelledby="unlock-title" data-unlock-overlay hidden>

@@ -29,12 +29,6 @@ document.documentElement.classList.add('js');
   const notePath = (p) => '/notes/' + encPath(p);
   const shelfOf = (p) => (p.startsWith('projects/') ? p.split('/')[1] : p.split('/')[0]);
 
-  // page moves to another page, or shows this one again; the browser dashboard renders it in place when it runs here.
-  const page = {
-    to: (url) => location.assign(url),
-    again: () => location.reload(),
-  };
-
   async function post(url, data = {}) {
     const body = new URLSearchParams(data).toString();
     const res = await fetch(url, {
@@ -154,7 +148,7 @@ document.documentElement.classList.add('js');
       tree: $('#side .tree')?.scrollTop || 0,
       open: $$('#side .tree details[open] > summary').map((s) => s.dataset.shelf),
     });
-    page.to(url);
+    location.assign(url);
   }
 
   async function copy(text) {
@@ -247,8 +241,8 @@ document.documentElement.classList.add('js');
   function shelfItems(t) {
     const id = t.dataset.shelf;
     return [
-      { icon: 'plus', label: 'New note here', run: () => page.to('/new?in=' + encodeURIComponent(id)) },
-      { icon: 'book-open', label: 'Show in the library', run: () => page.to('/#' + encodeURIComponent(id)) },
+      { icon: 'plus', label: 'New note here', run: () => location.assign('/new?in=' + encodeURIComponent(id)) },
+      { icon: 'book-open', label: 'Show in the library', run: () => location.assign('/#' + encodeURIComponent(id)) },
     ];
   }
 
@@ -495,7 +489,7 @@ document.documentElement.classList.add('js');
     const keep = (ed) => {
       store.put('wong:draft', { path: article.dataset.path, src: ed.src, text: ed.ta.value });
       unsaved.clear();
-      page.again();
+      location.reload();
     };
 
     function finish() {
@@ -618,7 +612,7 @@ document.documentElement.classList.add('js');
                 run: () => {
                   store.put('wong:draft', { path: article.dataset.path, text: ta.value });
                   unsaved.clear();
-                  page.again();
+                  location.reload();
                 },
               }
             : null,
@@ -651,8 +645,7 @@ document.documentElement.classList.add('js');
     document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && save());
   }
 
-  // ready prepares what a page edits in place, once it loads and again whenever the browser dashboard renders another.
-  const ready = () => {
+  document.addEventListener('DOMContentLoaded', () => {
     const use = $('svg.i use');
     if (use) sprite = use.getAttribute('href').split('#')[0];
 
@@ -678,8 +671,7 @@ document.documentElement.classList.add('js');
       if (place.at === location.pathname) scrollTo(0, place.y);
     }
     if (location.hash === '#side') history.replaceState(null, '', location.pathname + location.search);
-  };
-  document.addEventListener('DOMContentLoaded', ready);
+  });
 
   document.addEventListener('click', (e) => {
     if (press && press.fired) {
@@ -768,214 +760,26 @@ document.documentElement.classList.add('js');
   });
   addEventListener('scroll', () => closeMenu(false), true);
 
-  // Opening a sealed brain here. Where service workers run, one keeps a key for this browser, asks a machine that has
-  // the brain's key to approve it, and then serves the dashboard on the notes it decrypts here. Where they do not, as
-  // on iPhone browsers other than Safari, a worker does the same, and this page asks it for each page and renders it
-  // in place. A screen over the app follows each step, and the app stays out of reach until it ends or is cancelled.
-  const serverPath = /^\/(api|static|hooks|mcp|oauth|\.well-known|login|signin|account|device|webhooks|browser|logout|__wong)(\/|$)/;
-  const ours = (url) => url.origin === location.origin && !serverPath.test(url.pathname);
-  const within = (promise, ms, problem) =>
-    Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(typeof problem === 'function' ? problem() : problem)), ms))]);
-  const stages = {
-    loaded: 'Starting the worker',
-    downloading: 'Getting the dashboard',
-    compiling: 'Preparing the dashboard to run',
-    starting: 'Starting the dashboard',
-    ready: 'Making the key',
-    asking: 'Asking the server for this browser’s place',
-  };
-  const asJSON = async (res) => {
-    if (!(res.headers.get('Content-Type') || '').startsWith('application/json')) {
-      throw new Error(`What keeps this browser's key did not answer (the page got ${res.status} from the server).`);
-    }
-    return res.json();
-  };
-  const remember = {
-    get: () => { try { return localStorage.getItem('wong:browser'); } catch { return null; } },
-    set: (v) => { try { localStorage.setItem('wong:browser', v); } catch {} },
-  };
-  const hasKey = () => new Promise((resolve) => {
-    try {
-      const open = indexedDB.open('wong', 1);
-      open.onupgradeneeded = () => open.result.createObjectStore('browser');
-      open.onerror = () => resolve(false);
-      open.onsuccess = () => {
-        const req = open.result.transaction('browser', 'readonly').objectStore('browser').getKey('self');
-        req.onsuccess = () => resolve(req.result !== undefined);
-        req.onerror = () => resolve(false);
-      };
-    } catch {
-      resolve(false);
-    }
-  });
-
-  const viaServiceWorker = {
-    unlock: async () => asJSON(await fetch('/__wong/unlock', { method: 'POST' })),
-    status: async () => asJSON(await fetch('/__wong/status')),
-    stage: async () => (await asJSON(await fetch('/__wong/stage'))).stage,
-    open: () => location.reload(),
-  };
-
-  const viaWorker = {
-    worker: null,
-    calls: new Map(),
-    next: 0,
-    last: '',
-    call(op, ...args) {
-      if (!this.worker) {
-        this.worker = new Worker('/static/web/worker.js');
-        this.worker.onmessage = ({ data }) => {
-          if (data.stage) {
-            this.last = data.stage;
-            return;
-          }
-          if (data.problem) {
-            this.stop(data.problem);
-            return;
-          }
-          const c = this.calls.get(data.id);
-          this.calls.delete(data.id);
-          if (c) data.error ? c.no(new Error(data.error)) : c.ok(data.result);
-        };
-        this.worker.onerror = (e) => {
-          e.preventDefault();
-          this.stop((e.message || 'The worker that opens your notes stopped.') + (e.filename ? ` (${e.filename.replace(location.origin, '')}:${e.lineno})` : ''));
-        };
-        this.worker.onmessageerror = () => this.stop('The worker sent a message this page could not read.');
-      }
-      if (this.problem) return Promise.reject(new Error(this.problem));
-      return new Promise((ok, no) => {
-        const id = ++this.next;
-        this.calls.set(id, { ok, no });
-        this.worker.postMessage({ id, op, args });
-      });
-    },
-    stop(problem) {
-      this.problem = problem;
-      for (const c of this.calls.values()) c.no(new Error(problem));
-      this.calls.clear();
-    },
-    unlock() { return this.call('unlock'); },
-    status() { return this.call('status'); },
-    stage() { return Promise.resolve(this.last); },
-    open() { routeHere(); },
-  };
-
-  // request asks the worker for a page, following redirects as a browser would; null means the page belongs to the
-  // server, and the browser goes there.
-  async function request(method, url, headers, body) {
-    for (let hops = 0; hops < 6; hops++) {
-      const res = await viaWorker.call('serve', method, url.href, headers, body);
-      if (!res) {
-        location.assign(url.href);
-        return null;
-      }
-      const to = (res.headers.find(([k]) => k.toLowerCase() === 'location') || [])[1];
-      if (!to || ![301, 302, 303, 307, 308].includes(res.status)) return { ...res, url };
-      const next = new URL(to, url);
-      if (!ours(next)) {
-        location.assign(next.href);
-        return null;
-      }
-      if (res.status === 303 || method === 'POST') {
-        method = 'GET';
-        body = null;
-      }
-      url = next;
-    }
-    throw new Error('The page kept sending this browser elsewhere.');
-  }
-
-  // route renders a page the worker answers in place of this one.
-  async function route(href, push, method = 'GET', body = null, type = '') {
-    const headers = [['Accept', 'text/html'], ['Origin', location.origin]];
-    if (type) headers.push(['Content-Type', type]);
-    let res;
-    try {
-      res = await request(method, new URL(href, location.href), headers, body);
-    } catch {
-      location.assign(href);
-      return;
-    }
-    if (!res) return;
-    const doc = new DOMParser().parseFromString(new TextDecoder().decode(res.body), 'text/html');
-    document.title = doc.title;
-    document.body.replaceWith(document.adoptNode(doc.body));
-    for (const script of doc.querySelectorAll('script[src]')) {
-      if (script.getAttribute('src').startsWith('/static/app.js')) continue;
-      document.body.append(el('script', { src: script.getAttribute('src') }));
-    }
-    const at = res.url.pathname + res.url.search + res.url.hash;
-    if (push) history.pushState(null, '', at);
-    else history.replaceState(null, '', at);
-    const target = res.url.hash && document.getElementById(decodeURIComponent(res.url.hash.slice(1)));
-    if (target) target.scrollIntoView();
-    else scrollTo(0, 0);
-    ready();
-  }
-
-  // routeHere hands this page's links, forms and requests to the worker, and shows the page it is on.
-  let routing = false;
-  function routeHere() {
-    if (!routing) {
-      routing = true;
-      page.to = (url) => route(url, true);
-      page.again = () => route(location.href, false);
-      document.addEventListener('click', (e) => {
-        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-        const a = e.target.closest('a[href]');
-        if (!a || a.target || a.hasAttribute('download')) return;
-        const url = new URL(a.href, location.href);
-        if (!ours(url) || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
-        e.preventDefault();
-        route(url.href, true);
-      });
-      document.addEventListener('submit', async (e) => {
-        if (e.defaultPrevented) return;
-        const form = e.target;
-        const url = new URL(form.getAttribute('action') || location.href, location.href);
-        if (url.pathname === '/logout') {
-          e.preventDefault();
-          await viaWorker.call('forget').catch(() => {});
-          form.submit();
-          return;
-        }
-        if (!ours(url)) return;
-        e.preventDefault();
-        const data = new FormData(form);
-        if (e.submitter && e.submitter.name) data.append(e.submitter.name, e.submitter.value);
-        const params = new URLSearchParams(data).toString();
-        if ((form.getAttribute('method') || 'GET').toUpperCase() === 'GET') {
-          url.search = params;
-          route(url.href, true);
-        } else {
-          route(url.href, true, 'POST', new TextEncoder().encode(params), 'application/x-www-form-urlencoded');
-        }
-      });
-      addEventListener('popstate', () => route(location.href, false));
-      const fetchFromServer = window.fetch.bind(window);
-      window.fetch = async (input, init) => {
-        const req = new Request(input, init);
-        const url = new URL(req.url);
-        if (!ours(url)) return fetchFromServer(input, init);
-        const body = ['GET', 'HEAD'].includes(req.method) ? null : new Uint8Array(await req.arrayBuffer());
-        const res = await request(req.method, url, [...req.headers, ['Origin', location.origin]], body);
-        if (!res) return new Response(null, { status: 204 });
-        return new Response([101, 204, 205, 304].includes(res.status) ? null : res.body, { status: res.status, headers: res.headers });
-      };
-    }
-    return route(location.href, false);
-  }
-
+  // Opening a sealed brain here: the service worker keeps a key for this browser, asks a machine that has the brain's
+  // key to approve it, and once it does, serves the dashboard on the notes it decrypts in this browser. A screen
+  // over the app follows each step, and the app stays out of reach until it ends or is cancelled.
   const openHere = () => {
     const unlock = $('[data-unlock]');
     const overlay = $('[data-unlock-overlay]');
     if (!unlock || !overlay) return;
-    if (!('serviceWorker' in navigator) && typeof Worker === 'undefined') {
+    const agent = navigator.userAgent;
+    const webkit = /iPhone|iPad|iPod/.test(agent) || (/Safari\//.test(agent) && !/Chrome\/|Chromium\/|Edg\/|OPR\//.test(agent));
+    if (webkit || !('serviceWorker' in navigator)) {
       $('[data-unlock-start]', unlock).disabled = true;
-      $('[data-unlock-unsupported]', unlock).hidden = false;
+      $(webkit ? '[data-unlock-webkit]' : '[data-unlock-unsupported]', unlock).hidden = false;
       return;
     }
+    const answer = async (res) => {
+      if (!(res.headers.get('Content-Type') || '').startsWith('application/json')) {
+        throw new Error(`What keeps this browser's key did not answer (the page got ${res.status} from the server). Reload the page and try again.`);
+      }
+      return res.json();
+    };
     const app = $('.app');
     const order = ['get', 'key', 'approve', 'open'];
     const step = (name) => $(`[data-step="${name}"]`, overlay);
@@ -983,7 +787,6 @@ document.documentElement.classList.add('js');
     const retry = $('[data-unlock-retry]', overlay);
     const mb = (n) => (n / 1e6).toFixed(1) + ' MB';
     let run = 0;
-    let driver = null;
 
     const at = (name, sub) => {
       const i = order.indexOf(name);
@@ -991,7 +794,6 @@ document.documentElement.classList.add('js');
       if (sub != null) $('[data-sub]', step(name)).textContent = sub;
     };
     const fail = (text) => {
-      report(text);
       run++;
       const active = $('[data-state="active"]', overlay);
       if (active) {
@@ -1014,37 +816,10 @@ document.documentElement.classList.add('js');
       app.inert = false;
       $('[data-unlock-start]', unlock).focus();
     };
-    // report tells the server what went wrong here, the step and the mode, and nothing of the notes, so a browser that
-    // cannot open them can be fixed.
-    const report = (text) => {
-      const active = $('[data-state="active"]', overlay);
-      const body = new URLSearchParams({
-        problem: text,
-        step: active ? active.dataset.step : '',
-        detail: active ? $('[data-sub]', active)?.textContent || '' : '',
-        mode: driver === viaWorker ? 'worker' : driver === viaServiceWorker ? 'service worker' : remember.get() || '',
-      });
-      fetch('/browser/report', { method: 'POST', body }).catch(() => {});
-    };
+    const within = (promise, ms, problem) => Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(problem)), ms))]);
     const controlled = () => navigator.serviceWorker.controller
       ? Promise.resolve()
       : new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }));
-
-    // pick uses a service worker where one runs, and the worker otherwise, remembering it for the next time.
-    const pick = async () => {
-      if (remember.get() !== 'worker' && 'serviceWorker' in navigator) {
-        try {
-          await within(navigator.serviceWorker.register('/sw.js', { scope: '/' }), 5000, 'slow');
-          await within(controlled(), 5000, 'slow');
-          await within(fetch('/__wong/ping').then(asJSON), 4000, 'slow');
-          return viaServiceWorker;
-        } catch {
-          remember.set('worker');
-        }
-      }
-      if (typeof Worker === 'undefined') throw new Error('This browser cannot run what decrypts your notes. Open this page in another browser.');
-      return viaWorker;
-    };
 
     const download = async (mine) => {
       at('get', 'Starting the download…');
@@ -1085,7 +860,7 @@ document.documentElement.classList.add('js');
           break;
         case 'open':
           at('open', 'Opening…');
-          driver.open();
+          location.reload();
           return;
         case 'failed':
           fail(s.problem || 'This browser could not open your notes.');
@@ -1096,7 +871,7 @@ document.documentElement.classList.add('js');
     const poll = async (mine) => {
       if (mine !== run) return;
       try {
-        follow(await driver.status(), mine);
+        follow(await answer(await fetch('/__wong/status')), mine);
       } catch {
         setTimeout(() => poll(mine), 4000);
       }
@@ -1110,32 +885,14 @@ document.documentElement.classList.add('js');
       try {
         await download(mine);
         if (mine !== run) return;
-        at('key', 'Checking what this browser can run…');
-        driver = await pick();
-        if (mine !== run) return;
-        at('key', driver === viaWorker ? 'Starting the worker…' : 'Starting the dashboard…');
-        const since = Date.now();
-        let stage = '';
-        const tick = setInterval(async () => {
-          stage = (await driver.stage().catch(() => '')) || stage;
-          if (mine === run && stage) at('key', `${stages[stage] || stage}… ${Math.round((Date.now() - since) / 1000)} s`);
-        }, 1000);
-        try {
-          const unlocking = driver.unlock();
-          unlocking.catch(() => {});
-          if (driver === viaWorker) {
-            await within(Promise.race([
-              new Promise((ok) => {
-                const check = setInterval(() => viaWorker.last && (clearInterval(check), ok()), 100);
-              }),
-              unlocking.then(() => {}),
-            ]), 15000, 'This browser did not start the worker that decrypts your notes. Close other tabs and try again, or open this page in another browser.');
-          }
-          follow(await within(unlocking, 90000, () =>
-            `This browser took more than 90 seconds at “${stages[stage] || 'Starting the dashboard'}” (${driver === viaWorker ? 'worker' : 'service worker'}). Try again, and if it stops at the same step, tell us which.`), mine);
-        } finally {
-          clearInterval(tick);
-        }
+        at('key', 'It never leaves this browser.');
+        await within(navigator.serviceWorker.register('/sw.js', { scope: '/' }), 20000,
+          'This browser did not start what keeps its key. Private windows often block it: open this page in a normal window.');
+        await within(controlled(), 20000,
+          'This browser did not start what keeps its key. Private windows often block it: open this page in a normal window.');
+        const res = await within(fetch('/__wong/unlock', { method: 'POST' }), 90000,
+          'This browser took too long to make its key. Check the connection and try again.');
+        follow(await answer(res), mine);
       } catch (err) {
         if (mine === run) fail(err.message);
       }
@@ -1145,26 +902,15 @@ document.documentElement.classList.add('js');
     retry.addEventListener('click', begin);
     $('[data-unlock-cancel]', overlay).addEventListener('click', close);
     overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-
-    // A page loaded midway picks the screen up where this browser is; one that already holds its key opens the notes.
-    const resume = async () => {
-      if (navigator.serviceWorker && navigator.serviceWorker.controller && remember.get() !== 'worker') {
-        driver = viaServiceWorker;
-      } else if (remember.get() === 'worker' && (await hasKey())) {
-        driver = viaWorker;
-      } else {
-        return;
-      }
-      try {
+    if (navigator.serviceWorker.controller) {
+      fetch('/__wong/status').then(answer).then((s) => {
+        if (!['starting', 'waiting', 'opening'].includes(s.state)) return;
         const mine = ++run;
-        const s = driver === viaWorker ? await driver.unlock() : await driver.status();
-        if (!['starting', 'waiting', 'opening', 'open'].includes(s.state)) return;
         show();
         $('[data-sub]', step('get')).textContent = 'Ready in this browser.';
         follow(s, mine);
-      } catch {}
-    };
-    resume();
+      }).catch(() => {});
+    }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openHere);
   else openHere();

@@ -37,37 +37,16 @@ func browserBundle() bool {
 
 func (d *Dashboard) browserRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /browser/token", d.session((*Dashboard).browserToken))
-	mux.HandleFunc("POST /browser/report", d.session((*Dashboard).browserReport))
 	if !browserBundle() {
 		return
 	}
 	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Service-Worker-Allowed", "/")
-		w.Header().Set("Content-Security-Policy", runsWasm)
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'")
 		serveWeb(w, r, "web/sw.js", "text/javascript; charset=utf-8", "")
 	})
-	for _, name := range []string{"wasm_exec.js", "core.js"} {
-		mux.HandleFunc("GET /static/web/"+name, func(w http.ResponseWriter, r *http.Request) {
-			serveWeb(w, r, "web/"+name, "text/javascript; charset=utf-8", "")
-		})
-	}
-	mux.HandleFunc("GET /static/web/check.js", func(w http.ResponseWriter, r *http.Request) {
-		serveWeb(w, r, "web/check.js", "text/javascript; charset=utf-8", "")
-	})
-	mux.HandleFunc("GET /static/web/probe.js", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("policy") == "none" {
-			w.Header().Del("Content-Security-Policy")
-		} else {
-			w.Header().Set("Content-Security-Policy", runsWasm)
-		}
-		serveWeb(w, r, "web/probe.js", "text/javascript; charset=utf-8", "")
-	})
-	mux.HandleFunc("GET /browser/check", d.session(func(_ *Dashboard, w http.ResponseWriter, r *http.Request, _ string) {
-		serveWeb(w, r, "web/check.html", "text/html; charset=utf-8", "")
-	}))
-	mux.HandleFunc("GET /static/web/worker.js", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", runsWasm)
-		serveWeb(w, r, "web/worker.js", "text/javascript; charset=utf-8", "")
+	mux.HandleFunc("GET /static/web/wasm_exec.js", func(w http.ResponseWriter, r *http.Request) {
+		serveWeb(w, r, "web/wasm_exec.js", "text/javascript; charset=utf-8", "")
 	})
 	mux.HandleFunc("GET /static/web/wong.wasm", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Wong-Bytes", strconv.FormatInt(bundleSize(), 10))
@@ -90,10 +69,6 @@ var bundleSize = sync.OnceValue(func() int64 {
 	n, _ := io.Copy(io.Discard, z)
 	return n
 })
-
-// runsWasm is the policy of the scripts that run the dashboard: they may compile WebAssembly, and nothing else beyond
-// the dashboard's own.
-const runsWasm = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'"
 
 // serveWeb serves a file of the browser bundle, revalidated each time by its content so a new version reaches the
 // worker as soon as it starts again.
@@ -143,25 +118,6 @@ func (d *Dashboard) browserToken(w http.ResponseWriter, r *http.Request, machine
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]string{"token": token, "name": name})
-}
-
-// browserReport logs why a browser could not open a sealed brain: the problem, the step and the mode it was in,
-// and the browser it is, never anything of the notes.
-func (d *Dashboard) browserReport(w http.ResponseWriter, r *http.Request, machine string) {
-	field := func(name string) string {
-		v := r.FormValue(name)
-		if len(v) > 2000 {
-			v = v[:2000]
-		}
-		return v
-	}
-	msg := "browser could not open the brain"
-	if field("step") == "check" {
-		msg = "browser check"
-	}
-	d.log.Warn(msg, "problem", field("problem"), "step", field("step"), "detail", field("detail"),
-		"mode", field("mode"), "browser", browserName(r.UserAgent()), "agent", r.UserAgent(), "by", machine)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // browserName names a browser after what it is and where it runs, as its user agent tells: "safari-on-iphone".

@@ -66,18 +66,3 @@ func TestBrowserNames(t *testing.T) {
 		}
 	}
 }
-
-func TestABrowserReportsWhyItCouldNotOpenTheBrain(t *testing.T) {
-	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
-	b := encryptionBrowser(t, store, nil)
-	if code, _ := b.post("/browser/report", url.Values{"problem": {"The worker could not load its scripts"}, "step": {"key"}, "mode": {"worker"}}, b.srv.URL); code != http.StatusNoContent {
-		t.Errorf("report: %d", code)
-	}
-	if code, _ := b.post("/browser/report", url.Values{"problem": {"x"}}, "https://evil.example"); code != http.StatusForbidden {
-		t.Errorf("another site filed a report: %d", code)
-	}
-}
