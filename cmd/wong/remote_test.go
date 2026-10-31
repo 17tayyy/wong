@@ -74,7 +74,7 @@ func TestRemoteSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := run(t, "--brain", laptop, "sync")
-	if err != nil || !strings.Contains(out, "1 files changed both here and on the server") {
+	if err != nil || !strings.Contains(out, "1 file changed both here and on the server") {
 		t.Fatalf("sync with a conflict: %v\n%s", err, out)
 	}
 	if out, err := run(t, "--brain", laptop, "resolve", "me/a.md", "--keep", "server"); err != nil || !strings.Contains(out, "kept the server version") {
