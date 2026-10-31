@@ -777,6 +777,7 @@ document.documentElement.classList.add('js');
   const within = (promise, ms, problem) =>
     Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(typeof problem === 'function' ? problem() : problem)), ms))]);
   const stages = {
+    loaded: 'Starting the worker',
     downloading: 'Getting the dashboard',
     compiling: 'Preparing the dashboard to run',
     starting: 'Starting the dashboard',
@@ -1009,9 +1010,9 @@ document.documentElement.classList.add('js');
     const pick = async () => {
       if (remember.get() !== 'worker' && 'serviceWorker' in navigator) {
         try {
-          await within(navigator.serviceWorker.register('/sw.js', { scope: '/' }), 8000, 'slow');
-          await within(controlled(), 8000, 'slow');
-          await within(fetch('/__wong/ping').then(asJSON), 8000, 'slow');
+          await within(navigator.serviceWorker.register('/sw.js', { scope: '/' }), 5000, 'slow');
+          await within(controlled(), 5000, 'slow');
+          await within(fetch('/__wong/ping').then(asJSON), 4000, 'slow');
           return viaServiceWorker;
         } catch {
           remember.set('worker');
@@ -1088,6 +1089,7 @@ document.documentElement.classList.add('js');
         at('key', 'Checking what this browser can run…');
         driver = await pick();
         if (mine !== run) return;
+        at('key', driver === viaWorker ? 'Starting the worker…' : 'Starting the dashboard…');
         const since = Date.now();
         let stage = '';
         const tick = setInterval(async () => {
@@ -1095,7 +1097,14 @@ document.documentElement.classList.add('js');
           if (mine === run && stage) at('key', `${stages[stage] || stage}… ${Math.round((Date.now() - since) / 1000)} s`);
         }, 1000);
         try {
-          follow(await within(driver.unlock(), 90000, () =>
+          const unlocking = driver.unlock();
+          unlocking.catch(() => {});
+          if (driver === viaWorker) {
+            await within(new Promise((ok) => {
+              const check = setInterval(() => viaWorker.last && (clearInterval(check), ok()), 100);
+            }), 15000, 'This browser did not start the worker that decrypts your notes. Close other tabs and try again, or open this page in another browser.');
+          }
+          follow(await within(unlocking, 90000, () =>
             `This browser took more than 90 seconds at “${stages[stage] || 'Starting the dashboard'}” (${driver === viaWorker ? 'worker' : 'service worker'}). Try again, and if it stops at the same step, tell us which.`), mine);
         } finally {
           clearInterval(tick);

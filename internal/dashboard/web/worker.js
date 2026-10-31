@@ -5,6 +5,7 @@ importScripts('/static/web/wasm_exec.js', '/static/web/core.js');
 const ops = { unlock, status, forget, serve };
 
 self.onstage = (s) => self.postMessage({ stage: s });
+self.onstage('loaded');
 
 self.onmessage = async ({ data: { id, op, args } }) => {
   try {
