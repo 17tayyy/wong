@@ -105,6 +105,16 @@ CREATE TABLE IF NOT EXISTS standing (
 	size       INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS moving (
+	id         INTEGER PRIMARY KEY CHECK (id = 1),
+	done       INTEGER NOT NULL DEFAULT 0,
+	started_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS moved (
+	id       INTEGER PRIMARY KEY CHECK (id = 1),
+	url      TEXT NOT NULL,
+	moved_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cloud_ais (
 	id         INTEGER PRIMARY KEY CHECK (id = 1),
 	wrapped    BLOB NOT NULL,

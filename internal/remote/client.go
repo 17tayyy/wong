@@ -114,6 +114,36 @@ func (c *Client) StartSeal(ctx context.Context, device, recovery *seal.Device, k
 	return c.do(ctx, http.MethodPost, "/api/keys/start", start, &struct{}{})
 }
 
+// StartSealAs makes the server's empty brain end-to-end encrypted with a key the brain already has, wrapped for this
+// machine, and the recovery code it already had, as when the brain moves here from another server.
+func (c *Client) StartSealAs(ctx context.Context, device *seal.Device, key *seal.Key, recoveryPublic, recoveryWrapped []byte) error {
+	wrapped, err := seal.Wrap(key, device.Public())
+	if err != nil {
+		return err
+	}
+	start := sealStart{Public: device.Public(), Wrapped: wrapped, RecoveryPublic: recoveryPublic, RecoveryWrapped: recoveryWrapped}
+	return c.do(ctx, http.MethodPost, "/api/keys/start", start, &struct{}{})
+}
+
+// ExportHistory returns the next versions of the brain's history after the one numbered after, oldest first.
+func (c *Client) ExportHistory(ctx context.Context, after int64) ([]Entry, error) {
+	var out historyResponse
+	err := c.do(ctx, http.MethodGet, "/api/history?after="+strconv.FormatInt(after, 10), nil, &out)
+	return out.Entries, err
+}
+
+// ImportHistory hands the server versions of the history of a brain that moves to it; done ends the move.
+func (c *Client) ImportHistory(ctx context.Context, entries []Entry, done bool) error {
+	return c.do(ctx, http.MethodPost, "/api/history", historyRequest{Entries: entries, Done: done}, &struct{}{})
+}
+
+// SetMoved tells the server the brain moved to url, for the machines still syncing with it to hear of it.
+func (c *Client) SetMoved(ctx context.Context, url string) error {
+	return c.do(ctx, http.MethodPost, "/api/moved", struct {
+		URL string `json:"url"`
+	}{url}, &struct{}{})
+}
+
 // RequestKey asks for the brain's key for this machine, to be approved from one that holds it.
 func (c *Client) RequestKey(ctx context.Context, device *seal.Device) error {
 	return c.do(ctx, http.MethodPost, "/api/keys/request", keyApproval{Public: device.Public()}, &struct{}{})

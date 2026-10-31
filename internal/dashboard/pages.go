@@ -171,6 +171,9 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 	if err != nil {
 		return p, err
 	}
+	if st.Moved, err = d.store.MovedTo(); err != nil {
+		return p, err
+	}
 	p.Standing = st
 	if limit := d.store.SizeLimit(); limit > 0 {
 		size, err := d.store.Size()

@@ -32,6 +32,7 @@ type State struct {
 	Conflicts map[string]string `json:"conflicts,omitempty"`
 	Local     []string          `json:"local,omitempty"`
 	Sealed    bool              `json:"sealed,omitempty"`
+	Server    string            `json:"server,omitempty"`
 }
 
 type Result struct {
@@ -317,8 +318,14 @@ func loadState(brain, path string) (State, error) {
 // longer has stays here to push again.
 func (c *Client) load(ctx context.Context, brain string) (State, error) {
 	st, err := loadState(brain, c.statePath())
-	if err != nil || c.Key == nil || st.Sealed {
+	if err != nil {
 		return st, err
+	}
+	if st.Server != c.URL {
+		st.Cursor, st.Server = 0, c.URL
+	}
+	if c.Key == nil || st.Sealed {
+		return st, nil
 	}
 	st.Sealed = true
 	if st.Cursor == 0 && len(st.Files) == 0 && len(st.Conflicts) == 0 {

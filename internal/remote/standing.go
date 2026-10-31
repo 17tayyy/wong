@@ -29,6 +29,7 @@ type Standing struct {
 	Link   string `json:"link,omitempty"`
 	Until  string `json:"until,omitempty"`
 	Size   int64  `json:"size,omitempty"`
+	Moved  string `json:"moved,omitempty"`
 }
 
 // standingCache keeps a store's standing in memory, since every request asks for it.
@@ -82,12 +83,18 @@ func (s *Store) Usable() error {
 	return refuse(ErrSuspended, "%s", st.say("This account is suspended."))
 }
 
-// writable refuses a change to an account that is read-only or suspended.
+// writable refuses a change to an account that is read-only, suspended, or whose brain moved to another server.
 func (s *Store) writable() error {
 	st, err := s.Standing()
+	if err != nil {
+		return err
+	}
+	moved, err := s.MovedTo()
 	switch {
 	case err != nil:
 		return err
+	case moved != "":
+		return refuse(ErrReadOnly, "This brain moved to %s, so this server keeps it read-only. Run wong setup %s on this machine to follow it.", moved, moved)
 	case st.Mode == ReadOnly:
 		return refuse(ErrReadOnly, "%s", st.say("This account is read-only: its brain can be read and taken away, but not changed."))
 	case st.Mode == Suspended:

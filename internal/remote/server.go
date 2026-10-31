@@ -24,6 +24,15 @@ type pushRequest struct {
 	Changes []Upload `json:"changes"`
 }
 
+type historyResponse struct {
+	Entries []Entry `json:"entries"`
+}
+
+type historyRequest struct {
+	Entries []Entry `json:"entries"`
+	Done    bool    `json:"done"`
+}
+
 type pushResponse struct {
 	Accepted  []string `json:"accepted"`
 	Conflicts []Change `json:"conflicts"`
@@ -143,7 +152,60 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 			return
 		}
 		st.Size = 0
+		if st.Moved, err = s.Store.MovedTo(); err != nil {
+			log.Error("standing", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, st)
+	}))
+	mux.HandleFunc("GET /api/history", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		entries, err := s.Store.ExportHistory(after, 200)
+		if err != nil {
+			log.Error("history", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, historyResponse{Entries: entries})
+	}))
+	mux.HandleFunc("POST /api/history", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		var req historyRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&req); err != nil {
+			http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		switch err := s.Store.ImportHistory(req.Entries, req.Done); {
+		case errors.Is(err, ErrNotMoving), errors.Is(err, ErrMustSeal):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, ErrBadPush):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, ErrLimit):
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+		case errors.Is(err, ErrReadOnly), errors.Is(err, ErrSuspended):
+			http.Error(w, err.Error(), http.StatusForbidden)
+		case err != nil:
+			log.Error("history import", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		default:
+			log.Info("history import", "machine", s.Who(), "entries", len(req.Entries), "done", req.Done)
+			writeJSON(w, struct{}{})
+		}
+	}))
+	mux.HandleFunc("POST /api/moved", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := s.Store.SetMovedTo(req.URL); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Info("brain moved", "machine", s.Who(), "to", req.URL)
+		writeJSON(w, struct{}{})
 	}))
 	mux.HandleFunc("GET /api/tasks", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
 		tasks, err := s.Store.Tasks(r.URL.Query().Get("project"))

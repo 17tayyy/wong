@@ -71,7 +71,7 @@
       <div class="actions">{{block "actions" .}}{{end}}</div>
     </header>
     <div class="body">
-      <main id="main">{{with .Standing}}{{if and .Notice (ne .Mode "suspended") (ne $.Nav "account")}}<div class="standing{{if eq .Mode "read-only"}} read-only{{end}}" role="status">{{icon "triangle-alert"}}<p>{{.Notice}}</p>{{with .Link}}<a class="btn small" href="{{.}}">See your plan</a>{{end}}</div>{{end}}{{end}}{{template "main" .}}</main>
+      <main id="main">{{with .Standing.Moved}}<div class="standing" role="status">{{icon "triangle-alert"}}<p>This brain moved to {{.}}. This server keeps a read-only copy of it.</p><a class="btn small" href="{{.}}">Go there</a></div>{{end}}{{with .Standing}}{{if and .Notice (ne .Mode "suspended") (ne $.Nav "account")}}<div class="standing{{if eq .Mode "read-only"}} read-only{{end}}" role="status">{{icon "triangle-alert"}}<p>{{.Notice}}</p>{{with .Link}}<a class="btn small" href="{{.}}">See your plan</a>{{end}}</div>{{end}}{{end}}{{template "main" .}}</main>
       {{block "aside" .}}{{end}}
     </div>
   </div>

@@ -493,7 +493,11 @@ func syncBrain(cmd *cobra.Command, client *remote.Client, brain string, pull, pu
 		return err
 	}
 	if len(st.Conflicts) > 0 {
-		fmt.Fprintf(out, "%d files changed both here and on the server; compare with %s and run wong resolve:\n", len(st.Conflicts), filepath.Join(brain, ".wong", "conflicts"))
+		what := fmt.Sprintf("%d files changed", len(st.Conflicts))
+		if len(st.Conflicts) == 1 {
+			what = "1 file changed"
+		}
+		fmt.Fprintf(out, "%s both here and on the server; compare with %s and run wong resolve:\n", what, filepath.Join(brain, ".wong", "conflicts"))
 		for path := range st.Conflicts {
 			fmt.Fprintln(out, "  ", path)
 		}

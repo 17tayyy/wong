@@ -39,6 +39,7 @@ type Keys struct {
 	Required    bool         `json:"required,omitempty"`
 	Wrapped     []byte       `json:"wrapped,omitempty"`
 	Recovery    []byte       `json:"recovery,omitempty"`
+	RecoveryKey []byte       `json:"recovery_public,omitempty"`
 	Pending     []KeyRequest `json:"pending,omitempty"`
 	Holders     []KeyRequest `json:"holders,omitempty"`
 	CloudAIs    bool         `json:"cloud_ais,omitempty"`
@@ -55,7 +56,7 @@ func (s *Store) Sealed() (bool, error) {
 // Keys returns the keyring as device sees it.
 func (s *Store) Keys(device string) (Keys, error) {
 	var k Keys
-	err := s.db.QueryRow(`SELECT wrapped FROM recovery`).Scan(&k.Recovery)
+	err := s.db.QueryRow(`SELECT wrapped, public FROM recovery`).Scan(&k.Recovery, &k.RecoveryKey)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return k, err
 	}

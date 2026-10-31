@@ -65,8 +65,14 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 				"Tell the user to run `wong keys` here to see this machine's code and `wong keys approve` on a machine that has the key, " +
 				"approving it only if it shows the same code, or to run `wong keys recover` here with the recovery code.\n\n")
 		}
-		if st, err := env.Remote.Standing(ctx); err == nil && st.Notice != "" {
-			fmt.Fprintf(&b, "wong: about the user's wong account: %s Tell the user at the start of your answer.\n\n", strings.TrimSpace(st.Notice+" "+st.Link))
+		if st, err := env.Remote.Standing(ctx); err == nil {
+			if st.Moved != "" {
+				fmt.Fprintf(&b, "wong: the user moved their brain to %s, but this machine still syncs with the old server. Tell the user to run "+
+					"`wong setup %s` here, and to approve this machine from one that has the key.\n\n", st.Moved, st.Moved)
+			}
+			if st.Notice != "" {
+				fmt.Fprintf(&b, "wong: about the user's wong account: %s Tell the user at the start of your answer.\n\n", strings.TrimSpace(st.Notice+" "+st.Link))
+			}
 		}
 		if keys, err := env.Remote.Keys(ctx); err == nil && keys.Wrapped != nil && len(keys.Pending) > 0 {
 			names := make([]string, len(keys.Pending))
