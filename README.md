@@ -167,6 +167,8 @@ flowchart LR
 - **Your server.** `wong serve` is a single binary with SQLite, or a Docker image. It
   syncs your machines and keeps every version of every note. It also turns GitHub and Linear
   events into tasks, serves a dashboard and speaks MCP.
+- **Sealed if you want.** With end-to-end encryption the server keeps only what it cannot
+  read, and the key lives on your machines.
 
 ## What the agent sees
 
@@ -242,9 +244,14 @@ Billing moves to Stripe. Webhooks first, see [[billing-webhooks]].
 | `sources` | What the claims rely on: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>` or a URL. |
 | `verified` | When the note was last checked against them, set by `wong note verify`. A source that changes after this date sends the note back to review. |
 | `pending` | `release` or `main` when the note leaves work for the next `v*` tag or push to the main branch. Whoever deploys, the user is reminded. |
+| `visibility` | `local` to keep the note on this machine. It never goes to the server. |
 
 Notes point to their sources instead of copying their state. Write "tracked in ENG-15",
 not "ENG-15 is in progress".
+
+A note that is no longer needed goes to the archive with `wong note archive`: out of the
+index, the checks and search, until `wong note unarchive` brings it back. `wong tidy`
+proposes the notes to archive.
 
 ## The server
 
@@ -256,6 +263,7 @@ as `docker exec wong /wong serve --tokens`. A token piped to `wong setup <url>` 
 One server can keep a brain for each person or team: `wong serve --accounts <dir>` keeps
 each account's brain in a SQLite file of its own, and `--account <id> --new-token browser`
 creates an account. Its tokens open that brain alone, in the API, the dashboard and MCP.
+`--max-size`, `--max-file` and `--max-requests` bound what each brain may take.
 
 A note changed on two machines at once is never overwritten. The server's version goes
 to `~/.wong/.wong/conflicts`, and `wong resolve <path> --keep local|server` settles it.
@@ -264,15 +272,46 @@ To reach the server from outside your network, put it behind a tunnel or a proxy
 certificate, or pass `--tls-cert` and `--tls-key`. wong only sends a token over plain
 http to an address on your own network.
 
+`wong move <url>` takes the brain to another server that holds none yet, with its whole
+history and, when it is sealed, its key. The old server keeps its copy until you delete
+it, and tells your other machines to run `wong setup <url>`.
+
+### End-to-end encryption
+
+A sealed brain is encrypted on your machines before it leaves them. The server keeps
+only what it cannot read, file paths included, and the key lives on your machines.
+
+```sh
+wong keys seal       # make the key and a recovery code, and encrypt the brain on the server
+wong keys approve    # on a machine with the key: let another in, once both show the same code
+wong keys recover    # with the recovery code, when no machine with the key is at hand
+```
+
+Write the recovery code down. Without it or a machine that holds the key, nobody can open
+the brain, the server included. `wong serve --sealed` keeps every brain on a server
+sealed: the first machine set up against it seals the brain, and the others wait for a
+machine with the key to approve them.
+
+With a sealed brain, `wong open` and `wong mcp` serve the dashboard and MCP from the
+machine's own copy, and the machines apply the webhooks' events as they sync. A browser
+opens the notes itself once a machine with the key approves it. That works in Chrome,
+Edge or Firefox on a computer, and not yet in Safari or on an iPhone or iPad.
+
+AIs that run in the cloud, such as claude.ai, can only reach a sealed brain through the
+server. `wong keys cloud-ai on` gives the server the key to open it for them, call by
+call, and each one still asks you before it connects. While it is on, the server can read
+the brain; `off` makes it forget the key.
+
 ### Dashboard
 
 Open the server's address in a browser and sign in with a token, or run `wong open` on a
 connected machine to open it signed in. You can:
 
-- read and edit notes in place, then rename, move or delete them;
+- read and edit notes in place, then rename, move, archive or delete them;
 - undo any change, and see what every machine and agent changed;
 - browse the brain as a graph, coloured by project, kind or tag;
-- let machines in, and set up the webhooks.
+- let machines in, and set up the webhooks;
+- see which machines hold the brain's key, and approve the ones that wait for it.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/note-dark.png">
@@ -302,7 +341,7 @@ key.
 
 The server speaks MCP over Streamable HTTP at `/mcp`, with these tools:
 
-`get_context` · `search_notes` · `read_note` · `write_note` · `edit_note` · `verify_note` · `move_note` · `delete_note`
+`get_context` · `search_notes` · `read_note` · `write_note` · `edit_note` · `verify_note` · `move_note` · `archive_note` · `delete_note`
 
 They follow the same rules as the skill, and every change is signed with the token that
 made it.
@@ -312,6 +351,9 @@ codex mcp add wong -- wong mcp     # stdio, through this machine's token
 ```
 
 Clients that speak HTTP can use `<server>/mcp` directly with a token of their own.
+Clients that connect with OAuth, such as claude.ai, take the address of `/mcp` and send
+you to the dashboard to approve them. Over HTTP, a sealed brain answers only while
+`wong keys cloud-ai` is on; `wong mcp`, on a machine with the key, works either way.
 
 ## Obsidian
 
@@ -334,12 +376,14 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 | `wong import` | Bring Claude Code's memory folders into the brain |
 | `wong link` | Make Claude Code keep its memory in the brain |
 | `wong check` | Check every note against what it cites |
-| `wong note show/search/write/verify/move/remove` | Read and write notes the way agents should |
+| `wong note show/search/write/verify/move/archive/remove` | Read and write notes the way agents should |
 | `wong tags` | List the tags in use |
-| `wong tidy` | List duplicate preferences, notes in the wrong folder and notes that grow by additions |
+| `wong tidy` | List duplicate preferences, notes in the wrong folder, notes that grow by additions and notes to archive |
 | `wong skills save` | Record where your skills come from, and keep the ones that have no source |
 | `wong serve` | Run the server |
 | `wong remote`, `pull`, `push`, `sync`, `resolve` | Sync with the server |
+| `wong keys` | Seal the brain, approve machines, recover the key, let cloud AIs in |
+| `wong move` | Take the brain, its history and its key to another server |
 | `wong open` | Open the dashboard in a browser, signed in |
 | `wong tasks` | List the tasks that webhooks left |
 | `wong mcp` | Serve the brain over MCP on stdio |
@@ -349,17 +393,20 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 
 ## Privacy
 
-Your brain stays on your machines and your server. wong talks to your server and, when
-you give it a key, to Linear, and to nothing else. It never asks for your Claude
-credentials or stores them.
+Your brain stays on your machines and your server, and a sealed one is only readable on
+your machines. wong talks to your server and, when you give it a key, to Linear, and to
+nothing else. It never asks for your Claude credentials or stores them.
 
-Notes about people and clients are personal data. Keep the server private, or behind
-HTTPS with tokens.
+A note that looks like it holds a key or a token stays on the machine, and the push says
+where. So does a note marked `visibility: local`.
+
+Notes about people and clients are personal data. Seal the brain, or keep the server
+private, or behind HTTPS with tokens.
 
 ## Status
 
-Early. The author uses it every day on two machines. Next: a hosted version for those who
-would rather not run a server, and teams.
+Early. The author uses it every day on two machines. Next: a hosted version, end-to-end
+encrypted, for those who would rather not run a server; then more agents, and teams.
 
 ## Contributing
 
