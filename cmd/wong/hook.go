@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"slices"
 	"time"
 
@@ -15,21 +18,37 @@ import (
 )
 
 func newHookCmd(home string, brain *string) *cobra.Command {
-	return &cobra.Command{
+	var agent string
+	var detached bool
+	cmd := &cobra.Command{
 		Use:       "hook session-start|session-end|pre-tool-use|post-tool-use",
-		Short:     "Answer Claude Code's hooks (the wong plugin calls it)",
+		Short:     "Answer the hooks of Claude Code and Codex (the wong plugin calls it)",
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"session-start", "session-end", "pre-tool-use", "post-tool-use"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !slices.Contains([]string{"session-start", "session-end", "pre-tool-use", "post-tool-use"}, args[0]) {
 				return fmt.Errorf("unknown hook %q", args[0])
 			}
-			var in hook.Input
-			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&in); err != nil {
+			if !slices.Contains([]hook.Agent{hook.Claude, hook.Codex}, hook.Agent(agent)) {
+				return fmt.Errorf("unknown agent %q: claude or codex", agent)
+			}
+			raw, err := io.ReadAll(cmd.InOrStdin())
+			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook: reading the hook input:", err)
 				return nil
 			}
-			env := hook.Env{Brain: *brain, Home: home}
+			if args[0] == "session-end" && hook.Agent(agent) == hook.Codex && !detached {
+				if err := detach(raw, "hook", "session-end", "--agent", agent, "--detached", "--brain", *brain); err != nil {
+					fmt.Fprintln(cmd.ErrOrStderr(), "wong hook:", err)
+				}
+				return nil
+			}
+			var in hook.Input
+			if err := json.Unmarshal(raw, &in); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook: reading the hook input:", err)
+				return nil
+			}
+			env := hook.Env{Agent: hook.Agent(agent), Brain: *brain, Home: home}
 			path, err := repos.DefaultPath()
 			if err == nil {
 				env.Repos, err = repos.Load(path)
@@ -62,4 +81,31 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&agent, "agent", string(hook.Claude), "the agent that runs the hook: claude or codex")
+	cmd.Flags().BoolVar(&detached, "detached", false, "")
+	cmd.Flags().MarkHidden("detached")
+	return cmd
+}
+
+// detach runs wong again with args and input on its stdin, in a session of its own, and returns without waiting for it.
+func detach(input []byte, args ...string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	child := exec.Command(self, args...)
+	child.Stdin = r
+	child.SysProcAttr = detachedAttr()
+	err = child.Start()
+	r.Close()
+	if err != nil {
+		w.Close()
+		return err
+	}
+	_, err = w.Write(input)
+	return errors.Join(err, w.Close(), child.Process.Release())
 }

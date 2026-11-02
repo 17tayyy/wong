@@ -36,10 +36,26 @@ var (
 	sessionRE      = regexp.MustCompile(`^[\w-]{1,128}$`)
 )
 
-// FileNotes answers PreToolUse on a file with the notes of its project that cite it or its folder, each once per session.
+// FileNotes answers PreToolUse on files with the notes of their project that cite them or their folder, each once per session.
 func FileNotes(in Input, env Env) string {
-	file := filepath.Clean(in.ToolInput.FilePath)
-	if in.ToolInput.FilePath == "" || !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
+	files, _ := touched(in, env, true)
+	var blocks []string
+	for _, file := range files {
+		if block := fileNotes(file, in.SessionID, env); block != "" {
+			blocks = append(blocks, block)
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "additionalContext": strings.Join(blocks, "\n")}})
+	return string(out)
+}
+
+// fileNotes lists the notes that cite a file or its folder and that the session has not seen yet, and remembers them as seen.
+func fileNotes(file, session string, env Env) string {
+	file = filepath.Clean(file)
+	if !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
 		return ""
 	}
 	project, dir := env.Repos.Containing(file)
@@ -81,7 +97,7 @@ func FileNotes(in Input, env Env) string {
 	if len(hits) == 0 {
 		return ""
 	}
-	shown := seen(env.Brain, in.SessionID)
+	shown := seen(env.Brain, session)
 	hits = slices.DeleteFunc(hits, func(h hit) bool { return shown[h.path] })
 	if len(hits) == 0 {
 		return ""
@@ -102,9 +118,8 @@ func FileNotes(in Input, env Env) string {
 		b.WriteByte('\n')
 		paths = append(paths, h.path)
 	}
-	remember(env.Brain, in.SessionID, paths)
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "additionalContext": b.String()}})
-	return string(out)
+	remember(env.Brain, session, paths)
+	return b.String()
 }
 
 // cited lists the paths a note names: in backticks with a slash, and in its file: sources.

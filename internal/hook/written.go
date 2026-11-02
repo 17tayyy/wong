@@ -15,17 +15,38 @@ import (
 	"github.com/17tayyy/wong/internal/remote"
 )
 
-// NoteWritten answers PostToolUse on a file of the brain with what wong needs to check it and sync it, for the agent to fix at once.
+// NoteWritten answers PostToolUse on files of the brain with what wong needs to check them and sync them, for the agent to fix at once.
 func NoteWritten(in Input, env Env) string {
-	if in.ToolInput.FilePath == "" || env.Brain == "" {
+	if env.Brain == "" {
 		return ""
 	}
-	rel, err := filepath.Rel(filepath.Clean(env.Brain), filepath.Clean(in.ToolInput.FilePath))
+	files, created := touched(in, env, false)
+	var reasons []string
+	for _, file := range files {
+		if reason := noteFixes(file, created[file], env); reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	reason := strings.Join(reasons, "\n")
+	if env.Agent == Codex {
+		out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PostToolUse", "additionalContext": reason}})
+		return string(out)
+	}
+	out, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
+	return string(out)
+}
+
+// noteFixes says what a file of the brain lacks for wong to check it and sync it, or "" when it lacks nothing.
+func noteFixes(file string, created bool, env Env) string {
+	rel, err := filepath.Rel(filepath.Clean(env.Brain), filepath.Clean(file))
 	rel = filepath.ToSlash(rel)
 	if err != nil || !remote.Synced(rel) {
 		return ""
 	}
-	data, err := os.ReadFile(in.ToolInput.FilePath)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return ""
 	}
@@ -41,16 +62,14 @@ func NoteWritten(in Input, env Env) string {
 		if n, err := note.Parse(data); err != nil {
 			fixes = append(fixes, fmt.Sprintf("its frontmatter does not parse (%v), so wong leaves it out", err))
 		} else {
-			fixes = append(fixes, lint(n, rel, scope, project, in.ToolName == "Write", env)...)
+			fixes = append(fixes, lint(n, rel, scope, project, created, env)...)
 		}
 	}
 	if len(fixes) == 0 {
 		return ""
 	}
-	reason := fmt.Sprintf("wong: %s is saved, but needs this so wong can check it and sync it. Fix it now, in one edit; wong's fields go at the top level "+
+	return fmt.Sprintf("wong: %s is saved, but needs this so wong can check it and sync it. Fix it now, in one edit; wong's fields go at the top level "+
 		"of the frontmatter, beside name and description, not under metadata:\n- %s\n", rel, strings.Join(fixes, "\n- "))
-	out, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
-	return string(out)
 }
 
 // shelfOf returns the project and scope of a note on a shelf, me or a project's folder, and false for any other file.

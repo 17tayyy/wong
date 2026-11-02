@@ -1,4 +1,4 @@
-// Package hook answers Claude Code's hooks: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
+// Package hook answers the hooks of Claude Code and Codex: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
 package hook
 
 import (
@@ -25,6 +25,7 @@ const (
 	maxFindings = 5
 	maxReview   = 15
 	maxMaintain = 3
+	maxIndex    = 150
 )
 
 // Input is the part of a hook's JSON input that wong reads.
@@ -35,10 +36,12 @@ type Input struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
 		FilePath string `json:"file_path"`
+		Command  string `json:"command"`
 	} `json:"tool_input"`
 }
 
 type Env struct {
+	Agent   Agent
 	Brain   string
 	Home    string
 	Repos   repos.Registry
@@ -87,15 +90,29 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	project := env.Repos.ProjectOf(dir)
 	if project == "" {
 		if isRepo {
-			fmt.Fprintf(&b, "wong: this repo is not linked to the brain, so Claude Code keeps its memory outside it. "+
+			outside := "Claude Code keeps its memory outside it"
+			if env.Agent == Codex {
+				outside = "none of the user's project notes apply here yet"
+			}
+			fmt.Fprintf(&b, "wong: this repo is not linked to the brain, so %s. "+
 				"If it belongs to a project (in the brain: %s), link it with `wong link --project <id>` and restart the session.\n",
-				strings.Join(projects(env.Brain), ", "))
+				outside, strings.Join(projects(env.Brain), ", "))
+		}
+		if env.Agent == Codex {
+			globalIndex(&b, env)
+			saving(&b, env, "me", "global")
 		}
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "wong: this session's memory is the brain's project %q (%s).\n",
-		project, link.MemoryDir(env.Brain, env.Home, "projects/"+project))
+	if env.Agent == Codex {
+		fmt.Fprintf(&b, "wong: the brain's project %q (%s) is your memory in this session, shared with every agent the user works with. "+
+			"Its notes, one a line; read the ones that bear on your task:\n%s\n",
+			project, link.MemoryDir(env.Brain, env.Home, "projects/"+project), index(env.Brain, "projects/"+project, env.Home))
+	} else {
+		fmt.Fprintf(&b, "wong: this session's memory is the brain's project %q (%s).\n",
+			project, link.MemoryDir(env.Brain, env.Home, "projects/"+project))
+	}
 	for _, shelf := range []struct{ dir, who string }{{"projects/" + project, "This project"}, {"me", "me/"}} {
 		n := brain.ArchivedIn(env.Brain, shelf.dir)
 		if n == 0 {
@@ -109,21 +126,8 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 			"`wong note search --archive <words>`, only when the user asks about older work.\n",
 			shelf.who, n, notes, link.MemoryDir(env.Brain, env.Home, shelf.dir+"/"+brain.ArchiveDir))
 	}
-	if index, err := os.ReadFile(filepath.Join(env.Brain, "me", "MEMORY.md")); err == nil && len(strings.TrimSpace(string(index))) > 0 {
-		fmt.Fprintf(&b, "\nGlobal preferences from the brain; the notes are in %s, read one when it applies:\n%s\n",
-			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))
-	}
-	fmt.Fprintf(&b, "\nWhen you save a note in the brain, its frontmatter carries at the top level, beside name and description and not under "+
-		"metadata: `kind` (preference, project, "+
-		"person, client, decision or reference), `scope` (`project:%s` here, `global` in me/), `sources` for what it relies on "+
-		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, `pending: release` or "+
-		"`pending: main` when it leaves work for the next release or push to the main branch, and `visibility: local` when it must "+
-		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", project)
-	if g, err := graph.Load(env.Brain); err == nil {
-		if tags := g.TagList(40); len(tags) > 0 {
-			fmt.Fprintf(&b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))
-		}
-	}
+	globalIndex(&b, env)
+	saving(&b, env, project, "project:"+project)
 
 	var findings []check.Finding
 	if rep, err := check.Run(ctx, check.Options{Brain: env.Brain, Repos: env.Repos, Tracker: env.Tracker, Project: project}); err == nil {
@@ -202,6 +206,48 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		}
 	}
 	return b.String()
+}
+
+// globalIndex adds the index of me/, the notes that apply in every repo.
+func globalIndex(b *strings.Builder, env Env) {
+	if index, err := os.ReadFile(filepath.Join(env.Brain, "me", "MEMORY.md")); err == nil && len(strings.TrimSpace(string(index))) > 0 {
+		fmt.Fprintf(b, "\nGlobal preferences from the brain; the notes are in %s, read one when it applies:\n%s\n",
+			link.MemoryDir(env.Brain, env.Home, "me"), strings.TrimSpace(string(index)))
+	}
+}
+
+// saving tells the agent how a note of the brain is written: where, for an agent with no memory of its own, and in what format.
+func saving(b *strings.Builder, env Env, shelf, scope string) {
+	if env.Agent == Codex {
+		fmt.Fprintf(b, "\nYou have no memory of your own between sessions: the brain is it. When you learn something worth keeping "+
+			"(what the user prefers or corrects, a decision and why, how something works that the code and its history do not say), "+
+			"look for a note on it with `wong note search <words>` and update it, or write a new one with `wong note write --to %s` "+
+			"(see `wong note write --help`). Never save what the repo already records, or what only matters to this session.\n", shelf)
+	}
+	fmt.Fprintf(b, "\nWhen you save a note in the brain, its frontmatter carries at the top level, beside name and description and not under "+
+		"metadata: `kind` (preference, project, "+
+		"person, client, decision or reference), `scope` (`%s` here, `global` in me/), `sources` for what it relies on "+
+		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, `pending: release` or "+
+		"`pending: main` when it leaves work for the next release or push to the main branch, and `visibility: local` when it must "+
+		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", scope)
+	if g, err := graph.Load(env.Brain); err == nil {
+		if tags := g.TagList(40); len(tags) > 0 {
+			fmt.Fprintf(b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))
+		}
+	}
+}
+
+// index returns a shelf's MEMORY.md, cut short past maxIndex lines.
+func index(brain, shelf, home string) string {
+	data, _ := os.ReadFile(filepath.Join(brain, shelf, "MEMORY.md"))
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return "(no notes yet)"
+	}
+	if len(lines) > maxIndex {
+		lines = append(lines[:maxIndex], fmt.Sprintf("- and %d more in %s", len(lines)-maxIndex, link.MemoryDir(brain, home, shelf+"/MEMORY.md")))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server.

@@ -29,4 +29,7 @@ func TestHookNeverFailsTheSession(t *testing.T) {
 	if _, err := run(t, "hook", "session-middle"); err == nil {
 		t.Error("an unknown hook was accepted")
 	}
+	if _, err := run(t, "hook", "session-start", "--agent", "cursor"); err == nil {
+		t.Error("an unknown agent was accepted")
+	}
 }

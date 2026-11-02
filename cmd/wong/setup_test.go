@@ -232,3 +232,56 @@ func mustRun(t *testing.T, args ...string) string {
 	}
 	return out
 }
+
+func TestSetupInstallsTheCodexPlugin(t *testing.T) {
+	record := fakeClaude(t)
+	codexLog := filepath.Join(filepath.Dir(record), "codex.log")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(record), "codex"), []byte("#!/bin/sh\necho \"$*\" >> "+codexLog+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := machine(t, t.TempDir(), "laptop", "deploy.md")
+	codexHome := filepath.Join(home, ".codex")
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(`model = "gpt-6.1-sol"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		out, err := run(t, "setup")
+		if err != nil || !strings.Contains(out, "Installed the wong plugin for Codex") || !strings.Contains(out, "run /hooks") {
+			t.Fatalf("setup: %v\n%s", err, out)
+		}
+	}
+	if data, _ := os.ReadFile(codexLog); strings.Count(string(data), "plugin marketplace add 17tayyy/wong\nplugin add wong@wong\n") != 2 {
+		t.Errorf("codex was run with %q", data)
+	}
+	brain := filepath.Join(home, ".wong")
+	want := "model = \"gpt-6.1-sol\"\n\n[sandbox_workspace_write]\nwritable_roots = ['" + brain + "']\n"
+	if data, _ := os.ReadFile(filepath.Join(codexHome, "config.toml")); string(data) != want {
+		t.Errorf("config.toml = %q, want %q", data, want)
+	}
+}
+
+func TestWritableRootLeavesAConfigThatSetsThemAlone(t *testing.T) {
+	dir := t.TempDir()
+	config := "[sandbox_workspace_write]\nwritable_roots = [\"/srv\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := writableRoot(dir, "/home/me/.wong"); !strings.Contains(got, "add /home/me/.wong to sandbox_workspace_write.writable_roots") {
+		t.Errorf("writableRoot = %q", got)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "config.toml")); string(data) != config {
+		t.Errorf("config.toml changed: %q", data)
+	}
+	empty := t.TempDir()
+	if got := writableRoot(empty, "/home/me/.wong"); !strings.Contains(got, "Codex may now write notes in /home/me/.wong") {
+		t.Errorf("writableRoot without a config = %q", got)
+	}
+	if data, _ := os.ReadFile(filepath.Join(empty, "config.toml")); string(data) != "[sandbox_workspace_write]\nwritable_roots = ['/home/me/.wong']\n" {
+		t.Errorf("a new config.toml = %q", data)
+	}
+}
