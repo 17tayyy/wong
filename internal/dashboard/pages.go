@@ -37,6 +37,7 @@ type page struct {
 	Standing    remote.Standing
 	Browser     bool
 	Storage     string
+	StatusURL   string
 	Snack       *snack
 	Masthead    masthead
 
@@ -163,7 +164,7 @@ var snacks = map[string]string{
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
-	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, AccountNav: d.opts.Account != nil && d.account != ""}
+	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, AccountNav: d.opts.Account != nil && d.account != "", StatusURL: d.opts.StatusURL}
 	if d.account != "" {
 		p.Server = d.account
 	}

@@ -59,6 +59,7 @@
         {{range .Masthead.Machines}}<li>{{icon "laptop"}}<span>{{.Name}}</span><span class="seen">{{if .Seen.IsZero}}not seen{{else}}{{ago .Seen}}{{end}}</span></li>{{end}}
       </ul>
       <a class="btn ghost small" href="/device">{{icon "plus"}}Connect a machine</a>
+      {{with .StatusURL}}<a class="btn ghost small" href="{{.}}" rel="noopener">{{icon "activity"}}Service status</a>{{end}}
       <form method="post" action="/logout"><button class="btn ghost small">{{icon "log-out"}}Sign out</button></form>
     </div>
   </nav>

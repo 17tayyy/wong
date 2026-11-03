@@ -25,7 +25,7 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, dir, account, addr, certFile, keyFile, signInURL, accountService, maxSize, maxFile string
+	var db, dir, account, addr, certFile, keyFile, signInURL, accountService, statusURL, maxSize, maxFile string
 	var sealedOnly bool
 	var maxRequests int
 	var admin adminFlags
@@ -57,7 +57,8 @@ func newServeCmd() *cobra.Command {
 			"GET /admin/accounts lists every account with its size and last change.\n" +
 			"--sign-in-url sends people without a token to the service's sign-in page, and\n" +
 			"--account-service adds an Account page to the dashboard, filled with what the\n" +
-			"service answers at its URL, with {account} replaced, asked with that token.\n\n" +
+			"service answers at its URL, with {account} replaced, asked with that token.\n" +
+			"--status-url links the dashboard to a page that says whether the service works.\n\n" +
 			"MCP clients such as claude.ai connect with OAuth: given the address of /mcp, they\n" +
 			"register and send you to approve them on the dashboard, and get a token of the\n" +
 			"brain, named after them and revoked like any other. The key that signs their\n" +
@@ -137,7 +138,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts := dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, OAuth: oauth, SignInURL: signInURL}
+			opts := dashboard.Options{Webhooks: hooks, Devices: devices, SignIns: signins, OAuth: oauth, SignInURL: signInURL, StatusURL: statusURL}
 			if accountService != "" {
 				if dir == "" || os.Getenv("WONG_ADMIN_TOKEN") == "" || !strings.Contains(accountService, "{account}") {
 					return errors.New("--account-service needs --accounts, WONG_ADMIN_TOKEN and {account} in its URL")
@@ -215,6 +216,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
+	cmd.Flags().StringVar(&statusURL, "status-url", "", "link the dashboard to this page that says whether the service works")
 	cmd.Flags().StringVar(&accountService, "account-service", "", "with --accounts: ask this sign-up service's URL, with {account} in it, what each account's plan is, for the Account page")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")
 	cmd.Flags().BoolVar(&admin.list, "tokens", false, "list who has a token and when they last used it, and exit")

@@ -738,3 +738,31 @@ func TestASealedBrainShowsNoNotes(t *testing.T) {
 		t.Errorf("Connect a machine should still work on a sealed brain: %d", code)
 	}
 }
+
+func TestTheRailLinksTheStatusPageWhenTheServiceHasOne(t *testing.T) {
+	_, b := signedIn(t)
+	if _, body := b.get("/"); strings.Contains(body, "Service status") {
+		t.Error("a server without a status page links one")
+	}
+
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), StatusURL: "https://status.example/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	cloud := browser{t, srv, &http.Client{Jar: jar}}
+	if code, body := cloud.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK || !strings.Contains(body, `href="https://status.example/" rel="noopener">`) {
+		t.Errorf("the rail of a service with a status page:\n%s", body)
+	}
+}
