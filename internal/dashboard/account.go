@@ -121,7 +121,12 @@ func (s *AccountService) setDigest(ctx context.Context, account, email string) e
 		data, _ := json.Marshal(map[string]string{"email": email})
 		method, body = http.MethodPost, bytes.NewReader(data)
 	}
-	u := strings.TrimSuffix(strings.ReplaceAll(s.URL, "{account}", url.PathEscape(account)), "/") + "/digest"
+	u := strings.ReplaceAll(s.URL, "{account}", url.PathEscape(account))
+	if strings.HasSuffix(u, "/") {
+		u += "digest/"
+	} else {
+		u += "/digest"
+	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return err

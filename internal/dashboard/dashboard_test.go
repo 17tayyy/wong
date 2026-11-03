@@ -813,7 +813,7 @@ func TestWeeklyEmailOnTheAccountPage(t *testing.T) {
 		switch r.Method + " " + r.URL.Path {
 		case "GET /api/account/bob/":
 			json.NewEncoder(w).Encode(map[string]any{"plan": map[string]string{"name": "Beta"}, "digest": map[string]any{"email": email, "confirmed": confirmed}})
-		case "POST /api/account/bob/digest":
+		case "POST /api/account/bob/digest/":
 			var in struct{ Email string }
 			json.NewDecoder(r.Body).Decode(&in)
 			if strings.HasPrefix(in.Email, "no@") {
@@ -823,7 +823,7 @@ func TestWeeklyEmailOnTheAccountPage(t *testing.T) {
 			}
 			email, confirmed = in.Email, false
 			io.WriteString(w, `{}`)
-		case "DELETE /api/account/bob/digest":
+		case "DELETE /api/account/bob/digest/":
 			email, confirmed = "", false
 			w.WriteHeader(http.StatusNoContent)
 		default:
