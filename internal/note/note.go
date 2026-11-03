@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -148,6 +149,8 @@ type Note struct {
 	Kind        Kind
 	Scope       string
 	Tags        []string
+	// AppliesTo holds globs of the files the note holds for, from a repo's root: app/billing/**, *.sql.
+	AppliesTo []string
 	// Pending is "release" or "main" when the note leaves work for the next release or push to the main branch.
 	Pending string
 	// Visibility is "local" when the note stays on its machine: never pushed to the server, nor its deletion, and never overwritten by a pull.
@@ -195,6 +198,8 @@ func Parse(data []byte) (*Note, error) {
 			n.Scope, err = scope(value)
 		case "tags":
 			n.Tags = tags(value)
+		case "applies_to":
+			n.AppliesTo, err = globs(value)
 		case "pending":
 			n.Pending = value.Value
 		case "visibility":
@@ -259,6 +264,13 @@ func (n *Note) Marshal() ([]byte, error) {
 			seq.Content = append(seq.Content, str(t))
 		}
 		add("tags", seq)
+	}
+	if len(n.AppliesTo) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+		for _, g := range n.AppliesTo {
+			seq.Content = append(seq.Content, str(g))
+		}
+		add("applies_to", seq)
 	}
 	if n.Pending != "" {
 		add("pending", str(n.Pending))
@@ -469,4 +481,73 @@ func verified(v *yaml.Node) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("verified must be a date (YYYY-MM-DD), got %q", v.Value)
+}
+
+func globs(n *yaml.Node) ([]string, error) {
+	var list []string
+	switch n.Kind {
+	case yaml.ScalarNode:
+		list = []string{n.Value}
+	case yaml.SequenceNode:
+		for _, item := range n.Content {
+			if item.Kind != yaml.ScalarNode {
+				return nil, errors.New("applies_to must be a glob or a list of globs")
+			}
+			list = append(list, item.Value)
+		}
+	default:
+		return nil, errors.New("applies_to must be a glob or a list of globs")
+	}
+	for i, g := range list {
+		g = strings.TrimPrefix(strings.TrimSpace(g), "./")
+		if err := CheckGlob(g); err != nil {
+			return nil, err
+		}
+		list[i] = g
+	}
+	return list, nil
+}
+
+// CheckGlob refuses a glob of applies_to that is empty, leaves the repo or does not parse.
+func CheckGlob(glob string) error {
+	if glob == "" || strings.HasPrefix(glob, "/") || slices.Contains(strings.Split(glob, "/"), "..") {
+		return fmt.Errorf("applies_to %q: write a glob from the repo's root, such as app/billing/** or *.sql", glob)
+	}
+	for _, part := range strings.Split(glob, "/") {
+		if _, err := path.Match(part, ""); err != nil {
+			return fmt.Errorf("applies_to %q: %w", glob, err)
+		}
+	}
+	return nil
+}
+
+// MatchGlob reports whether a file's path in its repo matches a glob of applies_to, where ** stands for any number of
+// folders and a glob with no folder matches the file's name anywhere.
+func MatchGlob(glob, name string) bool {
+	if !strings.Contains(glob, "/") {
+		ok, _ := path.Match(glob, path.Base(name))
+		return ok
+	}
+	return matchParts(strings.Split(glob, "/"), strings.Split(name, "/"))
+}
+
+func matchParts(glob, name []string) bool {
+	for len(glob) > 0 {
+		if glob[0] == "**" {
+			for i := range len(name) + 1 {
+				if matchParts(glob[1:], name[i:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if len(name) == 0 {
+			return false
+		}
+		if ok, _ := path.Match(glob[0], name[0]); !ok {
+			return false
+		}
+		glob, name = glob[1:], name[1:]
+	}
+	return len(name) == 0
 }

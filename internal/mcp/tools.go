@@ -110,6 +110,7 @@ var tools = []tool{
 			"body":        str("The note's text, in markdown. Link other notes with [[name]], only to notes that exist."),
 			"sources":     strs(sourceArg),
 			"tags":        strs("Tags for the note: reuse the tags in use; lowercase, words joined by -, nested with /."),
+			"applies_to":  strs("Globs of the files the note holds for, from a repo's root, such as app/billing/** or *.sql: wong shows the note to agents about to read or change one of them, without citing each file."),
 			"pending":     map[string]any{"type": "string", "enum": []string{"release", "main"}, "description": "Set it when the note leaves work for the next deploy: release for the next v* tag, main for the next push to the main branch. The user is reminded once it happens."},
 			"distinct":    map[string]any{"type": "boolean", "description": "Set it only when write_note said a note covers the same subject and you checked that it does not."},
 		}),
@@ -401,6 +402,7 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 	var a struct {
 		To, Name, Description, Kind, Body, Pending string
 		Sources, Tags                              []string
+		AppliesTo                                  []string `json:"applies_to"`
 		Distinct                                   bool
 	}
 	if err := decode(args, &a); err != nil {
@@ -414,7 +416,12 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 		return "", argErr("a note needs a name, a one-line description and a body")
 	}
 	n := note.New(strings.TrimSpace(a.Name), strings.Join(strings.Fields(a.Description), " "), kind, "", "\n"+strings.TrimSpace(a.Body)+"\n")
-	n.Sources, n.Tags, n.Pending = a.Sources, a.Tags, a.Pending
+	for _, g := range a.AppliesTo {
+		if err := note.CheckGlob(g); err != nil {
+			return "", argErr("%v", err)
+		}
+	}
+	n.Sources, n.Tags, n.Pending, n.AppliesTo = a.Sources, a.Tags, a.Pending, a.AppliesTo
 	checks := remote.Agent
 	checks.Duplicates = !a.Distinct
 	p, _, err := s.store.CreateNote(machine, a.To, n, checks)

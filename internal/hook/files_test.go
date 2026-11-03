@@ -126,7 +126,21 @@ func TestFileNotesShowPitfallsFirst(t *testing.T) {
 	in.ToolInput.FilePath = filepath.Join(repo, "app", "payments", "billing.py")
 
 	got := hookContext(t, FileNotes(in, env))
-	if !strings.Contains(got, "or its folder. Read the ones that bear on what you are about to do:\n- retries (~/.wong/projects/acme/retries.md), a pitfall: retries double-charge\n- billing (") {
+	if !strings.Contains(got, "or its folder, or apply to it. Read the ones that bear on what you are about to do:\n- retries (~/.wong/projects/acme/retries.md), a pitfall: retries double-charge\n- billing (") {
 		t.Errorf("context:\n%s", got)
+	}
+}
+
+func TestFileNotesShowTheNotesThatApplyToAFile(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(env.Brain, "projects/acme/billing-style.md"), "---\nname: billing-style\ndescription: money is in cents\nkind: preference\nscope: project:acme\n"+
+		"applies_to: [app/billing/**, \"*.sql\"]\n---\nAmounts are integers in cents.\n")
+	for name, want := range map[string]bool{"app/billing/invoice.py": true, "app/billing/stripe/hooks.py": true, "db/0001_init.sql": true, "app/models.py": false} {
+		write(t, filepath.Join(repo, filepath.FromSlash(name)), "x\n")
+		in := Input{SessionID: name, ToolName: "Read"}
+		in.ToolInput.FilePath = filepath.Join(repo, filepath.FromSlash(name))
+		if got := hookContext(t, FileNotes(in, env)); strings.Contains(got, "- billing-style (") != want {
+			t.Errorf("%s:\n%s", name, got)
+		}
 	}
 }

@@ -202,6 +202,11 @@ verified: 2026-10-27
   start lists them, and `wong tags` too. A tag is lowercase, words joined by `-`, nested
   with `/` (`infra/k8s`). Never a new spelling of a tag in use (`deployment` when `deploy`
   exists, `Testing` when `test` exists); `wong check` flags those.
+- `applies_to`: globs from a repo's root of the files the note holds for, such as
+  `[app/billing/**, "*.sql"]`, for conventions that cover a whole folder or kind of file. wong
+  shows the note before an agent reads or changes a file that matches, without the note
+  citing each one. A glob with no folder matches the file's name anywhere. Set it with
+  `--applies-to` on `wong note write`.
 - `pending`: `release` when the note leaves work for the next release (a `v*` tag in the
   project's repos), `main` when it leaves work for the next push to the main branch: a
   migration to run in production, a flag to turn on, someone to tell. When the deploy

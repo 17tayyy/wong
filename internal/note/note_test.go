@@ -267,3 +267,39 @@ func TestKeptLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestAppliesTo(t *testing.T) {
+	n, err := Parse([]byte("---\nname: a\ndescription: d\napplies_to: [./app/billing/**, \"*.sql\"]\n---\nBody.\n"))
+	if err != nil || !slices.Equal(n.AppliesTo, []string{"app/billing/**", "*.sql"}) {
+		t.Fatalf("Parse = %v, %v", n, err)
+	}
+	if out, _ := n.Marshal(); !strings.Contains(string(out), "applies_to: [app/billing/**, '*.sql']\n") {
+		t.Errorf("Marshal:\n%s", out)
+	}
+	if n, err := Parse([]byte("---\nname: a\ndescription: d\napplies_to: docs/*.md\n---\n")); err != nil || !slices.Equal(n.AppliesTo, []string{"docs/*.md"}) {
+		t.Errorf("one glob: %v, %v", n, err)
+	}
+	for _, bad := range []string{"/etc/**", "../other/**", "app/[", "{a: b}"} {
+		if _, err := Parse([]byte("---\nname: a\ndescription: d\napplies_to: " + bad + "\n---\n")); err == nil {
+			t.Errorf("applies_to %s was taken", bad)
+		}
+	}
+	for _, c := range []struct {
+		glob, name string
+		want       bool
+	}{
+		{"app/billing/**", "app/billing/x.py", true},
+		{"app/billing/**", "app/billing/a/b/x.py", true},
+		{"app/billing/**", "app/billingx/x.py", false},
+		{"app/**/*.py", "app/x.py", true},
+		{"app/**/*.py", "app/a/b/x.py", true},
+		{"app/**/*.py", "app/a/x.go", false},
+		{"*.sql", "db/migrations/0001.sql", true},
+		{"*.sql", "db/0001.sqlx", false},
+		{"docs/*.md", "docs/a/b.md", false},
+	} {
+		if got := MatchGlob(c.glob, c.name); got != c.want {
+			t.Errorf("MatchGlob(%q, %q) = %v", c.glob, c.name, got)
+		}
+	}
+}

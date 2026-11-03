@@ -217,6 +217,14 @@ func TestTools(t *testing.T) {
 	if text, failed := c.tool("write_note", `{"to":"acme","name":"x","description":"y","kind":"opinion","body":"z"}`); !failed || !strings.Contains(text, "unknown kind") {
 		t.Errorf("write_note with a bad kind: %s", text)
 	}
+	if text, failed := c.tool("write_note", `{"to":"acme","name":"Cents","description":"Money in cents","kind":"pitfall","body":"Floats lost cents.","applies_to":["app/billing/**"]}`); failed {
+		t.Errorf("write_note with applies_to: %s", text)
+	} else if text, _ := c.tool("read_note", `{"note":"Cents"}`); !strings.Contains(text, "kind: pitfall") || !strings.Contains(text, "applies_to: [app/billing/**]") {
+		t.Errorf("read_note of a pitfall:\n%s", text)
+	}
+	if text, failed := c.tool("write_note", `{"to":"acme","name":"Bad glob","description":"d","kind":"project","body":"z","applies_to":["/etc/**"]}`); !failed || !strings.Contains(text, "applies_to") {
+		t.Errorf("write_note with a bad glob: %s", text)
+	}
 	if text, failed := c.tool("verify_note", `{"note":"rate-limits","sources":["commit:api@abc1234"]}`); failed {
 		t.Errorf("verify_note: %s", text)
 	}

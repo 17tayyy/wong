@@ -61,7 +61,7 @@ type Hit struct {
 }
 
 // Citing returns the project of a file in a linked repo, the file's path in its repo, and the notes of that project that
-// cite it or its folder: pitfalls first, then the closest.
+// cite it or its folder or apply to it: pitfalls first, then the closest.
 func Citing(file string, env Env) (project, rel string, hits []Hit) {
 	file = filepath.Clean(file)
 	if !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
@@ -89,11 +89,17 @@ func Citing(file string, env Env) (project, rel string, hits []Hit) {
 		for _, ref := range cited(string(data)) {
 			best = max(best, reaches(ref, rel, repo, dir, env.Home))
 		}
+		n, err := note.Parse(data)
+		if err == nil && best == 0 && slices.ContainsFunc(n.AppliesTo, func(g string) bool {
+			return note.MatchGlob(g, rel) || note.MatchGlob(g, repo+"/"+rel)
+		}) {
+			best = 1
+		}
 		if best == 0 {
 			continue
 		}
 		h := Hit{Path: p, Name: strings.TrimSuffix(filepath.Base(p), ".md"), score: best}
-		if n, err := note.Parse(data); err == nil {
+		if err == nil {
 			h.Name, h.Description, h.Pitfall = n.Name, n.Description, n.Kind == note.Pitfall
 		}
 		hits = append(hits, h)
@@ -128,7 +134,7 @@ func fileNotes(file, session string, env Env) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "wong: notes of the brain's project %q cite %s or its folder. Read the ones that bear on what you are about to do:\n", project, rel)
+	fmt.Fprintf(&b, "wong: notes of the brain's project %q cite %s or its folder, or apply to it. Read the ones that bear on what you are about to do:\n", project, rel)
 	var paths []string
 	doubts := false
 	for _, h := range hits {

@@ -116,6 +116,16 @@ func TestNoteWriteAndMove(t *testing.T) {
 	if _, err := runWithInput(t, "b", "--brain", brain, "note", "write", "--to", "acme", "--name", "x", "--description", "d", "--kind", "feedback"); err == nil {
 		t.Error("an unknown kind was accepted")
 	}
+	if out, err := runWithInput(t, "Never retry a charge.\n", "--brain", brain, "note", "write", "--to", "acme", "--name", "charges",
+		"--description", "Charges are not retried", "--kind", "pitfall", "--applies-to", "app/billing/**", "--applies-to", "*.sql"); err != nil {
+		t.Fatalf("write a pitfall: %v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(filepath.Join(brain, "projects/acme/charges.md")); !strings.Contains(string(data), "kind: pitfall\nscope: project:acme\napplies_to: [app/billing/**, '*.sql']\n") {
+		t.Errorf("charges.md:\n%s", data)
+	}
+	if _, err := runWithInput(t, "b", "--brain", brain, "note", "write", "--to", "acme", "--name", "y", "--description", "d", "--kind", "project", "--applies-to", "../x"); err == nil {
+		t.Error("a glob that leaves the repo was accepted")
+	}
 
 	out, err = run(t, "--brain", brain, "note", "move", "orca", "--to", "me")
 	if err != nil || !strings.Contains(out, "moved projects/acme/orca.md -> me/orca.md") {

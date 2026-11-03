@@ -150,7 +150,7 @@ func newNoteArchiveCmd(brainDir *string, back bool) *cobra.Command {
 
 func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	var to, name, description, kind, pending string
-	var sources, tags []string
+	var sources, tags, appliesTo []string
 	var distinct bool
 	cmd := &cobra.Command{
 		Use:   "write --to <project|me> --name <name> --description <text> --kind <kind> < body.md",
@@ -160,7 +160,9 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 			"person, client, decision, reference or pitfall (what was tried and failed, or what\n" +
 			"is fragile, in the files it cites). --source, repeatable, is linear:<ID>,\n" +
 			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL. --pending release or\n" +
-			"main marks work left for the next v* tag or push to the main branch.\n\n" +
+			"main marks work left for the next v* tag or push to the main branch. --applies-to,\n" +
+			"repeatable, is a glob from a repo's root (app/billing/**, *.sql) of the files the note\n" +
+			"holds for: wong shows it before an agent reads or changes one of them.\n\n" +
 			"It refuses a --tag that is a spelling of a tag in use (wong tags lists them), a [[link]]\n" +
 			"that reaches no note, and a note on the same shelf that covers the same subject: update\n" +
 			"that one instead, or pass --distinct when the subject is really different. Afterwards it\n" +
@@ -181,6 +183,11 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 			if err := note.CheckPending(pending); err != nil {
 				return err
 			}
+			for _, g := range appliesTo {
+				if err := note.CheckGlob(g); err != nil {
+					return err
+				}
+			}
 			body, err := io.ReadAll(cmd.InOrStdin())
 			if err != nil {
 				return err
@@ -189,7 +196,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 				return errors.New("write the note's body on stdin")
 			}
 			n := note.New(name, description, k, scope, "\n"+strings.TrimSpace(string(body))+"\n")
-			n.Sources, n.Pending = sources, pending
+			n.Sources, n.Pending, n.AppliesTo = sources, pending, appliesTo
 			g, err := graph.Load(*brainDir)
 			if err != nil {
 				return err
@@ -236,6 +243,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	cmd.Flags().StringVar(&kind, "kind", "", note.KindNames)
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "where a claim comes from (repeatable)")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "a tag for the note, reusing those in use (repeatable)")
+	cmd.Flags().StringArrayVar(&appliesTo, "applies-to", nil, "a glob of the files the note holds for, from a repo's root (repeatable)")
 	cmd.Flags().StringVar(&pending, "pending", "", "release or main: the note leaves work for the next v* tag or push to the main branch")
 	cmd.Flags().BoolVar(&distinct, "distinct", false, "write it although a note on the same shelf looks like the same subject")
 	for _, f := range []string{"to", "name", "description", "kind"} {
