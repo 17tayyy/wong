@@ -1,0 +1,64 @@
+{{define "crumbs"}}{{icon "calendar"}}<span>This week</span>{{end}}
+{{define "main"}}
+{{with .Week}}
+<div class="page wide week">
+  <h1>This week</h1>
+  <p class="desc">What changed in the brain since {{.From}}, what was fixed, and what is left.</p>
+  <p class="tally">{{.Summary}}</p>
+
+  <section class="week-part" aria-labelledby="w-changed">
+    <h2 id="w-changed">{{icon "file-text"}}Changed <span class="count">{{len .Notes}}</span></h2>
+    {{if .Notes}}
+    <div class="table-wrap">
+    <table class="db">
+      <thead><tr><th scope="col">Note</th><th scope="col">Last change</th><th scope="col" class="c-by">By</th><th scope="col" class="c-date">When</th></tr></thead>
+      <tbody>
+        {{range .Notes}}
+        <tr>
+          <td class="name"><a href="/changes/{{.Seq}}">{{icon "file-text"}}<span>{{.Name}}</span></a> <span class="pill gray">{{.Folder}}</span></td>
+          <td>{{template "action" .}}{{if gt .Changes 1}} <span class="also">{{.Changes}} changes</span>{{end}}</td>
+          <td class="by c-by">{{icon "laptop"}}{{join .Machines ", "}}</td>
+          <td class="c-date">{{stamp .When}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    </div>
+    {{else}}
+    <p class="empty">No note changed this week.</p>
+    {{end}}
+  </section>
+
+  <section class="week-part" aria-labelledby="w-fixed">
+    <h2 id="w-fixed">{{icon "circle-check"}}Fixed <span class="count">{{len .Fixed}}</span></h2>
+    {{if .Fixed}}
+    <div class="table-wrap">
+    <table class="db">
+      <thead><tr><th scope="col">Note</th><th scope="col">What was wrong</th><th scope="col">Source</th></tr></thead>
+      <tbody>
+        {{range .Fixed}}
+        <tr>
+          <td class="name"><a href="{{notePath .Path}}">{{icon "file-text"}}<span>{{.Name}}</span></a> <span class="pill gray">{{.Folder}}</span></td>
+          <td class="msg">{{.Message}} <code class="chip">{{.Ref}}</code></td>
+          <td class="muted">{{.Source}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    </div>
+    {{else}}
+    <p class="empty">No correction from the GitHub or Linear webhooks closed this week. One closes when the fixed note reaches the server.</p>
+    {{end}}
+  </section>
+
+  <section class="week-part" aria-labelledby="w-open">
+    <h2 id="w-open">{{icon "triangle-alert"}}Still open <span class="count">{{.Open}}</span></h2>
+    {{if .Open}}
+    <a class="callout {{if .Stale}}red{{else}}yellow{{end}}" href="/corrections">{{icon "triangle-alert"}}<span><b>{{.Open}} {{if eq .Open 1}}correction is{{else}}corrections are{{end}} open.</b>{{if .Stale}} {{.Stale}} {{if eq .Stale 1}}note contradicts{{else}}notes contradict{{end}} its sources.{{end}} Agents fix them with the maintain-brain skill.</span><span class="go">Review {{icon "arrow-up-right"}}</span></a>
+    {{else}}
+    <div class="callout green">{{icon "circle-check"}}<p>Nothing is open: every note agrees with its sources as far as the last checks and webhooks could tell.</p></div>
+    {{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

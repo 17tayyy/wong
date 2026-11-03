@@ -49,6 +49,7 @@ type page struct {
 	Open    string
 	Slips   []slip
 	Changes []change
+	Week    *weekView
 	More    int
 
 	Entry    *entry
@@ -683,6 +684,136 @@ func (d *Dashboard) corrections(w http.ResponseWriter, r *http.Request, machine 
 }
 
 const historyPage = 50
+
+// weekNote is a note that changed over the week: its last change, how many changes it had and the machines that made them.
+type weekNote struct {
+	change
+	First    string
+	Changes  int
+	Machines []string
+}
+
+// weekView is the brain's last seven days: what changed, what was fixed and how much is left.
+type weekView struct {
+	Since  time.Time
+	Counts remote.Week
+	Notes  []weekNote
+	Fixed  []slip
+	Open   int
+	Stale  int
+}
+
+// From is the first day of the week, as the page writes it.
+func (v weekView) From() string { return v.Since.Local().Format("2 Jan") }
+
+// Summary counts the week's notes in one sentence.
+func (v weekView) Summary() string {
+	if len(v.Notes) == 0 {
+		return "Nothing changed in the brain this week."
+	}
+	plural := func(n int, one, many string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return fmt.Sprintf("%d %s", n, many)
+	}
+	changes, added, removed := 0, 0, 0
+	var machines []string
+	for _, n := range v.Notes {
+		changes += n.Changes
+		if n.First == "created" {
+			added++
+		}
+		if n.Action == "deleted" {
+			removed++
+		}
+		for _, m := range n.Machines {
+			if !slices.Contains(machines, m) {
+				machines = append(machines, m)
+			}
+		}
+	}
+	s := fmt.Sprintf("%s to %s from %s", plural(changes, "change", "changes"), plural(len(v.Notes), "note", "notes"), strings.Join(machines, ", "))
+	var extra []string
+	if added > 0 {
+		extra = append(extra, fmt.Sprintf("%d new", added))
+	}
+	if removed > 0 {
+		extra = append(extra, fmt.Sprintf("%d removed", removed))
+	}
+	if len(extra) > 0 {
+		s += ": " + strings.Join(extra, " and ")
+	}
+	return s + "."
+}
+
+func (d *Dashboard) week(w http.ResponseWriter, r *http.Request, machine string) {
+	b, err := loadBrain(d.store)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	p, err := d.base(r, "week", machine, b)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	p.Title = "This week"
+	v := &weekView{Since: time.Now().AddDate(0, 0, -7)}
+	if v.Counts, err = d.store.Week(v.Since); err != nil {
+		d.fail(w, err)
+		return
+	}
+	byPath := map[string]int{}
+	for before := int64(0); ; {
+		changes, oldest, err := d.changes(b, historyPage, before)
+		if err != nil {
+			d.fail(w, err)
+			return
+		}
+		for _, c := range changes {
+			if c.When.Before(v.Since) || path.Base(c.Path) == "MEMORY.md" {
+				continue
+			}
+			i, ok := byPath[c.Path]
+			if !ok {
+				i = len(v.Notes)
+				byPath[c.Path] = i
+				v.Notes = append(v.Notes, weekNote{change: c})
+			}
+			n := &v.Notes[i]
+			n.Changes++
+			n.First = c.Action
+			if who := signer(c.Machine); !slices.Contains(n.Machines, who) {
+				n.Machines = append(n.Machines, who)
+			}
+		}
+		if len(changes) == 0 || oldest <= 1 || changes[len(changes)-1].When.Before(v.Since) {
+			break
+		}
+		before = oldest
+	}
+	tasks, err := d.store.ClosedTasks(v.Since)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	for _, t := range tasks {
+		name, folder := strings.TrimSuffix(path.Base(t.Note), ".md"), t.Project
+		if e, ok := b.byPath[t.Note]; ok {
+			name = e.Name
+		}
+		v.Fixed = append(v.Fixed, slip{t.Note, name, folder, issue{check.Finding{Note: t.Note, Severity: check.Severity(t.Severity), Ref: t.Ref, Message: t.Message}, t.Source}})
+	}
+	for _, s := range b.slips() {
+		v.Open++
+		if s.Severity == check.Stale {
+			v.Stale++
+		}
+	}
+	p.Week = v
+	d.render(w, "week", p)
+}
 
 func (d *Dashboard) history(w http.ResponseWriter, r *http.Request, machine string) {
 	b, err := loadBrain(d.store)

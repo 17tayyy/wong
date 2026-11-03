@@ -202,3 +202,22 @@ func (s *Store) Tasks(project string) ([]Task, error) {
 	}
 	return tasks, rows.Err()
 }
+
+// ClosedTasks returns the tasks that closed since a time, newest first: the notes their agents fixed.
+func (s *Store) ClosedTasks(since time.Time) ([]Task, error) {
+	rows, err := s.db.Query(`SELECT id, note, project, severity, ref, message, source, created_at FROM tasks
+		WHERE closed_at >= ? ORDER BY closed_at DESC, id`, since.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tasks := []Task{}
+	for rows.Next() {
+		var t Task
+		if err := rows.Scan(&t.ID, &t.Note, &t.Project, &t.Severity, &t.Ref, &t.Message, &t.Source, &t.Created); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}

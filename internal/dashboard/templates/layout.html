@@ -37,6 +37,7 @@
       <a href="/graph"{{if eq .Nav "graph"}} aria-current="page"{{end}}>{{icon "waypoints"}}<span>Graph</span></a>
       <a href="/corrections"{{if eq .Nav "corrections"}} aria-current="page"{{end}}>{{icon "triangle-alert"}}<span>Corrections</span>{{with .Masthead.Corrections}}<span class="badge">{{.}}</span>{{end}}</a>
       <a href="/history"{{if eq .Nav "history"}} aria-current="page"{{end}}>{{icon "history"}}<span>History</span></a>
+      <a href="/week"{{if eq .Nav "week"}} aria-current="page"{{end}}>{{icon "calendar"}}<span>This week</span></a>
       <a href="/skills"{{if eq .Nav "skills"}} aria-current="page"{{end}}>{{icon "puzzle"}}<span>Skills</span></a>
       <a href="/webhooks"{{if eq .Nav "webhooks"}} aria-current="page"{{end}}>{{icon "webhook"}}<span>Webhooks</span></a>
       <a href="/encryption"{{if eq .Nav "encryption"}} aria-current="page"{{end}}>{{icon "key-round"}}<span>Encryption</span></a>

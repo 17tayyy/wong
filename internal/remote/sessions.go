@@ -145,7 +145,7 @@ type adminAccount struct {
 }
 
 // AdminHandler lets a sign-up service, such as wong cloud's, make accounts, sign people in to them, on the page of
-// the dashboard given as next, and see how they are.
+// the dashboard given as next, and see how they are and what changed in each over the last week.
 // It holds the admin token; with none, it answers nothing.
 func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
@@ -234,6 +234,23 @@ func AdminHandler(folder *Folder, signins *SignIns, adminToken string, log *slog
 			Accounts []AccountInfo `json:"accounts"`
 		}{accounts})
 	})
+	mux.HandleFunc("GET /admin/accounts/{account}/week", admin(func(w http.ResponseWriter, r *http.Request) {
+		store, err := folder.Store(r.PathValue("account"))
+		if errors.Is(err, ErrNoAccount) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		var week Week
+		if err == nil {
+			week, err = store.Week(time.Now().AddDate(0, 0, -7))
+		}
+		if err != nil {
+			log.Error("admin", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, week)
+	}))
 	mux.HandleFunc("POST /admin/accounts/{account}/signin", admin(func(w http.ResponseWriter, r *http.Request) {
 		store, err := folder.Store(r.PathValue("account"))
 		if errors.Is(err, ErrNoAccount) {

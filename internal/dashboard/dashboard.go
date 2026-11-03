@@ -61,7 +61,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed", "encryption", "suspended"} {
+	for _, page := range []string{"library", "note", "edit", "new", "graph", "corrections", "history", "week", "change", "skills", "webhooks", "device", "authorize", "login", "account", "sealed", "encryption", "suspended"} {
 		t, err := template.Must(layout.Clone()).ParseFS(templateFS, "templates/"+page+".html")
 		if err != nil {
 			return nil, err
@@ -97,6 +97,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("GET /graph", d.session((*Dashboard).graph))
 	mux.HandleFunc("GET /corrections", d.session((*Dashboard).corrections))
 	mux.HandleFunc("GET /history", d.session((*Dashboard).history))
+	mux.HandleFunc("GET /week", d.session((*Dashboard).week))
 	mux.HandleFunc("GET /changes/{seq}", d.session((*Dashboard).change))
 	mux.HandleFunc("POST /changes/{seq}/undo", d.session((*Dashboard).undo))
 	mux.HandleFunc("POST /changes/{seq}/restore", d.session((*Dashboard).restore))
@@ -324,6 +325,7 @@ var funcs = template.FuncMap{
 		return t.Local().Format("2 Jan")
 	},
 	"stamp": func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
+	"join":  strings.Join,
 	"when": func(t time.Time) string {
 		if y, m, d := t.Local().Date(); time.Now().Format("2006-01-02") == time.Date(y, m, d, 0, 0, 0, 0, time.Local).Format("2006-01-02") {
 			return t.Local().Format("15:04")

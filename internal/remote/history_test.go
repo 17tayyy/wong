@@ -3,7 +3,9 @@ package remote
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/17tayyy/wong/internal/check"
 )
@@ -160,5 +162,29 @@ func TestFindingsAreReportedPerMachine(t *testing.T) {
 	applyAs(t, store, "laptop", "projects/acme/a.md", "", "fixed")
 	if got, _ := store.Findings(""); len(got) != 0 {
 		t.Errorf("a push of the note kept its findings: %+v", got)
+	}
+}
+
+func TestWeekCountsWhatChangedWithoutReadingIt(t *testing.T) {
+	store, _, _, _ := setup(t)
+	applyAs(t, store, "desktop", "me/old.md", "", "old")
+	applyAs(t, store, "desktop", "me/gone.md", "", "gone")
+	if _, err := store.db.Exec(`UPDATE history SET created_at = ?`, time.Now().AddDate(0, 0, -10).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	applyAs(t, store, "laptop", "me/old.md", Sha([]byte("old")), "old, edited")
+	applyAs(t, store, "laptop", "me/old.md", Sha([]byte("old, edited")), "old, edited twice")
+	applyAs(t, store, "desktop", "me/new.md", "", "new")
+	applyAs(t, store, "desktop", "me/gone.md", Sha([]byte("gone")), "")
+
+	w, err := store.Week(time.Now().AddDate(0, 0, -7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Changes != 4 || w.Files != 3 || w.Added != 1 || w.Removed != 1 || !slices.Equal(w.Machines, []string{"desktop", "laptop"}) || w.Fixed != 0 {
+		t.Errorf("Week = %+v", w)
+	}
+	if w, err := store.Week(time.Now().Add(time.Hour)); err != nil || w.Changes != 0 || len(w.Machines) != 0 {
+		t.Errorf("a week with nothing: %+v, %v", w, err)
 	}
 }

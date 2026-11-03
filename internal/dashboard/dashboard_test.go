@@ -766,3 +766,24 @@ func TestTheRailLinksTheStatusPageWhenTheServiceHasOne(t *testing.T) {
 		t.Errorf("the rail of a service with a status page:\n%s", body)
 	}
 }
+
+func TestThisWeek(t *testing.T) {
+	_, b := signedIn(t)
+	code, body := b.get("/week")
+	if code != http.StatusOK {
+		t.Fatalf("GET /week: %d", code)
+	}
+	for _, want := range []string{
+		"<h1>This week</h1>",
+		`<p class="tally">3 changes to 3 notes from desktop: 3 new.</p>`,
+		"<span>search</span>",
+		"No correction from the GitHub or Linear webhooks closed this week.",
+		`<a class="callout red" href="/corrections">`,
+		"<b>1 correction is open.</b> 1 note contradicts its sources.",
+		`href="/week" aria-current="page"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the week lacks %q", want)
+		}
+	}
+}

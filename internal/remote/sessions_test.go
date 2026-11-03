@@ -128,6 +128,15 @@ func TestAdminMakesAccountsAndSignsPeopleIn(t *testing.T) {
 	if code, _ := call(srv.URL, http.MethodGet, "/admin/accounts", "guess"); code != http.StatusNotFound {
 		t.Errorf("list accounts with a wrong token: %d", code)
 	}
+	if code, body := call(srv.URL, http.MethodGet, "/admin/accounts/alice/week", "admin-secret"); code != http.StatusOK || !strings.Contains(body, `"changes":0,"files":0,"added":0,"removed":0,"machines":[],"fixed":0`) {
+		t.Errorf("an account's week: %d %s", code, body)
+	}
+	if code, _ := call(srv.URL, http.MethodGet, "/admin/accounts/nobody/week", "admin-secret"); code != http.StatusNotFound {
+		t.Errorf("the week of an account that does not exist: %d", code)
+	}
+	if code, _ := call(srv.URL, http.MethodGet, "/admin/accounts/alice/week", "guess"); code != http.StatusNotFound {
+		t.Errorf("an account's week with a wrong token: %d", code)
+	}
 	code, body := call(srv.URL, http.MethodPost, "/admin/accounts/alice/signin?next=%2Fgraph", "admin-secret")
 	var link SignInLink
 	json.Unmarshal([]byte(body), &link)

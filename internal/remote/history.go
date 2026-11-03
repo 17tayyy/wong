@@ -238,3 +238,48 @@ func (s *Store) Findings(project string) ([]check.Finding, error) {
 	}
 	return out, rows.Err()
 }
+
+// Week is what changed in a brain over a stretch of time, counted without reading a file, as a sealed brain's server
+// can: the versions written, the files they touched, the files that first appeared and those removed, the machines
+// that wrote them, and the tasks that closed.
+type Week struct {
+	Since    time.Time `json:"since"`
+	Changes  int       `json:"changes"`
+	Files    int       `json:"files"`
+	Added    int       `json:"added"`
+	Removed  int       `json:"removed"`
+	Machines []string  `json:"machines"`
+	Fixed    int       `json:"fixed"`
+}
+
+// Week counts what changed in the brain since a time.
+func (s *Store) Week(since time.Time) (Week, error) {
+	w := Week{Since: since.UTC(), Machines: []string{}}
+	at := since.UTC().Format(time.RFC3339)
+	err := s.db.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT path) FROM history WHERE created_at >= ?`, at).Scan(&w.Changes, &w.Files)
+	if err == nil {
+		err = s.db.QueryRow(`SELECT COUNT(*) FROM (SELECT path FROM history GROUP BY path HAVING MIN(created_at) >= ?)`, at).Scan(&w.Added)
+	}
+	if err == nil {
+		err = s.db.QueryRow(`SELECT COUNT(*) FROM files WHERE deleted = 1 AND seq IN (SELECT seq FROM history WHERE created_at >= ?)`, at).Scan(&w.Removed)
+	}
+	if err == nil {
+		err = s.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE closed_at >= ?`, at).Scan(&w.Fixed)
+	}
+	if err != nil {
+		return w, err
+	}
+	rows, err := s.db.Query(`SELECT DISTINCT machine FROM history WHERE created_at >= ? ORDER BY machine`, at)
+	if err != nil {
+		return w, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return w, err
+		}
+		w.Machines = append(w.Machines, m)
+	}
+	return w, rows.Err()
+}
