@@ -3,6 +3,7 @@ package hook
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -13,11 +14,15 @@ import (
 	"time"
 
 	brainfs "github.com/17tayyy/wong/internal/brain"
+	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/note"
 )
 
-const maxFileNotes = 5
+const (
+	maxFileNotes    = 5
+	maxNoteFindings = 2
+)
 
 // generic holds folder names too common to say which part of a repo a note is about.
 var generic = map[string]bool{}
@@ -102,17 +107,40 @@ func fileNotes(file, session string, env Env) string {
 	if len(hits) > maxFileNotes {
 		hits = hits[:maxFileNotes]
 	}
+	findings := map[string][]check.Finding{}
+	if rep, err := check.Run(context.Background(), check.Options{Brain: env.Brain, Repos: env.Repos, Project: project}); err == nil {
+		for _, f := range rep.Findings {
+			findings[f.Note] = append(findings[f.Note], f)
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "wong: notes of the brain's project %q cite %s or its folder. Read the ones that bear on what you are about to do:\n", project, rel)
 	var paths []string
+	doubts := false
 	for _, h := range hits {
 		rel, _ := filepath.Rel(env.Brain, h.path)
-		fmt.Fprintf(&b, "- %s (%s)", h.name, link.MemoryDir(env.Brain, env.Home, filepath.ToSlash(rel)))
+		rel = filepath.ToSlash(rel)
+		fmt.Fprintf(&b, "- %s (%s)", h.name, link.MemoryDir(env.Brain, env.Home, rel))
 		if h.desc != "" && h.desc != h.name {
 			fmt.Fprintf(&b, ": %s", h.desc)
 		}
 		b.WriteByte('\n')
+		for i, f := range findings[rel] {
+			if i == maxNoteFindings {
+				fmt.Fprintf(&b, "  - and %d more (`wong note show %s`)\n", len(findings[rel])-maxNoteFindings, h.name)
+				break
+			}
+			says := "it may be outdated"
+			if f.Severity == check.Stale {
+				says = "it contradicts its sources"
+			}
+			fmt.Fprintf(&b, "  - %s: %s %s\n", says, f.Ref, f.Message)
+			doubts = true
+		}
 		paths = append(paths, h.path)
+	}
+	if doubts {
+		fmt.Fprintf(&b, "Check a note marked so against its sources before relying on it, and fix it with the %s skill once you have finished what the user asked.\n", skill(env.Agent))
 	}
 	remember(env.Brain, session, paths)
 	return b.String()

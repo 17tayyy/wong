@@ -96,3 +96,23 @@ func TestReaches(t *testing.T) {
 		}
 	}
 }
+
+func TestFileNotesMarkTheOnesThatContradictTheirSources(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(env.Brain, "projects/acme/beanie-save.md"), "---\nname: beanie-save\ndescription: about saving\nkind: reference\nscope: project:acme\n---\n"+
+		"`save()` in `app/models.py` drops fields; see [[gone-note]].\n")
+	write(t, filepath.Join(env.Brain, "projects/acme/models.md"), "---\nname: models\ndescription: the models\nkind: reference\nscope: project:acme\n---\n"+
+		"The models live in `app/models.py`.\n")
+	write(t, filepath.Join(repo, "app", "models.py"), "pass\n")
+	in := Input{SessionID: "s1", ToolName: "Read"}
+	in.ToolInput.FilePath = filepath.Join(repo, "app", "models.py")
+
+	got := hookContext(t, FileNotes(in, env))
+	want := "- beanie-save (~/.wong/projects/acme/beanie-save.md): about saving\n  - it contradicts its sources: [[gone-note]] links to a note that does not exist\n- models"
+	if !strings.Contains(got, want) || !strings.Contains(got, "fix it with the wong:maintain-brain skill once you have finished") {
+		t.Errorf("context:\n%s", got)
+	}
+	if strings.Contains(got[strings.Index(got, "- models"):], "  - it ") {
+		t.Errorf("a note with nothing found is marked:\n%s", got)
+	}
+}
