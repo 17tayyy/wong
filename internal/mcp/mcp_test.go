@@ -222,6 +222,14 @@ func TestTools(t *testing.T) {
 	} else if text, _ := c.tool("read_note", `{"note":"Cents"}`); !strings.Contains(text, "kind: pitfall") || !strings.Contains(text, "applies_to: [app/billing/**]") {
 		t.Errorf("read_note of a pitfall:\n%s", text)
 	}
+	if text, failed := c.tool("write_note", `{"to":"acme","name":"Cents everywhere","description":"Money in cents in every service","kind":"decision","body":"All services keep cents.","supersedes":["Cents"],"distinct":true}`); failed {
+		t.Errorf("write_note with supersedes: %s", text)
+	} else if text, _ := c.tool("read_note", `{"note":"Cents"}`); !strings.HasPrefix(text, "Superseded by projects/acme/") {
+		t.Errorf("read_note of a superseded note:\n%s", text)
+	}
+	if text, failed := c.tool("write_note", `{"to":"acme","name":"Nothing","description":"d","kind":"decision","body":"z","supersedes":["nowhere"]}`); !failed || !strings.Contains(text, "reaches no note") {
+		t.Errorf("write_note superseding no note: %s", text)
+	}
 	if text, failed := c.tool("write_note", `{"to":"acme","name":"Bad glob","description":"d","kind":"project","body":"z","applies_to":["/etc/**"]}`); !failed || !strings.Contains(text, "applies_to") {
 		t.Errorf("write_note with a bad glob: %s", text)
 	}

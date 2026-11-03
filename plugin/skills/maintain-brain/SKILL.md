@@ -207,6 +207,11 @@ verified: 2026-10-27
   shows the note before an agent reads or changes a file that matches, without the note
   citing each one. A glob with no folder matches the file's name anywhere. Set it with
   `--applies-to` on `wong note write`.
+- `supersedes`: the names of the notes this one replaces, such as an older decision a new
+  one reverses: `supersedes: [rate-limits-per-ip]`. Write the new note instead of rewriting
+  the old one when the old one still tells why things were as they were: it stays for its
+  history, wong shows it as superseded and `wong tidy` offers to archive it. Set it with
+  `--supersedes` on `wong note write`.
 - `pending`: `release` when the note leaves work for the next release (a `v*` tag in the
   project's repos), `main` when it leaves work for the next push to the main branch: a
   migration to run in production, a flag to turn on, someone to tell. When the deploy

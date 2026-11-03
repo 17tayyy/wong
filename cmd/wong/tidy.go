@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/17tayyy/wong/internal/brain"
+	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/repos"
 	"github.com/17tayyy/wong/internal/tidy"
 )
@@ -20,7 +22,8 @@ func newTidyCmd(brainDir *string) *cobra.Command {
 		Short: "List preferences that repeat each other, notes in the wrong folder, notes that grow by additions and notes to archive",
 		Long: "List preferences that repeat each other, notes that seem to be in the wrong folder,\n" +
 			"notes that grow by dated additions instead of being rewritten with what holds now, and\n" +
-			"notes nobody wrote or verified in 120 days, which the archive could take.\n\n" +
+			"notes another one supersedes or nobody wrote or verified in 120 days, which the archive\n" +
+			"could take.\n\n" +
 			"It only reports: merging, moving, rewriting and archiving notes is for the user to\n" +
 			"decide, then wong note move, wong note remove, an edit and wong note archive do it.",
 		Args: cobra.NoArgs,
@@ -58,6 +61,13 @@ func newTidyCmd(brainDir *string) *cobra.Command {
 			fmt.Fprintf(out, "\nNotes that grow by dated additions, to rewrite with what holds now (%d):\n", len(growing))
 			for _, g := range growing {
 				fmt.Fprintf(out, "    %s (%d of %d paragraphs open with a date, %s to %s, %d KB)\n", g.Note, g.Dated, g.Parts, g.First, g.Last, (g.Size+512)/1024)
+			}
+			if g, err := graph.Load(*brainDir); err == nil {
+				superseded := g.Superseded()
+				fmt.Fprintf(out, "\nNotes another one supersedes, which the archive could take (%d):\n", len(superseded))
+				for _, old := range slices.Sorted(maps.Keys(superseded)) {
+					fmt.Fprintf(out, "    %s (superseded by %s)\n", old, strings.Join(superseded[old], ", "))
+				}
 			}
 			idle := tidy.Idle(notes, time.Now().AddDate(0, 0, -120))
 			fmt.Fprintf(out, "\nNotes untouched for 120 days, which the archive could take (%d):\n", len(idle))

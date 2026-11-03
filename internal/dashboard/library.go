@@ -183,8 +183,15 @@ func loadBrain(store *remote.Store) (*brain, error) {
 		}
 	}
 	for _, e := range b.byPath {
+		var names []string
 		for _, m := range wikiRE.FindAllStringSubmatch(note.WithoutCode(e.Note.Body), -1) {
-			target, ok := b.resolve(strings.TrimSpace(m[1]))
+			names = append(names, m[1])
+		}
+		if e.Note != nil {
+			names = append(names, e.Note.Supersedes...)
+		}
+		for _, name := range names {
+			target, ok := b.resolve(strings.TrimSpace(name))
 			if !ok || target == e.Path || slices.Contains(e.Links, target) {
 				continue
 			}

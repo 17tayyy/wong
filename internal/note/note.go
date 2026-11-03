@@ -149,6 +149,8 @@ type Note struct {
 	Kind        Kind
 	Scope       string
 	Tags        []string
+	// Supersedes names the notes this one replaces, which stay for their history.
+	Supersedes []string
 	// AppliesTo holds globs of the files the note holds for, from a repo's root: app/billing/**, *.sql.
 	AppliesTo []string
 	// Pending is "release" or "main" when the note leaves work for the next release or push to the main branch.
@@ -200,6 +202,8 @@ func Parse(data []byte) (*Note, error) {
 			n.Tags = tags(value)
 		case "applies_to":
 			n.AppliesTo, err = globs(value)
+		case "supersedes":
+			n.Supersedes, err = names(value)
 		case "pending":
 			n.Pending = value.Value
 		case "visibility":
@@ -264,6 +268,13 @@ func (n *Note) Marshal() ([]byte, error) {
 			seq.Content = append(seq.Content, str(t))
 		}
 		add("tags", seq)
+	}
+	if len(n.Supersedes) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+		for _, s := range n.Supersedes {
+			seq.Content = append(seq.Content, str(s))
+		}
+		add("supersedes", seq)
 	}
 	if len(n.AppliesTo) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
@@ -550,4 +561,31 @@ func matchParts(glob, name []string) bool {
 		glob, name = glob[1:], name[1:]
 	}
 	return len(name) == 0
+}
+
+func names(n *yaml.Node) ([]string, error) {
+	var list []*yaml.Node
+	switch n.Kind {
+	case yaml.ScalarNode:
+		list = []*yaml.Node{n}
+	case yaml.SequenceNode:
+		list = n.Content
+	default:
+		return nil, errors.New("supersedes must be a note's name or a list of names")
+	}
+	var out []string
+	for _, item := range list {
+		if item.Kind == yaml.SequenceNode && len(item.Content) == 1 {
+			item = item.Content[0]
+		}
+		if item.Kind != yaml.ScalarNode {
+			return nil, errors.New("supersedes must be a note's name or a list of names")
+		}
+		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(item.Value), "[["), "]]"))
+		if name == "" {
+			return nil, errors.New("supersedes holds an empty name")
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }

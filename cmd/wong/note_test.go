@@ -126,6 +126,16 @@ func TestNoteWriteAndMove(t *testing.T) {
 	if _, err := runWithInput(t, "b", "--brain", brain, "note", "write", "--to", "acme", "--name", "y", "--description", "d", "--kind", "project", "--applies-to", "../x"); err == nil {
 		t.Error("a glob that leaves the repo was accepted")
 	}
+	if _, err := runWithInput(t, "b", "--brain", brain, "note", "write", "--to", "acme", "--name", "z", "--description", "d", "--kind", "decision", "--supersedes", "nowhere"); err == nil {
+		t.Error("a note that supersedes no note was written")
+	}
+	if out, err := runWithInput(t, "Charges retry once.\n", "--brain", brain, "note", "write", "--to", "acme", "--name", "charges-retry-once",
+		"--description", "Charges retry once now", "--kind", "decision", "--supersedes", "charges", "--distinct"); err != nil {
+		t.Fatalf("write a note that supersedes another: %v\n%s", err, out)
+	}
+	if out := mustRun(t, "--brain", brain, "tidy"); !strings.Contains(out, "projects/acme/charges.md (superseded by projects/acme/charges-retry-once.md)") {
+		t.Errorf("tidy:\n%s", out)
+	}
 
 	out, err = run(t, "--brain", brain, "note", "move", "orca", "--to", "me")
 	if err != nil || !strings.Contains(out, "moved projects/acme/orca.md -> me/orca.md") {

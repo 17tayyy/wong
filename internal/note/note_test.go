@@ -303,3 +303,22 @@ func TestAppliesTo(t *testing.T) {
 		}
 	}
 }
+
+func TestSupersedes(t *testing.T) {
+	for _, value := range []string{"[old-rate-limits, \"[[Older one]]\"]", "[[old-rate-limits]]", "old-rate-limits"} {
+		n, err := Parse([]byte("---\nname: a\ndescription: d\nsupersedes: " + value + "\n---\n"))
+		if err != nil || len(n.Supersedes) == 0 || n.Supersedes[0] != "old-rate-limits" {
+			t.Errorf("supersedes: %s = %v, %v", value, n, err)
+		}
+	}
+	n, _ := Parse([]byte("---\nname: a\ndescription: d\nkind: decision\nsupersedes: [old-rate-limits, \"[[Older one]]\"]\n---\nBody.\n"))
+	if !slices.Equal(n.Supersedes, []string{"old-rate-limits", "Older one"}) {
+		t.Errorf("Supersedes = %q", n.Supersedes)
+	}
+	if out, _ := n.Marshal(); !strings.Contains(string(out), "kind: decision\nsupersedes: [old-rate-limits, Older one]\n") {
+		t.Errorf("Marshal:\n%s", out)
+	}
+	if _, err := Parse([]byte("---\nname: a\ndescription: d\nsupersedes: {a: b}\n---\n")); err == nil {
+		t.Error("a map was taken for supersedes")
+	}
+}

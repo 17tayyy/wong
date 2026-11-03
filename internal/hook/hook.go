@@ -249,7 +249,8 @@ func saving(b *strings.Builder, env Env, shelf, scope string) {
 		"metadata: `kind` (%s; a pitfall is what was tried and failed, or what is fragile, in the files it cites), "+
 		"`scope` (`%s` here, `global` in me/), `sources` for what it relies on "+
 		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, `applies_to` with globs from "+
-		"a repo's root (`app/billing/**`, `*.sql`) when it holds for every file there, `pending: release` or "+
+		"a repo's root (`app/billing/**`, `*.sql`) when it holds for every file there, `supersedes` with the names of the notes a "+
+		"newer decision replaces (they stay for their history), `pending: release` or "+
 		"`pending: main` when it leaves work for the next release or push to the main branch, and `visibility: local` when it must "+
 		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", note.KindNames, scope)
 	if g, err := graph.Load(env.Brain); err == nil {

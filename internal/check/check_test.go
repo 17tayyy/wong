@@ -561,3 +561,17 @@ func TestArchivedNotesAreLinkedButNotChecked(t *testing.T) {
 		t.Errorf("findings = %v", found(rep))
 	}
 }
+
+func TestRunFindsASupersededNoteThatIsGone(t *testing.T) {
+	f := newFixture(t)
+	write(t, filepath.Join(f.brain, "projects/acme/new.md"), "---\nname: new\ndescription: d\nsupersedes: [old, gone]\n---\nNew.\n")
+	f.note(t, "projects/acme/old.md", "Old.\n", "")
+
+	rep, err := Run(context.Background(), Options{Brain: f.brain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := found(rep); !slices.Equal(got, []string{"stale projects/acme/new.md [[gone]]"}) {
+		t.Errorf("findings = %v", got)
+	}
+}

@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,5 +106,23 @@ func TestArchivedNotesStayApart(t *testing.T) {
 	}
 	if hits := g.SearchArchive("stripe", "acme"); len(hits) != 1 || hits[0].Shelf() != "acme" {
 		t.Errorf("SearchArchive = %v", hits)
+	}
+}
+
+func TestSuperseded(t *testing.T) {
+	old := mk("projects/acme/limits-per-ip.md", "limits-per-ip", "Rate limits per IP", "Per IP.")
+	gone := mk("projects/acme/archive/limits-v0.md", "limits-v0", "First limits", "None.")
+	fresh := mk("projects/acme/limits-per-key.md", "limits-per-key", "Rate limits per key", "Per key.")
+	fresh.Supersedes = []string{"Rate limits per IP", "limits-per-ip", "limits-v0", "nowhere"}
+	old.Supersedes = []string{"limits-v0"}
+	g := New([]Note{old, fresh}).WithArchive([]Note{gone})
+	if by := g.SupersededBy("projects/acme/limits-per-ip.md"); !slices.Equal(by, []string{"projects/acme/limits-per-key.md"}) {
+		t.Errorf("SupersededBy = %q", by)
+	}
+	if by := g.SupersededBy("projects/acme/archive/limits-v0.md"); !slices.Equal(by, []string{"projects/acme/limits-per-ip.md", "projects/acme/limits-per-key.md"}) {
+		t.Errorf("an archived note: %q", by)
+	}
+	if got := g.UnknownSupersedes(fresh.Note); !slices.Equal(got, []string{"it supersedes [[Rate limits per IP]], which reaches no note", "it supersedes [[nowhere]], which reaches no note"}) {
+		t.Errorf("UnknownSupersedes = %q", got)
 	}
 }

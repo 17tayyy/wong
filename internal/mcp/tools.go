@@ -110,6 +110,7 @@ var tools = []tool{
 			"body":        str("The note's text, in markdown. Link other notes with [[name]], only to notes that exist."),
 			"sources":     strs(sourceArg),
 			"tags":        strs("Tags for the note: reuse the tags in use; lowercase, words joined by -, nested with /."),
+			"supersedes":  strs("Names of the notes this one replaces, as a newer decision does an older one. The old notes stay for their history; wong shows them as superseded."),
 			"applies_to":  strs("Globs of the files the note holds for, from a repo's root, such as app/billing/** or *.sql: wong shows the note to agents about to read or change one of them, without citing each file."),
 			"pending":     map[string]any{"type": "string", "enum": []string{"release", "main"}, "description": "Set it when the note leaves work for the next deploy: release for the next v* tag, main for the next push to the main branch. The user is reminded once it happens."},
 			"distinct":    map[string]any{"type": "boolean", "description": "Set it only when write_note said a note covers the same subject and you checked that it does not."},
@@ -386,6 +387,9 @@ func readNote(s *Server, _ string, args json.RawMessage) (string, error) {
 		return "", err
 	}
 	var out strings.Builder
+	if by := b.Graph().SupersededBy(p); len(by) > 0 {
+		fmt.Fprintf(&out, "Superseded by %s: rely on that note; this one stays for its history.\n\n", strings.Join(by, ", "))
+	}
 	fmt.Fprintf(&out, "path: %s\nsha: %s\n\n%s", p, f.Sha, f.Content)
 	if len(open) > 0 {
 		fmt.Fprintf(&out, "\nOpen on this note:\n%s\n", strings.Join(open, "\n"))
@@ -403,6 +407,7 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 		To, Name, Description, Kind, Body, Pending string
 		Sources, Tags                              []string
 		AppliesTo                                  []string `json:"applies_to"`
+		Supersedes                                 []string
 		Distinct                                   bool
 	}
 	if err := decode(args, &a); err != nil {
@@ -421,7 +426,7 @@ func writeNote(s *Server, machine string, args json.RawMessage) (string, error) 
 			return "", argErr("%v", err)
 		}
 	}
-	n.Sources, n.Tags, n.Pending, n.AppliesTo = a.Sources, a.Tags, a.Pending, a.AppliesTo
+	n.Sources, n.Tags, n.Pending, n.AppliesTo, n.Supersedes = a.Sources, a.Tags, a.Pending, a.AppliesTo, a.Supersedes
 	checks := remote.Agent
 	checks.Duplicates = !a.Distinct
 	p, _, err := s.store.CreateNote(machine, a.To, n, checks)

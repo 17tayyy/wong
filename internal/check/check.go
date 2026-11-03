@@ -223,6 +223,11 @@ func newLoaded(rel string, n *note.Note, written time.Time) loaded {
 	}
 	r := extract(n.Description + "\n" + n.Body)
 	r.addSources(n.Sources)
+	for _, s := range n.Supersedes {
+		if !slices.Contains(r.links, s) {
+			r.links = append(r.links, s)
+		}
+	}
 	return loaded{
 		rel:      rel,
 		dir:      filepath.Dir(rel),

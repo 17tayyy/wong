@@ -144,3 +144,20 @@ func TestFileNotesShowTheNotesThatApplyToAFile(t *testing.T) {
 		}
 	}
 }
+
+func TestFileNotesListSupersededNotesLast(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(env.Brain, "projects/acme/limits-per-ip.md"), "---\nname: limits-per-ip\ndescription: limits per IP\nkind: decision\nscope: project:acme\n---\nLimits in `app/limits.py` go per IP.\n")
+	write(t, filepath.Join(env.Brain, "projects/acme/limits-per-key.md"), "---\nname: limits-per-key\ndescription: limits per key\nkind: decision\nscope: project:acme\n"+
+		"supersedes: [limits-per-ip]\n---\nLimits in `app/limits.py` go per API key.\n")
+	write(t, filepath.Join(repo, "app", "limits.py"), "pass\n")
+	in := Input{SessionID: "s1", ToolName: "Read"}
+	in.ToolInput.FilePath = filepath.Join(repo, "app", "limits.py")
+
+	got := hookContext(t, FileNotes(in, env))
+	if !strings.Contains(got, "\n- limits-per-key (~/.wong/projects/acme/limits-per-key.md): limits per key\n"+
+		"- limits-per-ip (~/.wong/projects/acme/limits-per-ip.md), superseded by limits-per-key: limits per IP\n") ||
+		!strings.Contains(got, "rely on the one that supersedes it") {
+		t.Errorf("context:\n%s", got)
+	}
+}

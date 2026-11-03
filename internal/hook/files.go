@@ -57,11 +57,13 @@ func FileNotes(in Input, env Env) string {
 type Hit struct {
 	Path, Name, Description string
 	Pitfall                 bool
-	score                   int
+	// SupersededBy names the notes of the project that replace this one.
+	SupersededBy []string
+	score        int
 }
 
 // Citing returns the project of a file in a linked repo, the file's path in its repo, and the notes of that project that
-// cite it or its folder or apply to it: pitfalls first, then the closest.
+// cite it or its folder or apply to it: pitfalls first, then the closest, and the ones another note supersedes last.
 func Citing(file string, env Env) (project, rel string, hits []Hit) {
 	file = filepath.Clean(file)
 	if !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
@@ -76,6 +78,7 @@ func Citing(file string, env Env) (project, rel string, hits []Hit) {
 		return "", "", nil
 	}
 	rel, repo := filepath.ToSlash(rel), filepath.Base(dir)
+	supersededBy := map[string][]string{}
 	notes, _ := filepath.Glob(filepath.Join(env.Brain, "projects", project, "*.md"))
 	for _, p := range notes {
 		if filepath.Base(p) == "MEMORY.md" {
@@ -90,6 +93,11 @@ func Citing(file string, env Env) (project, rel string, hits []Hit) {
 			best = max(best, reaches(ref, rel, repo, dir, env.Home))
 		}
 		n, err := note.Parse(data)
+		if err == nil {
+			for _, old := range n.Supersedes {
+				supersededBy[old] = append(supersededBy[old], n.Name)
+			}
+		}
 		if err == nil && best == 0 && slices.ContainsFunc(n.AppliesTo, func(g string) bool {
 			return note.MatchGlob(g, rel) || note.MatchGlob(g, repo+"/"+rel)
 		}) {
@@ -104,7 +112,18 @@ func Citing(file string, env Env) (project, rel string, hits []Hit) {
 		}
 		hits = append(hits, h)
 	}
+	for i, h := range hits {
+		hits[i].SupersededBy = append(slices.Clone(supersededBy[h.Name]), supersededBy[strings.TrimSuffix(filepath.Base(h.Path), ".md")]...)
+		slices.Sort(hits[i].SupersededBy)
+		hits[i].SupersededBy = slices.Compact(hits[i].SupersededBy)
+	}
 	slices.SortFunc(hits, func(a, b Hit) int {
+		if old := len(a.SupersededBy) > 0; old != (len(b.SupersededBy) > 0) {
+			if old {
+				return 1
+			}
+			return -1
+		}
 		if a.Pitfall != b.Pitfall {
 			if a.Pitfall {
 				return -1
@@ -155,6 +174,9 @@ func fileNotes(file, session string, env Env) string {
 		}
 		paths = append(paths, h.Path)
 	}
+	if slices.ContainsFunc(hits, func(h Hit) bool { return len(h.SupersededBy) > 0 }) {
+		b.WriteString("A note superseded by another stays for its history: rely on the one that supersedes it.\n")
+	}
 	if doubts {
 		fmt.Fprintf(&b, "Check a note marked so against its sources before relying on it, and fix it with the %s skill once you have finished what the user asked.\n", skill(env.Agent))
 	}
@@ -168,6 +190,9 @@ func Line(h Hit, env Env) string {
 	line := fmt.Sprintf("- %s (%s)", h.Name, link.MemoryDir(env.Brain, env.Home, filepath.ToSlash(rel)))
 	if h.Pitfall {
 		line += ", a pitfall"
+	}
+	if len(h.SupersededBy) > 0 {
+		line += ", superseded by " + strings.Join(h.SupersededBy, ", ")
 	}
 	if h.Description != "" && h.Description != h.Name {
 		line += ": " + h.Description

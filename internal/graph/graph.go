@@ -39,11 +39,12 @@ func (n Note) stem() string { return strings.TrimSuffix(path.Base(n.Path), ".md"
 // Graph is every note of the brain, the names that reach each one and the tags in use. Archived notes are apart:
 // links reach them, but nothing else sees them unless asked.
 type Graph struct {
-	Notes    []Note
-	Archived []Note
-	byPath   map[string]Note
-	names    map[string]string
-	tags     map[string]int
+	Notes      []Note
+	Archived   []Note
+	byPath     map[string]Note
+	names      map[string]string
+	tags       map[string]int
+	superseded map[string][]string
 }
 
 func New(notes []Note) *Graph {
@@ -72,7 +73,39 @@ func (g *Graph) WithArchive(archived []Note) *Graph {
 			}
 		}
 	}
+	g.superseded = nil
 	return g
+}
+
+// SupersededBy lists the live notes that say they supersede the note at path.
+func (g *Graph) SupersededBy(path string) []string {
+	return g.Superseded()[path]
+}
+
+// Superseded maps each note that a live note supersedes to the notes that supersede it.
+func (g *Graph) Superseded() map[string][]string {
+	if g.superseded == nil {
+		g.superseded = map[string][]string{}
+		for _, n := range g.Notes {
+			for _, name := range n.Supersedes {
+				if target, ok := g.Resolve(name); ok && target != n.Path && !slices.Contains(g.superseded[target], n.Path) {
+					g.superseded[target] = append(g.superseded[target], n.Path)
+				}
+			}
+		}
+	}
+	return g.superseded
+}
+
+// UnknownSupersedes lists the names a note supersedes that reach no note.
+func (g *Graph) UnknownSupersedes(n *note.Note) []string {
+	var out []string
+	for _, name := range n.Supersedes {
+		if _, ok := g.Resolve(name); !ok {
+			out = append(out, "it supersedes [["+name+"]], which reaches no note")
+		}
+	}
+	return out
 }
 
 // Resolve finds the note a [[link]] names: its name or its file name.

@@ -111,6 +111,7 @@ func lint(n *note.Note, rel, scope, project string, created bool, env Env) []str
 		fixes = append(fixes, "write the tags as ["+strings.Join(tags, ", ")+"]")
 	}
 	fixes = append(fixes, g.Missing(n.Description+"\n"+n.Body, "")...)
+	fixes = append(fixes, g.UnknownSupersedes(n)...)
 	if created {
 		for _, o := range g.Similar(graph.Note{Path: rel, Note: n}) {
 			fixes = append(fixes, fmt.Sprintf("%s (%s) seems to cover the same subject: if it does, add what is new to it and delete this one", o.Path, o.Description))

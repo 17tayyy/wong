@@ -125,7 +125,11 @@ func (b *Brain) guard(checks Checks, n *note.Note, target string, before *note.N
 		if before != nil {
 			old = before.Description + "\n" + before.Body
 		}
-		if missing := g.Missing(n.Description+"\n"+n.Body, old); len(missing) > 0 {
+		added := *n
+		if before != nil {
+			added.Supersedes = slices.DeleteFunc(slices.Clone(n.Supersedes), func(s string) bool { return slices.Contains(before.Supersedes, s) })
+		}
+		if missing := append(g.Missing(n.Description+"\n"+n.Body, old), g.UnknownSupersedes(&added)...); len(missing) > 0 {
 			return refuse(ErrInvalid, "%s. Link only to notes that exist, by their name or file name; write the missing note first if it is needed.", strings.Join(missing, "; "))
 		}
 	}
