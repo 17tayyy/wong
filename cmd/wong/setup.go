@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +38,8 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			"  4. links every repo it imported to its project, and every other folder to me/;\n" +
 			"  5. installs the wong plugin for Claude Code, and for Codex when it is on\n" +
 			"     this machine, letting Codex's sandbox write to the brain; with Cursor,\n" +
-			"     adds wong's hooks to ~/.cursor/hooks.json and its skill to ~/.cursor/skills.\n\n" +
+			"     adds wong's hooks to ~/.cursor/hooks.json and its skill to ~/.cursor/skills;\n" +
+			"     with OpenCode, adds the wong plugin and the skill to ~/.config/opencode.\n\n" +
 			"wong import --dry-run shows first how the memory will be grouped into projects;\n" +
 			"--map changes it. Run it again with a url to connect a machine set up on its own.",
 		Args: cobra.MaximumNArgs(1),
@@ -75,6 +77,7 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			installPlugin(cmd)
 			installCodex(cmd, home, *brain)
 			installCursor(cmd, home)
+			installOpenCode(cmd, home)
 			return nil
 		},
 	}
@@ -233,6 +236,33 @@ func installCursor(cmd *cobra.Command, home string) {
 		return
 	}
 	fmt.Fprintf(out, "\nAdded wong's hooks to Cursor (%s) and its maintain-brain skill (%s). New chats pick them up.\n", hooks, filepath.Dir(skill))
+}
+
+// installOpenCode adds the wong plugin and the maintain-brain skill to OpenCode, when OpenCode is on this machine.
+func installOpenCode(cmd *cobra.Command, home string) {
+	dir := filepath.Join(cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config")), "opencode")
+	if _, err := os.Stat(dir); err != nil {
+		if _, err := exec.LookPath("opencode"); err != nil {
+			return
+		}
+	}
+	out := cmd.OutOrStdout()
+	files := map[string][]byte{
+		filepath.Join(dir, "plugins", "wong.js"):                   plugin.OpenCode,
+		filepath.Join(dir, "skills", "maintain-brain", "SKILL.md"): plugin.Skill,
+	}
+	for path, data := range files {
+		err := os.MkdirAll(filepath.Dir(path), 0o755)
+		if err == nil {
+			err = os.WriteFile(path, data, 0o644)
+		}
+		if err != nil {
+			fmt.Fprintf(out, "\nAdding wong to OpenCode failed (%v).\n", err)
+			return
+		}
+	}
+	fmt.Fprintf(out, "\nAdded the wong plugin to OpenCode (%s) and its maintain-brain skill. New sessions pick them up.\n",
+		filepath.Join(dir, "plugins", "wong.js"))
 }
 
 // setCursorHooks adds wong's hooks to a Cursor hooks.json, replacing the ones a previous wong added and keeping every other.

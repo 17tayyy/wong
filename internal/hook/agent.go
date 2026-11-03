@@ -1,6 +1,7 @@
 package hook
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,9 +15,10 @@ import (
 type Agent string
 
 const (
-	Claude Agent = "claude"
-	Codex  Agent = "codex"
-	Cursor Agent = "cursor"
+	Claude   Agent = "claude"
+	Codex    Agent = "codex"
+	Cursor   Agent = "cursor"
+	OpenCode Agent = "opencode"
 )
 
 const (
@@ -27,6 +29,9 @@ const (
 )
 
 var patchMarkers = []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "}
+
+// openCodeTools names OpenCode's tools as Claude Code does.
+var openCodeTools = map[string]string{"read": "Read", "write": "Write", "edit": "Edit", "bash": "Bash", "shell": "Bash"}
 
 // touched lists the files a tool call works on, absolute, and the ones it creates; with reads, also the files a shell command names.
 func touched(in Input, env Env, reads bool) ([]string, map[string]bool) {
@@ -70,7 +75,7 @@ func answer(agent Agent, event, text string) string {
 		return string(out)
 	case text == "":
 		return ""
-	case event == "SessionStart":
+	case event == "SessionStart", agent == OpenCode:
 		return text
 	case event == "PostToolUse" && agent != Codex:
 		out, _ := json.Marshal(map[string]string{"decision": "block", "reason": text})
@@ -98,18 +103,19 @@ func clip(text string, limit int) string {
 
 // hasMemory says whether the agent keeps a memory of its own that wong links to the brain, as Claude Code does.
 func (a Agent) hasMemory() bool {
-	return a != Codex && a != Cursor
+	return a == Claude || a == ""
 }
 
 // skill names the maintain-brain skill as the agent knows it.
 func skill(agent Agent) string {
-	if agent == Cursor {
+	if agent == Cursor || agent == OpenCode {
 		return "maintain-brain"
 	}
 	return "wong:maintain-brain"
 }
 
-// ReadInput reads a hook's JSON input, taking the workspace for the working directory when the agent sends none.
+// ReadInput reads a hook's JSON input, taking the workspace for the working directory when the agent sends none
+// and OpenCode's tools and arguments for Claude Code's.
 func ReadInput(raw []byte) (Input, error) {
 	var in Input
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -118,6 +124,13 @@ func ReadInput(raw []byte) (Input, error) {
 	if in.Cwd == "" && len(in.WorkspaceRoots) > 0 {
 		in.Cwd = in.WorkspaceRoots[0]
 	}
+	t := &in.ToolInput
+	if name, ok := openCodeTools[in.ToolName]; ok {
+		in.ToolName = name
+		t.FilePath = cmp.Or(t.FilePath, t.FilePathCamel, t.Path)
+	}
+	t.Command = cmp.Or(t.Command, t.PatchText)
+	t.WorkingDirectory = cmp.Or(t.WorkingDirectory, t.Workdir)
 	return in, nil
 }
 

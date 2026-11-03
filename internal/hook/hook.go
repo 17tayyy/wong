@@ -1,4 +1,4 @@
-// Package hook answers the hooks of Claude Code, Codex and Cursor: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
+// Package hook answers the hooks of Claude Code, Codex, Cursor and OpenCode: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
 package hook
 
 import (
@@ -39,8 +39,12 @@ type Input struct {
 	ToolName       string   `json:"tool_name"`
 	ToolInput      struct {
 		FilePath         string `json:"file_path"`
+		FilePathCamel    string `json:"filePath"`
+		Path             string `json:"path"`
 		Command          string `json:"command"`
+		PatchText        string `json:"patchText"`
 		WorkingDirectory string `json:"working_directory"`
+		Workdir          string `json:"workdir"`
 	} `json:"tool_input"`
 }
 
@@ -275,9 +279,12 @@ func index(brain, shelf, home string, budget int) string {
 	}
 }
 
-// SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server.
+// SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server;
+// OpenCode runs it at the end of every turn, so its sessions keep track of the notes they were shown.
 func SessionEnd(ctx context.Context, in Input, env Env) error {
-	forget(env.Brain, in.SessionID)
+	if env.Agent != OpenCode {
+		forget(env.Brain, in.SessionID)
+	}
 	_, saveErr := skills.Save(skills.Env{Brain: env.Brain, Home: env.Home, Repos: env.Repos})
 	err := errors.Join(saveErr, repos.WriteRemotes(env.Brain, env.Repos), commit(in, env))
 	if env.Remote != nil {
@@ -337,7 +344,11 @@ func projects(brain string) []string {
 	return ids
 }
 
+// short cuts a session's id to 8 characters, taking the random end of OpenCode's, whose start is the time.
 func short(id string) string {
+	if rest, ok := strings.CutPrefix(id, "ses_"); ok && len(rest) > 8 {
+		return rest[len(rest)-8:]
+	}
 	if len(id) > 8 {
 		return id[:8]
 	}

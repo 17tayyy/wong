@@ -275,3 +275,80 @@ func TestClipCutsAtALine(t *testing.T) {
 		t.Errorf("clip of a short text = %q", got)
 	}
 }
+
+func openCodeInput(t *testing.T, session, cwd, tool string, args map[string]string) Input {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"session_id": session, "cwd": cwd, "tool_name": tool, "tool_input": args})
+	return cursorInput(t, string(raw))
+}
+
+func TestReadInputTakesOpenCodesTools(t *testing.T) {
+	for _, c := range []struct {
+		tool       string
+		args       map[string]string
+		name, file string
+		command    string
+		dir        string
+	}{
+		{"read", map[string]string{"filePath": "/repo/a.py"}, "Read", "/repo/a.py", "", ""},
+		{"write", map[string]string{"filePath": "/repo/b.py", "content": "x"}, "Write", "/repo/b.py", "", ""},
+		{"edit", map[string]string{"filePath": "/repo/c.py", "oldString": "a", "newString": "b"}, "Edit", "/repo/c.py", "", ""},
+		{"write", map[string]string{"path": "/repo/e.py", "content": "x"}, "Write", "/repo/e.py", "", ""},
+		{"grep", map[string]string{"path": "/repo", "pattern": "x"}, "grep", "", "", ""},
+		{"bash", map[string]string{"command": "cat a.py", "workdir": "/repo/app"}, "Bash", "", "cat a.py", "/repo/app"},
+		{"shell", map[string]string{"command": "cat a.py"}, "Bash", "", "cat a.py", ""},
+		{"apply_patch", map[string]string{"patchText": "*** Begin Patch\n*** Add File: d.py\n+x\n*** End Patch"}, "apply_patch", "", "*** Begin Patch\n*** Add File: d.py\n+x\n*** End Patch", ""},
+	} {
+		in := openCodeInput(t, "ses_1", "/repo", c.tool, c.args)
+		if in.ToolName != c.name || in.ToolInput.FilePath != c.file || in.ToolInput.Command != c.command || in.ToolInput.WorkingDirectory != c.dir {
+			t.Errorf("%s: %+v", c.tool, in)
+		}
+	}
+}
+
+func TestHooksForOpenCode(t *testing.T) {
+	env, repo := newEnv(t)
+	env.Agent = OpenCode
+	run(t, env.Home, "init", "-q", env.Brain)
+	write(t, filepath.Join(env.Brain, "projects/acme/beanie-save.md"), "---\nname: beanie-save\ndescription: about saving\nkind: reference\nscope: project:acme\n---\n"+
+		"`save()` in `app/models.py` drops fields it does not know.\n")
+	write(t, filepath.Join(repo, "app", "models.py"), "pass\n")
+
+	got := SessionStart(context.Background(), Input{SessionID: "ses_1", Cwd: repo}, env)
+	if !strings.Contains(got, `wong: the brain's project "acme"`) || !strings.Contains(got, "with the maintain-brain skill") || strings.Contains(got, "wong:maintain-brain") ||
+		strings.HasPrefix(got, "{") {
+		t.Errorf("session start:\n%s", got)
+	}
+
+	got = FileNotes(openCodeInput(t, "ses_1", repo, "bash", map[string]string{"command": "sed -n 1,5p models.py", "workdir": filepath.Join(repo, "app")}), env)
+	if !strings.HasPrefix(got, `wong: notes of the brain's project "acme" cite app/models.py`) {
+		t.Errorf("notes before a command:\n%s", got)
+	}
+
+	note := filepath.Join(env.Brain, "projects/acme/billing.md")
+	write(t, note, "---\nname: billing\ndescription: How Acme bills\n---\nShip it.\n")
+	if got := NoteWritten(openCodeInput(t, "ses_1", repo, "write", map[string]string{"filePath": note, "content": "x"}), env); !strings.HasPrefix(got, "wong: projects/acme/billing.md is saved") {
+		t.Errorf("a note written:\n%s", got)
+	}
+	if got := NoteWritten(openCodeInput(t, "ses_1", repo, "write", map[string]string{"filePath": filepath.Join(repo, "x.py")}), env); got != "" {
+		t.Errorf("a file outside the brain: %q", got)
+	}
+
+	if err := SessionEnd(context.Background(), Input{SessionID: "ses_1", Cwd: repo}, env); err != nil {
+		t.Fatal(err)
+	}
+	if shown := seen(env.Brain, "ses_1"); len(shown) == 0 {
+		t.Error("the end of an OpenCode turn forgot the notes the session was shown")
+	}
+	if out := run(t, env.Brain, "ls-files", ".wong"); out != ".wong/.gitignore" {
+		t.Errorf("the brain's git tracks %q", out)
+	}
+}
+
+func TestShortTakesTheRandomEndOfOpenCodesIDs(t *testing.T) {
+	for id, want := range map[string]string{"ses_e5ea1dbcfffed4k0r5LxqDIWrd": "LxqDIWrd", "01a19cf8-0b1d-4c55": "01a19cf8", "abc": "abc"} {
+		if got := short(id); got != want {
+			t.Errorf("short(%q) = %q, want %q", id, got, want)
+		}
+	}
+}

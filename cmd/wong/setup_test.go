@@ -353,13 +353,32 @@ func TestSetupAddsWongToCursor(t *testing.T) {
 	}
 }
 
-func TestSetupLeavesCursorAloneWhenItIsNotThere(t *testing.T) {
+func TestSetupLeavesAgentsAloneWhenTheyAreNotThere(t *testing.T) {
 	fakeClaude(t)
 	home, _ := machine(t, t.TempDir(), "laptop", "deploy.md")
-	if out, err := run(t, "setup"); err != nil || strings.Contains(out, "hooks to Cursor") {
+	if out, err := run(t, "setup"); err != nil || strings.Contains(out, "hooks to Cursor") || strings.Contains(out, "to OpenCode") {
 		t.Fatalf("setup: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".cursor")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("setup made ~/.cursor: %v", err)
+	for _, dir := range []string{".cursor", ".config/opencode"} {
+		if _, err := os.Stat(filepath.Join(home, dir)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("setup made ~/%s: %v", dir, err)
+		}
+	}
+}
+
+func TestSetupAddsWongToOpenCode(t *testing.T) {
+	fakeClaude(t)
+	home, _ := machine(t, t.TempDir(), "laptop", "deploy.md")
+	dir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, "setup"); err != nil || !strings.Contains(out, "Added the wong plugin to OpenCode") {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	for path, want := range map[string][]byte{"plugins/wong.js": plugin.OpenCode, "skills/maintain-brain/SKILL.md": plugin.Skill} {
+		if data, _ := os.ReadFile(filepath.Join(dir, path)); len(data) == 0 || !bytes.Equal(data, want) {
+			t.Errorf("%s = %q", path, data)
+		}
 	}
 }

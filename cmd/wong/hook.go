@@ -21,15 +21,15 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 	var detached bool
 	cmd := &cobra.Command{
 		Use:       "hook session-start|session-end|pre-tool-use|post-tool-use",
-		Short:     "Answer the hooks of Claude Code, Codex and Cursor (wong setup installs them)",
+		Short:     "Answer the hooks of Claude Code, Codex, Cursor and OpenCode (wong setup installs them)",
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"session-start", "session-end", "pre-tool-use", "post-tool-use"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !slices.Contains([]string{"session-start", "session-end", "pre-tool-use", "post-tool-use"}, args[0]) {
 				return fmt.Errorf("unknown hook %q", args[0])
 			}
-			if !slices.Contains([]hook.Agent{hook.Claude, hook.Codex, hook.Cursor}, hook.Agent(agent)) {
-				return fmt.Errorf("unknown agent %q: claude, codex or cursor", agent)
+			if !slices.Contains([]hook.Agent{hook.Claude, hook.Codex, hook.Cursor, hook.OpenCode}, hook.Agent(agent)) {
+				return fmt.Errorf("unknown agent %q: claude, codex, cursor or opencode", agent)
 			}
 			raw, err := io.ReadAll(cmd.InOrStdin())
 			if err != nil {
@@ -84,7 +84,7 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&agent, "agent", string(hook.Claude), "the agent that runs the hook: claude, codex or cursor")
+	cmd.Flags().StringVar(&agent, "agent", string(hook.Claude), "the agent that runs the hook: claude, codex, cursor or opencode")
 	cmd.Flags().BoolVar(&detached, "detached", false, "")
 	cmd.Flags().MarkHidden("detached")
 	return cmd
