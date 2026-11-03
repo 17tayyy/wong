@@ -157,7 +157,8 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 		Short: "Create a note from its body on stdin and add it to MEMORY.md",
 		Long: "Create a note from its body on stdin and add it to the folder's MEMORY.md.\n\n" +
 			"--to is a project id or me for global notes. --kind is preference, project,\n" +
-			"person, client, decision or reference. --source, repeatable, is linear:<ID>,\n" +
+			"person, client, decision, reference or pitfall (what was tried and failed, or what\n" +
+			"is fragile, in the files it cites). --source, repeatable, is linear:<ID>,\n" +
 			"file:<repo>/<path>, commit:<repo>@<sha>, note:<name> or a URL. --pending release or\n" +
 			"main marks work left for the next v* tag or push to the main branch.\n\n" +
 			"It refuses a --tag that is a spelling of a tag in use (wong tags lists them), a [[link]]\n" +
@@ -232,7 +233,7 @@ func newNoteWriteCmd(brainDir *string) *cobra.Command {
 	cmd.Flags().StringVar(&to, "to", "", "project id, or me for a global note")
 	cmd.Flags().StringVar(&name, "name", "", "the note's name")
 	cmd.Flags().StringVar(&description, "description", "", "one line: what the note says")
-	cmd.Flags().StringVar(&kind, "kind", "", "preference, project, person, client, decision or reference")
+	cmd.Flags().StringVar(&kind, "kind", "", note.KindNames)
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "where a claim comes from (repeatable)")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "a tag for the note, reusing those in use (repeatable)")
 	cmd.Flags().StringVar(&pending, "pending", "", "release or main: the note leaves work for the next v* tag or push to the main branch")

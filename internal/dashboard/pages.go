@@ -896,7 +896,7 @@ func (d *Dashboard) newPage(w http.ResponseWriter, p *page, b *brain) {
 	if !slices.Contains(p.Folders, "me") {
 		p.Folders = append([]string{"me"}, p.Folders...)
 	}
-	p.Kinds = []note.Kind{note.Preference, note.Project, note.Decision, note.Reference}
+	p.Kinds = []note.Kind{note.Preference, note.Project, note.Decision, note.Reference, note.Pitfall}
 	d.render(w, "new", *p)
 }
 

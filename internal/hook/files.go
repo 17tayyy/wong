@@ -53,26 +53,29 @@ func FileNotes(in Input, env Env) string {
 	return answer(env.Agent, "PreToolUse", strings.Join(blocks, "\n"))
 }
 
-// fileNotes lists the notes that cite a file or its folder and that the session has not seen yet, and remembers them as seen.
-func fileNotes(file, session string, env Env) string {
+// Hit is a note of the brain that cites a file or its folder.
+type Hit struct {
+	Path, Name, Description string
+	Pitfall                 bool
+	score                   int
+}
+
+// Citing returns the project of a file in a linked repo, the file's path in its repo, and the notes of that project that
+// cite it or its folder: pitfalls first, then the closest.
+func Citing(file string, env Env) (project, rel string, hits []Hit) {
 	file = filepath.Clean(file)
 	if !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
-		return ""
+		return "", "", nil
 	}
 	project, dir := env.Repos.Containing(file)
 	if project == "" {
-		return ""
+		return "", "", nil
 	}
 	rel, err := filepath.Rel(dir, file)
 	if err != nil {
-		return ""
+		return "", "", nil
 	}
 	rel, repo := filepath.ToSlash(rel), filepath.Base(dir)
-	type hit struct {
-		path, name, desc string
-		score            int
-	}
-	var hits []hit
 	notes, _ := filepath.Glob(filepath.Join(env.Brain, "projects", project, "*.md"))
 	for _, p := range notes {
 		if filepath.Base(p) == "MEMORY.md" {
@@ -89,21 +92,32 @@ func fileNotes(file, session string, env Env) string {
 		if best == 0 {
 			continue
 		}
-		h := hit{path: p, name: strings.TrimSuffix(filepath.Base(p), ".md"), score: best}
+		h := Hit{Path: p, Name: strings.TrimSuffix(filepath.Base(p), ".md"), score: best}
 		if n, err := note.Parse(data); err == nil {
-			h.name, h.desc = n.Name, n.Description
+			h.Name, h.Description, h.Pitfall = n.Name, n.Description, n.Kind == note.Pitfall
 		}
 		hits = append(hits, h)
 	}
-	if len(hits) == 0 {
-		return ""
-	}
+	slices.SortFunc(hits, func(a, b Hit) int {
+		if a.Pitfall != b.Pitfall {
+			if a.Pitfall {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(b.score, a.score), strings.Compare(a.Name, b.Name))
+	})
+	return project, rel, hits
+}
+
+// fileNotes lists the notes that cite a file or its folder and that the session has not seen yet, and remembers them as seen.
+func fileNotes(file, session string, env Env) string {
+	project, rel, hits := Citing(file, env)
 	shown := seen(env.Brain, session)
-	hits = slices.DeleteFunc(hits, func(h hit) bool { return shown[h.path] })
+	hits = slices.DeleteFunc(hits, func(h Hit) bool { return shown[h.Path] })
 	if len(hits) == 0 {
 		return ""
 	}
-	slices.SortFunc(hits, func(a, b hit) int { return cmp.Or(cmp.Compare(b.score, a.score), strings.Compare(a.name, b.name)) })
 	if len(hits) > maxFileNotes {
 		hits = hits[:maxFileNotes]
 	}
@@ -118,16 +132,12 @@ func fileNotes(file, session string, env Env) string {
 	var paths []string
 	doubts := false
 	for _, h := range hits {
-		rel, _ := filepath.Rel(env.Brain, h.path)
+		rel, _ := filepath.Rel(env.Brain, h.Path)
 		rel = filepath.ToSlash(rel)
-		fmt.Fprintf(&b, "- %s (%s)", h.name, link.MemoryDir(env.Brain, env.Home, rel))
-		if h.desc != "" && h.desc != h.name {
-			fmt.Fprintf(&b, ": %s", h.desc)
-		}
-		b.WriteByte('\n')
+		b.WriteString(Line(h, env))
 		for i, f := range findings[rel] {
 			if i == maxNoteFindings {
-				fmt.Fprintf(&b, "  - and %d more (`wong note show %s`)\n", len(findings[rel])-maxNoteFindings, h.name)
+				fmt.Fprintf(&b, "  - and %d more (`wong note show %s`)\n", len(findings[rel])-maxNoteFindings, h.Name)
 				break
 			}
 			says := "it may be outdated"
@@ -137,13 +147,26 @@ func fileNotes(file, session string, env Env) string {
 			fmt.Fprintf(&b, "  - %s: %s %s\n", says, f.Ref, f.Message)
 			doubts = true
 		}
-		paths = append(paths, h.path)
+		paths = append(paths, h.Path)
 	}
 	if doubts {
 		fmt.Fprintf(&b, "Check a note marked so against its sources before relying on it, and fix it with the %s skill once you have finished what the user asked.\n", skill(env.Agent))
 	}
 	remember(env.Brain, session, paths)
 	return b.String()
+}
+
+// Line is how a note on a file is listed: its name, where it is, whether it is a pitfall, and its description.
+func Line(h Hit, env Env) string {
+	rel, _ := filepath.Rel(env.Brain, h.Path)
+	line := fmt.Sprintf("- %s (%s)", h.Name, link.MemoryDir(env.Brain, env.Home, filepath.ToSlash(rel)))
+	if h.Pitfall {
+		line += ", a pitfall"
+	}
+	if h.Description != "" && h.Description != h.Name {
+		line += ": " + h.Description
+	}
+	return line + "\n"
 }
 
 // cited lists the paths a note names: in backticks with a slash, and in its file: sources.

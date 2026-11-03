@@ -23,9 +23,13 @@ const (
 	Client     Kind = "client"
 	Decision   Kind = "decision"
 	Reference  Kind = "reference"
+	Pitfall    Kind = "pitfall"
 )
 
-var kinds = []Kind{Preference, Project, Person, Client, Decision, Reference}
+var kinds = []Kind{Preference, Project, Person, Client, Decision, Reference, Pitfall}
+
+// KindNames lists the kinds for messages and help.
+const KindNames = "preference, project, person, client, decision, reference or pitfall"
 
 var claudeTypes = map[Kind]string{
 	Preference: "feedback",
@@ -34,6 +38,7 @@ var claudeTypes = map[Kind]string{
 	Reference:  "reference",
 	Person:     "reference",
 	Client:     "reference",
+	Pitfall:    "project",
 }
 
 // KindOf returns the kind that Claude Code's own memory type stands for, or "" for an unknown type.
@@ -54,7 +59,7 @@ func ParseKind(s string) (Kind, error) {
 	if k := Kind(s); slices.Contains(kinds, k) {
 		return k, nil
 	}
-	return "", fmt.Errorf("unknown kind %q: use preference, project, person, client, decision or reference", s)
+	return "", fmt.Errorf("unknown kind %q: use %s", s, KindNames)
 }
 
 // CheckPending refuses a pending value other than release and main.

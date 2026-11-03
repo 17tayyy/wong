@@ -16,6 +16,7 @@ import (
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/graph"
 	"github.com/17tayyy/wong/internal/link"
+	"github.com/17tayyy/wong/internal/note"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
 	"github.com/17tayyy/wong/internal/skills"
@@ -245,11 +246,11 @@ func saving(b *strings.Builder, env Env, shelf, scope string) {
 			"(see `wong note write --help`). Never save what the repo already records, or what only matters to this session.\n", shelf)
 	}
 	fmt.Fprintf(b, "\nWhen you save a note in the brain, its frontmatter carries at the top level, beside name and description and not under "+
-		"metadata: `kind` (preference, project, "+
-		"person, client, decision or reference), `scope` (`%s` here, `global` in me/), `sources` for what it relies on "+
+		"metadata: `kind` (%s; a pitfall is what was tried and failed, or what is fragile, in the files it cites), "+
+		"`scope` (`%s` here, `global` in me/), `sources` for what it relies on "+
 		"(file:<repo>/<path>, commit:<repo>@<sha>, linear:<ID>, note:<name> or a URL), a few `tags`, `pending: release` or "+
 		"`pending: main` when it leaves work for the next release or push to the main branch, and `visibility: local` when it must "+
-		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", scope)
+		"stay on this machine, never pushed to the server. Point to sources instead of copying their state.\n", note.KindNames, scope)
 	if g, err := graph.Load(env.Brain); err == nil {
 		if tags := g.TagList(40); len(tags) > 0 {
 			fmt.Fprintf(b, "\nTags in use in the brain; reuse them when you tag a note, never a new spelling of one: %s.\n", strings.Join(tags, ", "))

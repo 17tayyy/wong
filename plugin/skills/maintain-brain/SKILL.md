@@ -191,7 +191,10 @@ verified: 2026-10-27
 ---
 ```
 
-- `kind`: preference, project, person, client, decision or reference.
+- `kind`: preference, project, person, client, decision, reference or pitfall. A pitfall is
+  what was tried and failed, or what is fragile, in the files it cites: wong shows it first
+  when an agent is about to touch one of them, and `wong precheck` warns of it before a
+  commit. Write one when an approach did not work and the next agent would try it again.
 - `scope`: `global` (lives in `me/`) or `project:<id>` (lives in `projects/<id>/`).
 - `sources`: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>`,
   or a URL.

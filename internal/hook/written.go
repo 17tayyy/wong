@@ -82,7 +82,7 @@ func shelfOf(rel string) (string, string, bool) {
 func lint(n *note.Note, rel, scope, project string, created bool, env Env) []string {
 	var fixes []string
 	if n.Kind == "" {
-		fix := "add `kind`: preference, project, person, client, decision or reference"
+		fix := "add `kind`: " + note.KindNames
 		if k := note.KindOf(n.ClaudeType()); k != "" {
 			fix += fmt.Sprintf(" (its metadata.type says %s)", k)
 		}

@@ -116,3 +116,17 @@ func TestFileNotesMarkTheOnesThatContradictTheirSources(t *testing.T) {
 		t.Errorf("a note with nothing found is marked:\n%s", got)
 	}
 }
+
+func TestFileNotesShowPitfallsFirst(t *testing.T) {
+	env, repo := newEnv(t)
+	write(t, filepath.Join(env.Brain, "projects/acme/billing.md"), "---\nname: billing\ndescription: how billing works\nkind: reference\nscope: project:acme\n---\nSee `app/payments/billing.py`.\n")
+	write(t, filepath.Join(env.Brain, "projects/acme/retries.md"), "---\nname: retries\ndescription: retries double-charge\nkind: pitfall\nscope: project:acme\n---\nRetrying in `app/payments/` charged twice.\n")
+	write(t, filepath.Join(repo, "app", "payments", "billing.py"), "pass\n")
+	in := Input{SessionID: "s1", ToolName: "Edit"}
+	in.ToolInput.FilePath = filepath.Join(repo, "app", "payments", "billing.py")
+
+	got := hookContext(t, FileNotes(in, env))
+	if !strings.Contains(got, "or its folder. Read the ones that bear on what you are about to do:\n- retries (~/.wong/projects/acme/retries.md), a pitfall: retries double-charge\n- billing (") {
+		t.Errorf("context:\n%s", got)
+	}
+}

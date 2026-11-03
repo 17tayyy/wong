@@ -106,7 +106,7 @@ var tools = []tool{
 			"to":          str(shelfArg),
 			"name":        str("A short name; the file name is made from it."),
 			"description": str("One line: what the note says."),
-			"kind":        map[string]any{"type": "string", "enum": []string{"preference", "project", "person", "client", "decision", "reference"}, "description": "What the note is: a preference of the user's, project knowledge, a decision, a reference, or about a person or client."},
+			"kind":        map[string]any{"type": "string", "enum": []string{"preference", "project", "person", "client", "decision", "reference", "pitfall"}, "description": "What the note is: a preference of the user's, project knowledge, a decision, a reference, about a person or client, or a pitfall: what was tried and failed, or what is fragile, in the files it cites."},
 			"body":        str("The note's text, in markdown. Link other notes with [[name]], only to notes that exist."),
 			"sources":     strs(sourceArg),
 			"tags":        strs("Tags for the note: reuse the tags in use; lowercase, words joined by -, nested with /."),
