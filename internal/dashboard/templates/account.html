@@ -46,6 +46,31 @@
     </div>
   </section>
 
+  {{if .View}}
+  <section class="part" aria-labelledby="weekly-h">
+    <h2 id="weekly-h">Weekly email</h2>
+    <p class="desc">Each Monday, how many changes your brain took that week, from which machines, and how many corrections were fixed. It names no note, since this server cannot read them: the notes themselves are on <a href="/week">This week</a>.</p>
+    {{with .Sent}}<p class="toast" role="status">{{icon "circle-check"}}<span>We sent a link to <strong>{{.}}</strong>. The weekly email starts once you open it.</span></p>{{end}}
+    {{with .DigestProblem}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
+    {{with .View.Digest}}{{if .Email}}
+    <div class="props">
+      <div class="prop"><span class="k">{{icon "info"}}Sent to</span><span class="v"><span>{{.Email}}{{if not .Confirmed}}&nbsp;<span class="muted">· waiting for you to open the link we sent</span>{{end}}</span></span></div>
+    </div>
+    <form class="formbar" method="post" action="/account/digest">
+      <input type="hidden" name="stop" value="1">
+      <button class="btn">{{if .Confirmed}}Stop the weekly email{{else}}Cancel{{end}}</button>
+    </form>
+    {{end}}{{end}}
+    {{if not (and .View.Digest .View.Digest.Email)}}{{if not .Sent}}
+    <form class="formbar" method="post" action="/account/digest">
+      <label class="sr" for="digest-email">Your email address</label>
+      <input id="digest-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+      <button class="btn">Send it to me</button>
+    </form>
+    {{end}}{{end}}
+  </section>
+  {{end}}
+
   <section class="part" aria-labelledby="data-h">
     <h2 id="data-h">Your data</h2>
     <p class="desc">Every machine that has the key keeps your whole brain in <code>~/.wong</code>, as Markdown files. To download it from here as a zip, open your notes in this browser first: this server cannot read them.</p>

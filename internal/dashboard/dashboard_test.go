@@ -787,3 +787,83 @@ func TestThisWeek(t *testing.T) {
 		}
 	}
 }
+
+func TestWeeklyEmailOnTheAccountPage(t *testing.T) {
+	folder, err := remote.OpenFolder(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { folder.Close() })
+	store, _, err := folder.Create("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := store.NewToken("browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var email string
+	var confirmed bool
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer admin-secret" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/account/bob/":
+			json.NewEncoder(w).Encode(map[string]any{"plan": map[string]string{"name": "Beta"}, "digest": map[string]any{"email": email, "confirmed": confirmed}})
+		case "POST /api/account/bob/digest":
+			var in struct{ Email string }
+			json.NewDecoder(r.Body).Decode(&in)
+			if strings.HasPrefix(in.Email, "no@") {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				io.WriteString(w, `{"error":"That address bounced before; write another one."}`)
+				return
+			}
+			email, confirmed = in.Email, false
+			io.WriteString(w, `{}`)
+		case "DELETE /api/account/bob/digest":
+			email, confirmed = "", false
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(service.Close)
+	h, err := Handler(folder, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{
+		Devices: remote.NewDevices(), SignIns: remote.NewSignIns(),
+		Account: &AccountService{URL: service.URL + "/api/account/{account}/", Token: "admin-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+
+	if _, body := b.get("/account"); !strings.Contains(body, `<h2 id="weekly-h">Weekly email</h2>`) || !strings.Contains(body, `name="email" type="email"`) {
+		t.Fatalf("the Account page offers no weekly email:\n%s", body)
+	}
+	if code, body := b.post("/account/digest", url.Values{"email": {"not an address"}}, srv.URL); code != http.StatusUnprocessableEntity || !strings.Contains(body, "Write an email address") {
+		t.Errorf("a bad address: %d", code)
+	}
+	if code, body := b.post("/account/digest", url.Values{"email": {"no@example.com"}}, srv.URL); code != http.StatusUnprocessableEntity || !strings.Contains(body, "That address bounced before") {
+		t.Errorf("an address the service refuses: %d", code)
+	}
+	if code, body := b.post("/account/digest", url.Values{"email": {"bob@example.com"}}, srv.URL); code != http.StatusOK ||
+		!strings.Contains(body, "We sent a link to <strong>bob@example.com</strong>") || !strings.Contains(body, "waiting for you to open the link") || strings.Contains(body, `name="email" type="email"`) {
+		t.Errorf("starting the weekly email: %d\n%s", code, body)
+	}
+	confirmed = true
+	if _, body := b.get("/account"); !strings.Contains(body, "Stop the weekly email") || strings.Contains(body, "waiting for you") {
+		t.Errorf("a confirmed weekly email:\n%s", body)
+	}
+	if code, body := b.post("/account/digest", url.Values{"stop": {"1"}}, srv.URL); code != http.StatusOK || email != "" || !strings.Contains(body, `name="email" type="email"`) {
+		t.Errorf("stopping the weekly email: %d, email %q", code, email)
+	}
+}

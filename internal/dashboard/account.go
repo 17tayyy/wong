@@ -1,12 +1,14 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -32,6 +34,13 @@ type accountView struct {
 	Offers   []offer `json:"offers"`
 	Manage   *offer  `json:"manage"`
 	Note     string  `json:"note"`
+	Digest   *digest `json:"digest"`
+}
+
+// digest is the weekly email as the account service holds it: where it goes, and whether that address was confirmed.
+type digest struct {
+	Email     string `json:"email"`
+	Confirmed bool   `json:"confirmed"`
 }
 
 // offer is a plan, a notice or an action: a name, a line under it, and a link with its label when there is one.
@@ -102,7 +111,43 @@ func (s *AccountService) forget(ctx context.Context, account string) (string, er
 	return "", fmt.Errorf("the account service answered %s", res.Status)
 }
 
-// refusal is the service declining to close an account, with what the person can do about it.
+// setDigest asks the service to send the weekly email to an address, once its owner confirms it, or with an empty
+// address to stop it.
+func (s *AccountService) setDigest(ctx context.Context, account, email string) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	method, body := http.MethodDelete, io.Reader(nil)
+	if email != "" {
+		data, _ := json.Marshal(map[string]string{"email": email})
+		method, body = http.MethodPost, bytes.NewReader(data)
+	}
+	u := strings.TrimSuffix(strings.ReplaceAll(s.URL, "{account}", url.PathEscape(account)), "/") + "/digest"
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	var out struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 16<<10)).Decode(&out)
+	switch {
+	case res.StatusCode == http.StatusOK || res.StatusCode == http.StatusNoContent:
+		return nil
+	case out.Error != "":
+		return &refusal{out.Error}
+	}
+	return fmt.Errorf("the account service answered %s", res.Status)
+}
+
+// refusal is the service declining a request, with what the person can do about it.
 type refusal struct{ msg string }
 
 func (e *refusal) Error() string { return e.msg }
@@ -117,10 +162,49 @@ type accountInfo struct {
 	Machines []machineSeen
 	MCP      string
 	Problem  string
+	// DigestProblem is why the weekly email could not be set, and Sent the address a confirmation link just went to.
+	DigestProblem string
+	Sent          string
 }
 
 func (d *Dashboard) accountPage(w http.ResponseWriter, r *http.Request, machine string) {
 	d.renderAccount(w, r, machine, "")
+}
+
+// changeDigest starts the weekly email at the address the form gives, or stops it when the form says stop.
+func (d *Dashboard) changeDigest(w http.ResponseWriter, r *http.Request, machine string) {
+	if d.account == "" {
+		http.NotFound(w, r)
+		return
+	}
+	email := strings.TrimSpace(r.FormValue("email"))
+	if r.FormValue("stop") != "" {
+		email = ""
+	} else if _, err := mail.ParseAddress(email); err != nil || strings.ContainsAny(email, "<> ") {
+		d.renderDigest(w, r, machine, "Write an email address such as you@example.com.", "")
+		return
+	}
+	err := d.opts.Account.setDigest(r.Context(), d.account, email)
+	var no *refusal
+	switch {
+	case errors.As(err, &no):
+		d.renderDigest(w, r, machine, no.msg, "")
+		return
+	case err != nil:
+		d.log.Error("account service", "account", d.account, "err", err)
+		d.renderDigest(w, r, machine, "The account service did not answer, so nothing changed. Try again in a minute.", "")
+		return
+	}
+	d.log.Info("weekly email", "account", d.account, "on", email != "", "by", machine)
+	if email == "" {
+		http.Redirect(w, r, "/account#weekly-h", http.StatusSeeOther)
+		return
+	}
+	d.renderDigest(w, r, machine, "", email)
+}
+
+func (d *Dashboard) renderDigest(w http.ResponseWriter, r *http.Request, machine, problem, sent string) {
+	d.renderPage(w, r, machine, "", func(a *accountInfo) { a.DigestProblem, a.Sent = problem, sent })
 }
 
 // deleteAccount closes the account with the service, deletes its brain from this server, and signs the person out.
@@ -158,6 +242,10 @@ func (d *Dashboard) deleteAccount(w http.ResponseWriter, r *http.Request, machin
 }
 
 func (d *Dashboard) renderAccount(w http.ResponseWriter, r *http.Request, machine, problem string) {
+	d.renderPage(w, r, machine, problem, nil)
+}
+
+func (d *Dashboard) renderPage(w http.ResponseWriter, r *http.Request, machine, problem string, more func(*accountInfo)) {
 	if d.account == "" {
 		http.NotFound(w, r)
 		return
@@ -192,8 +280,11 @@ func (d *Dashboard) renderAccount(w http.ResponseWriter, r *http.Request, machin
 		a.Down = true
 	}
 	a.Problem = problem
+	if more != nil {
+		more(a)
+	}
 	p.AccountPage = a
-	if problem != "" {
+	if a.Problem != "" || a.DigestProblem != "" {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
 	d.render(w, "account", p)

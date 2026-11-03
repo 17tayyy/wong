@@ -114,6 +114,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	if opts.Account != nil {
 		mux.HandleFunc("GET /account", d.session((*Dashboard).accountPage))
 		mux.HandleFunc("POST /account/delete", d.session((*Dashboard).deleteAccount))
+		mux.HandleFunc("POST /account/digest", d.session((*Dashboard).changeDigest))
 	}
 	mux.HandleFunc("GET /export", d.session((*Dashboard).export))
 	mux.HandleFunc("GET /device", d.session((*Dashboard).device))

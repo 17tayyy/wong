@@ -190,7 +190,7 @@ main { flex: 1; min-width: 0; }
 .toast { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; padding: 8px 12px; border-radius: var(--radius); background: var(--green-bg); color: var(--green-fg); font-size: 14px; }
 .empty { margin: 24px 0; color: var(--muted); }
 .query { margin: 14px 0 0; color: var(--muted); font-size: 14px; }
-.query a, .callout a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.query a, .callout a, .desc a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .more { margin: 20px 0 0; }
 .divider { margin: 22px 0; border: 0; border-top: 1px solid var(--line); }
 
