@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	brainfs "github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/dashboard"
 	"github.com/17tayyy/wong/internal/mcp"
 	"github.com/17tayyy/wong/internal/remote"
@@ -71,7 +71,7 @@ func Start(brain string, cloud *remote.Client, version string, log *slog.Logger)
 	if err := os.MkdirAll(filepath.Join(brain, ".wong"), 0o700); err != nil {
 		return nil, err
 	}
-	if err := ignoreCopy(brain); err != nil {
+	if err := brainfs.IgnoreState(brain, "local*"); err != nil {
 		return nil, err
 	}
 	store, err := remote.Open(filepath.Join(brain, dbPath))
@@ -165,24 +165,6 @@ func (m *Mirror) Run(ctx context.Context, interval time.Duration) error {
 		case <-tick.C:
 		}
 	}
-}
-
-// ignoreCopy keeps the copy, its sync state and its token out of the brain's own git, which commits the rest.
-func ignoreCopy(brain string) error {
-	path := filepath.Join(brain, ".wong", ".gitignore")
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "local*" {
-			return nil
-		}
-	}
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		data = append(data, '\n')
-	}
-	return os.WriteFile(path, append(data, "local*\n"...), 0o644)
 }
 
 // Close stops serving the copy, which stays on disk for the next time.

@@ -238,3 +238,24 @@ func mustStat(t *testing.T, path string) os.FileInfo {
 	}
 	return info
 }
+
+func TestIgnoreStateAddsAPatternOnce(t *testing.T) {
+	dir := t.TempDir()
+	for range 2 {
+		if err := IgnoreState(dir, "shown/"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".wong", ".gitignore"), []byte("shown/\nlocal*"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := IgnoreState(dir, "local*"); err != nil {
+		t.Fatal(err)
+	}
+	if err := IgnoreState(dir, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, ".wong", ".gitignore")); string(data) != "shown/\nlocal*\nother\n" {
+		t.Errorf(".gitignore = %q", data)
+	}
+}

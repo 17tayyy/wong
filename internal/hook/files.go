@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	brainfs "github.com/17tayyy/wong/internal/brain"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/note"
 )
@@ -190,7 +191,7 @@ func remember(brain, session string, paths []string) {
 		return
 	}
 	dir := filepath.Dir(shownPath(brain, session))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil || brainfs.IgnoreState(brain, "shown/") != nil {
 		return
 	}
 	if entries, err := os.ReadDir(dir); err == nil {

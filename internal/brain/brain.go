@@ -385,3 +385,24 @@ func notesIn(dir string) ([]string, error) {
 	}
 	return slices.DeleteFunc(paths, func(p string) bool { return filepath.Base(p) == indexName }), nil
 }
+
+// IgnoreState keeps files of wong's own state in the brain's .wong folder, matched by pattern, out of the brain's git.
+func IgnoreState(brain, pattern string) error {
+	path := filepath.Join(brain, ".wong", ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == pattern {
+			return nil
+		}
+	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, pattern+"\n"...), 0o644)
+}
