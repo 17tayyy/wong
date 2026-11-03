@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -14,6 +18,7 @@ import (
 	"time"
 
 	"github.com/17tayyy/wong/internal/remote"
+	"github.com/17tayyy/wong/plugin"
 )
 
 // machine gives a fresh home with a repo and its Claude Code memory, and makes it the current one.
@@ -283,5 +288,78 @@ func TestWritableRootLeavesAConfigThatSetsThemAlone(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(empty, "config.toml")); string(data) != "[sandbox_workspace_write]\nwritable_roots = ['/home/me/.wong']\n" {
 		t.Errorf("a new config.toml = %q", data)
+	}
+}
+
+func TestSetupAddsWongToCursor(t *testing.T) {
+	fakeClaude(t)
+	home, _ := machine(t, t.TempDir(), "laptop", "deploy.md")
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	other := `{"hooks":{"stop":[{"command":"[ -x ~/x.sh ] && ~/x.sh >/dev/null","timeout":10}],` +
+		`"sessionStart":[{"command":"wong hook session-start --agent cursor","timeout":3}]},"version":1}`
+	if err := os.MkdirAll(filepath.Dir(hooks), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooks, []byte(other), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var first []byte
+	for i := range 2 {
+		out, err := run(t, "setup")
+		if err != nil || !strings.Contains(out, "Added wong's hooks to Cursor") {
+			t.Fatalf("setup: %v\n%s", err, out)
+		}
+		data, _ := os.ReadFile(hooks)
+		if i == 0 {
+			first = data
+		} else if !bytes.Equal(data, first) {
+			t.Errorf("a second setup changed hooks.json:\n%s", data)
+		}
+	}
+	var config struct {
+		Version int
+		Hooks   map[string][]struct {
+			Command, Matcher string
+			Timeout          int
+		}
+	}
+	if err := json.Unmarshal(first, &config); err != nil {
+		t.Fatalf("hooks.json: %v\n%s", err, first)
+	}
+	if config.Version != 1 || len(config.Hooks["stop"]) != 1 || config.Hooks["stop"][0].Command != "[ -x ~/x.sh ] && ~/x.sh >/dev/null" {
+		t.Errorf("hooks.json lost another tool's hook:\n%s", first)
+	}
+	for event, want := range map[string]string{"sessionStart": "session-start", "sessionEnd": "session-end", "preToolUse": "pre-tool-use", "postToolUse": "post-tool-use"} {
+		if h := config.Hooks[event]; len(h) != 1 || h[0].Command != "wong hook "+want+" --agent cursor" || h[0].Timeout == 0 {
+			t.Errorf("%s = %+v", event, h)
+		}
+	}
+	if m := config.Hooks["preToolUse"][0].Matcher; m != "^(Read|Write|Delete|Shell)$" {
+		t.Errorf("preToolUse matcher = %q", m)
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, ".cursor", "skills", "maintain-brain", "SKILL.md")); !bytes.Equal(data, plugin.Skill) || len(data) == 0 {
+		t.Errorf("the skill = %q", data)
+	}
+
+	if err := os.WriteFile(hooks, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := run(t, "setup"); !strings.Contains(out, "Add them to "+hooks+" by hand") || !strings.Contains(out, "preToolUse: wong hook pre-tool-use --agent cursor") {
+		t.Errorf("setup with a broken hooks.json:\n%s", out)
+	}
+	if data, _ := os.ReadFile(hooks); string(data) != "{not json" {
+		t.Errorf("a broken hooks.json changed: %q", data)
+	}
+}
+
+func TestSetupLeavesCursorAloneWhenItIsNotThere(t *testing.T) {
+	fakeClaude(t)
+	home, _ := machine(t, t.TempDir(), "laptop", "deploy.md")
+	if out, err := run(t, "setup"); err != nil || strings.Contains(out, "hooks to Cursor") {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("setup made ~/.cursor: %v", err)
 	}
 }

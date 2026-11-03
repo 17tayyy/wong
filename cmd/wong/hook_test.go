@@ -29,7 +29,24 @@ func TestHookNeverFailsTheSession(t *testing.T) {
 	if _, err := run(t, "hook", "session-middle"); err == nil {
 		t.Error("an unknown hook was accepted")
 	}
-	if _, err := run(t, "hook", "session-start", "--agent", "cursor"); err == nil {
+	if _, err := run(t, "hook", "session-start", "--agent", "aider"); err == nil {
 		t.Error("an unknown agent was accepted")
+	}
+}
+
+func TestClaudeHooksStayQuietInCursor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	for _, event := range []string{"session-start", "pre-tool-use", "post-tool-use", "session-end"} {
+		cmd := newRootCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetIn(strings.NewReader(`{"session_id":"c1","cursor_version":"2026.10.22","workspace_roots":["` + home + `"],"tool_name":"Read","tool_input":{"file_path":"` + home + `/x"}}`))
+		cmd.SetArgs([]string{"--brain", filepath.Join(home, ".wong"), "hook", event})
+		if err := cmd.Execute(); err != nil || out.String() != "{}" {
+			t.Errorf("hook %s from Claude Code's plugin in Cursor: %q, %v", event, out.String(), err)
+		}
 	}
 }

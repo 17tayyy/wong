@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,6 +17,7 @@ import (
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/remote"
 	"github.com/17tayyy/wong/internal/repos"
+	"github.com/17tayyy/wong/plugin"
 )
 
 func newSetupCmd(home string, brain *string) *cobra.Command {
@@ -32,7 +36,8 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			"  3. with a server, pushes it, so the server holds the memory of every machine;\n" +
 			"  4. links every repo it imported to its project, and every other folder to me/;\n" +
 			"  5. installs the wong plugin for Claude Code, and for Codex when it is on\n" +
-			"     this machine, letting Codex's sandbox write to the brain.\n\n" +
+			"     this machine, letting Codex's sandbox write to the brain; with Cursor,\n" +
+			"     adds wong's hooks to ~/.cursor/hooks.json and its skill to ~/.cursor/skills.\n\n" +
 			"wong import --dry-run shows first how the memory will be grouped into projects;\n" +
 			"--map changes it. Run it again with a url to connect a machine set up on its own.",
 		Args: cobra.MaximumNArgs(1),
@@ -69,6 +74,7 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			}
 			installPlugin(cmd)
 			installCodex(cmd, home, *brain)
+			installCursor(cmd, home)
 			return nil
 		},
 	}
@@ -190,6 +196,97 @@ func writableRoot(codexHome, brain string) string {
 		return fmt.Sprintf("Writing %s failed (%v); add %s to sandbox_workspace_write.writable_roots there.", config, err, brain)
 	}
 	return fmt.Sprintf("Codex may now write notes in %s as well as in the repo it works on (sandbox_workspace_write.writable_roots in %s).", brain, config)
+}
+
+var cursorHooks = []struct {
+	event, matcher, hook string
+	timeout              int
+}{
+	{"sessionStart", "", "session-start", 30},
+	{"sessionEnd", "", "session-end", 10},
+	{"preToolUse", "^(Read|Write|Delete|Shell)$", "pre-tool-use", 5},
+	{"postToolUse", "^Write$", "post-tool-use", 5},
+}
+
+// installCursor adds wong's hooks and the maintain-brain skill to Cursor, when Cursor is on this machine.
+func installCursor(cmd *cobra.Command, home string) {
+	dir := filepath.Join(home, ".cursor")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return
+	}
+	out := cmd.OutOrStdout()
+	hooks := filepath.Join(dir, "hooks.json")
+	if err := setCursorHooks(hooks); err != nil {
+		fmt.Fprintf(out, "\nAdding wong's hooks to Cursor failed (%v). Add them to %s by hand:\n", err, hooks)
+		for _, h := range cursorHooks {
+			fmt.Fprintf(out, "  %s: wong hook %s --agent cursor\n", h.event, h.hook)
+		}
+		return
+	}
+	skill := filepath.Join(dir, "skills", "maintain-brain", "SKILL.md")
+	err := os.MkdirAll(filepath.Dir(skill), 0o755)
+	if err == nil {
+		err = os.WriteFile(skill, plugin.Skill, 0o644)
+	}
+	if err != nil {
+		fmt.Fprintf(out, "\nAdded wong's hooks to Cursor, but writing its skill failed (%v).\n", err)
+		return
+	}
+	fmt.Fprintf(out, "\nAdded wong's hooks to Cursor (%s) and its maintain-brain skill (%s). New chats pick them up.\n", hooks, filepath.Dir(skill))
+}
+
+// setCursorHooks adds wong's hooks to a Cursor hooks.json, replacing the ones a previous wong added and keeping every other.
+func setCursorHooks(path string) error {
+	config := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("%s does not parse: %w", path, err)
+		}
+	}
+	if config["hooks"] == nil {
+		config["hooks"] = map[string]any{}
+	}
+	hooks, ok := config["hooks"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("hooks in %s is not an object", path)
+	}
+	for _, h := range cursorHooks {
+		if hooks[h.event] == nil {
+			hooks[h.event] = []any{}
+		}
+		list, ok := hooks[h.event].([]any)
+		if !ok {
+			return fmt.Errorf("hooks.%s in %s is not a list", h.event, path)
+		}
+		list = slices.DeleteFunc(list, func(e any) bool {
+			entry, _ := e.(map[string]any)
+			command, _ := entry["command"].(string)
+			return strings.HasPrefix(command, "wong hook ")
+		})
+		entry := map[string]any{"command": "wong hook " + h.hook + " --agent cursor", "timeout": h.timeout}
+		if h.matcher != "" {
+			entry["matcher"] = h.matcher
+		}
+		hooks[h.event] = append(list, entry)
+	}
+	if config["version"] == nil {
+		config["version"] = 1
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(config); err != nil {
+		return err
+	}
+	if bytes.Equal(buf.Bytes(), data) {
+		return nil
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 func separator(data []byte) string {

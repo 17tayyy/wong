@@ -1,7 +1,6 @@
 package hook
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -18,7 +17,7 @@ import (
 // NoteWritten answers PostToolUse on files of the brain with what wong needs to check them and sync them, for the agent to fix at once.
 func NoteWritten(in Input, env Env) string {
 	if env.Brain == "" {
-		return ""
+		return answer(env.Agent, "PostToolUse", "")
 	}
 	files, created := touched(in, env, false)
 	var reasons []string
@@ -27,16 +26,7 @@ func NoteWritten(in Input, env Env) string {
 			reasons = append(reasons, reason)
 		}
 	}
-	if len(reasons) == 0 {
-		return ""
-	}
-	reason := strings.Join(reasons, "\n")
-	if env.Agent == Codex {
-		out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PostToolUse", "additionalContext": reason}})
-		return string(out)
-	}
-	out, _ := json.Marshal(map[string]string{"decision": "block", "reason": reason})
-	return string(out)
+	return answer(env.Agent, "PostToolUse", strings.Join(reasons, "\n"))
 }
 
 // noteFixes says what a file of the brain lacks for wong to check it and sync it, or "" when it lacks nothing.

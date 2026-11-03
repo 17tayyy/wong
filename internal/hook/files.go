@@ -3,7 +3,6 @@ package hook
 import (
 	"bufio"
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -45,11 +44,7 @@ func FileNotes(in Input, env Env) string {
 			blocks = append(blocks, block)
 		}
 	}
-	if len(blocks) == 0 {
-		return ""
-	}
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "additionalContext": strings.Join(blocks, "\n")}})
-	return string(out)
+	return answer(env.Agent, "PreToolUse", strings.Join(blocks, "\n"))
 }
 
 // fileNotes lists the notes that cite a file or its folder and that the session has not seen yet, and remembers them as seen.

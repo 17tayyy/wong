@@ -1,4 +1,4 @@
-// Package hook answers the hooks of Claude Code and Codex: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
+// Package hook answers the hooks of Claude Code, Codex and Cursor: context when a session starts, notes on the files an agent touches, a check of each note it writes, and a brain snapshot when it ends.
 package hook
 
 import (
@@ -26,17 +26,21 @@ const (
 	maxReview   = 15
 	maxMaintain = 3
 	maxIndex    = 150
+	indexMark   = "\x00index\x00"
 )
 
 // Input is the part of a hook's JSON input that wong reads.
 type Input struct {
-	SessionID string `json:"session_id"`
-	Cwd       string `json:"cwd"`
-	Source    string `json:"source"`
-	ToolName  string `json:"tool_name"`
-	ToolInput struct {
-		FilePath string `json:"file_path"`
-		Command  string `json:"command"`
+	SessionID      string   `json:"session_id"`
+	Cwd            string   `json:"cwd"`
+	WorkspaceRoots []string `json:"workspace_roots"`
+	CursorVersion  string   `json:"cursor_version"`
+	Source         string   `json:"source"`
+	ToolName       string   `json:"tool_name"`
+	ToolInput      struct {
+		FilePath         string `json:"file_path"`
+		Command          string `json:"command"`
+		WorkingDirectory string `json:"working_directory"`
 	} `json:"tool_input"`
 }
 
@@ -50,8 +54,12 @@ type Env struct {
 	Remote *remote.Client
 }
 
-// SessionStart pulls the brain from the server, if there is one, and returns the context to add to a new session.
+// SessionStart pulls the brain from the server, if there is one, and returns the context to add to a new session, in the agent's format.
 func SessionStart(ctx context.Context, in Input, env Env) string {
+	return answer(env.Agent, "SessionStart", sessionStart(ctx, in, env))
+}
+
+func sessionStart(ctx context.Context, in Input, env Env) string {
 	var b strings.Builder
 	if env.Remote != nil {
 		_, pullErr := remote.Pull(ctx, env.Remote, env.Brain)
@@ -91,24 +99,24 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 	if project == "" {
 		if isRepo {
 			outside := "Claude Code keeps its memory outside it"
-			if env.Agent == Codex {
+			if !env.Agent.hasMemory() {
 				outside = "none of the user's project notes apply here yet"
 			}
 			fmt.Fprintf(&b, "wong: this repo is not linked to the brain, so %s. "+
 				"If it belongs to a project (in the brain: %s), link it with `wong link --project <id>` and restart the session.\n",
 				outside, strings.Join(projects(env.Brain), ", "))
 		}
-		if env.Agent == Codex {
+		if !env.Agent.hasMemory() {
 			globalIndex(&b, env)
 			saving(&b, env, "me", "global")
 		}
 		return b.String()
 	}
 
-	if env.Agent == Codex {
+	if !env.Agent.hasMemory() {
 		fmt.Fprintf(&b, "wong: the brain's project %q (%s) is your memory in this session, shared with every agent the user works with. "+
 			"Its notes, one a line; read the ones that bear on your task:\n%s\n",
-			project, link.MemoryDir(env.Brain, env.Home, "projects/"+project), index(env.Brain, "projects/"+project, env.Home))
+			project, link.MemoryDir(env.Brain, env.Home, "projects/"+project), indexMark)
 	} else {
 		fmt.Fprintf(&b, "wong: this session's memory is the brain's project %q (%s).\n",
 			project, link.MemoryDir(env.Brain, env.Home, "projects/"+project))
@@ -176,8 +184,8 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 			says = "1 finding says"
 		}
 		fmt.Fprintf(&b, "\nwong check: %s notes of this project's memory contradict their sources. "+
-			"When you have finished what the user asked, fix them with the wong:maintain-brain skill, one note at a time "+
-			"(%s):\n", says, list)
+			"When you have finished what the user asked, fix them with the %s skill, one note at a time "+
+			"(%s):\n", says, skill(env.Agent), list)
 		for i, f := range stale {
 			if i == maxFindings {
 				fmt.Fprintf(&b, "- and %d more\n", len(stale)-maxFindings)
@@ -197,15 +205,23 @@ func SessionStart(ctx context.Context, in Input, env Env) string {
 		}
 		if len(review) == 1 {
 			fmt.Fprintf(&b, "\nwong check: this note of this project may be outdated: %s. If it bears on your task, check it against its "+
-				"sources and fix it before relying on it; otherwise maintain it with the wong:maintain-brain skill when you have finished "+
-				"what the user asked.\n", names[0])
+				"sources and fix it before relying on it; otherwise maintain it with the %s skill when you have finished "+
+				"what the user asked.\n", names[0], skill(env.Agent))
 		} else {
 			fmt.Fprintf(&b, "\nwong check: these %d notes of this project may be outdated: %s%s. If one bears on your task, check it against "+
 				"its sources and fix it before relying on it. When you have finished what the user asked, maintain up to %d of the others "+
-				"with the wong:maintain-brain skill.\n", len(review), strings.Join(names, ", "), more, maxMaintain)
+				"with the %s skill.\n", len(review), strings.Join(names, ", "), more, maxMaintain, skill(env.Agent))
 		}
 	}
-	return b.String()
+	text := b.String()
+	if env.Agent.hasMemory() {
+		return text
+	}
+	budget := 0
+	if env.Agent == Cursor {
+		budget = max(1, maxContext-(len(text)-len(indexMark)))
+	}
+	return strings.Replace(text, indexMark, index(env.Brain, "projects/"+project, env.Home, budget), 1)
 }
 
 // globalIndex adds the index of me/, the notes that apply in every repo.
@@ -218,7 +234,7 @@ func globalIndex(b *strings.Builder, env Env) {
 
 // saving tells the agent how a note of the brain is written: where, for an agent with no memory of its own, and in what format.
 func saving(b *strings.Builder, env Env, shelf, scope string) {
-	if env.Agent == Codex {
+	if !env.Agent.hasMemory() {
 		fmt.Fprintf(b, "\nYou have no memory of your own between sessions: the brain is it. When you learn something worth keeping "+
 			"(what the user prefers or corrects, a decision and why, how something works that the code and its history do not say), "+
 			"look for a note on it with `wong note search <words>` and update it, or write a new one with `wong note write --to %s` "+
@@ -237,17 +253,26 @@ func saving(b *strings.Builder, env Env, shelf, scope string) {
 	}
 }
 
-// index returns a shelf's MEMORY.md, cut short past maxIndex lines.
-func index(brain, shelf, home string) string {
+// index returns a shelf's MEMORY.md, cut short past maxIndex lines or, with a budget, past that many bytes.
+func index(brain, shelf, home string, budget int) string {
 	data, _ := os.ReadFile(filepath.Join(brain, shelf, "MEMORY.md"))
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		return "(no notes yet)"
 	}
-	if len(lines) > maxIndex {
-		lines = append(lines[:maxIndex], fmt.Sprintf("- and %d more in %s", len(lines)-maxIndex, link.MemoryDir(brain, home, shelf+"/MEMORY.md")))
+	where := link.MemoryDir(brain, home, shelf+"/MEMORY.md")
+	for keep := min(len(lines), maxIndex); ; keep-- {
+		out := lines[:keep:keep]
+		switch more := len(lines) - keep; {
+		case keep == 0:
+			out = append(out, fmt.Sprintf("- all %d are in %s", more, where))
+		case more > 0:
+			out = append(out, fmt.Sprintf("- and %d more in %s", more, where))
+		}
+		if s := strings.Join(out, "\n"); budget <= 0 || len(s) <= budget || keep == 0 {
+			return s
+		}
 	}
-	return strings.Join(lines, "\n")
 }
 
 // SessionEnd records the user's skills and the projects' GitHub repos, commits whatever changed in the brain and pushes it to the server.
