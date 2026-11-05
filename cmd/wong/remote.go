@@ -62,7 +62,7 @@ func newServeCmd() *cobra.Command {
 			"page: the issues that close in their workspace reach their brain, and their machines\n" +
 			"get Linear's token, sealed for them on an encrypted brain, to check the issues notes\n" +
 			"cite. The application is used without its secret: PKCE stands for it, so the\n" +
-			"machines renew the token themselves and the server keeps none.\n" +
+			"machines renew the token themselves; on an encrypted brain the server cannot read it.\n\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
 			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
 			"The same address serves the dashboard. wong open, on a connected machine, opens it\n" +
@@ -170,11 +170,11 @@ func newServeCmd() *cobra.Command {
 			}
 			api := remote.Handler(brains, log, hooks)
 			devices, signins := remote.NewDevices(), remote.NewSignIns()
-			keyFile := db + ".oauth-key"
+			oauthKey := db + ".oauth-key"
 			if dir != "" {
-				keyFile = filepath.Join(dir, ".oauth-key")
+				oauthKey = filepath.Join(dir, ".oauth-key")
 			}
-			oauth, err := remote.NewOAuth(keyFile)
+			oauth, err := remote.NewOAuth(oauthKey)
 			if err != nil {
 				return err
 			}
@@ -611,7 +611,7 @@ func remoteClient(timeout time.Duration) (*remote.Client, error) {
 func requireRemote(timeout time.Duration) (*remote.Client, error) {
 	client, err := remoteClient(timeout)
 	if err == nil && client == nil {
-		err = errors.New("no server set: run wong remote <url>")
+		err = errors.New("no server set: run wong setup <server-url>")
 	}
 	return client, err
 }
