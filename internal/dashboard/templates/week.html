@@ -54,7 +54,7 @@
   <section class="week-part" aria-labelledby="w-open">
     <h2 id="w-open">{{icon "triangle-alert"}}Still open <span class="count">{{.Open}}</span></h2>
     {{if .Open}}
-    <a class="callout {{if .Stale}}red{{else}}yellow{{end}}" href="/corrections">{{icon "triangle-alert"}}<span><b>{{.Open}} {{if eq .Open 1}}correction is{{else}}corrections are{{end}} open.</b>{{if .Stale}} {{.Stale}} {{if eq .Stale 1}}note contradicts{{else}}notes contradict{{end}} its sources.{{end}} Agents fix them with the maintain-brain skill.</span><span class="go">Review {{icon "arrow-up-right"}}</span></a>
+    <a class="callout {{if .Stale}}red{{else}}yellow{{end}}" href="/corrections">{{icon "triangle-alert"}}<span><b>{{.Open}} {{if eq .Open 1}}correction is{{else}}corrections are{{end}} open.</b>{{if .Stale}} {{.Stale}} {{if eq .Stale 1}}note contradicts its sources{{else}}notes contradict their sources{{end}}.{{end}} Agents fix them with the maintain-brain skill.</span><span class="go">Review {{icon "arrow-up-right"}}</span></a>
     {{else}}
     <div class="callout green">{{icon "circle-check"}}<p>Nothing is open: every note agrees with its sources as far as the last checks and webhooks could tell.</p></div>
     {{end}}

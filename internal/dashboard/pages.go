@@ -805,12 +805,14 @@ func (d *Dashboard) week(w http.ResponseWriter, r *http.Request, machine string)
 		}
 		v.Fixed = append(v.Fixed, slip{t.Note, name, folder, issue{check.Finding{Note: t.Note, Severity: check.Severity(t.Severity), Ref: t.Ref, Message: t.Message}, t.Source}})
 	}
+	stale := map[string]bool{}
 	for _, s := range b.slips() {
 		v.Open++
 		if s.Severity == check.Stale {
-			v.Stale++
+			stale[s.Path] = true
 		}
 	}
+	v.Stale = len(stale)
 	p.Week = v
 	d.render(w, "week", p)
 }
