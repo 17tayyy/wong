@@ -96,7 +96,7 @@ func (f fixture) acme(t *testing.T) {
 
 func plan(t *testing.T, f fixture, overrides map[string]string) []Source {
 	t.Helper()
-	sources, err := Plan(f.projects, f.home, overrides)
+	sources, _, err := Plan(f.projects, f.home, overrides)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -167,13 +167,18 @@ func TestPlanOverridesByPathOrFolder(t *testing.T) {
 	}
 }
 
-func TestPlanFailsOnFolderWithoutDirectory(t *testing.T) {
+func TestPlanSkipsFolderWithoutDirectory(t *testing.T) {
 	f := newFixture(t)
+	mkdir(t, filepath.Join(f.home, "kept"))
+	f.memory(t, filepath.Join(f.home, "kept"), map[string]string{"a.md": noteText("a", "project")}, "")
 	gone := f.memory(t, filepath.Join(f.home, "deleted-repo"), map[string]string{"b.md": noteText("b", "project")}, "")
 
-	_, err := Plan(f.projects, f.home, nil)
-	if err == nil || !strings.Contains(err.Error(), gone) || !strings.Contains(err.Error(), "--map") {
-		t.Errorf("Plan() error = %v", err)
+	sources, unmatched, err := Plan(f.projects, f.home, nil)
+	if err != nil || len(sources) != 1 || len(unmatched) != 1 || unmatched[0] != gone {
+		t.Errorf("Plan() = %+v, %v, %v", sources, unmatched, err)
+	}
+	if sources, unmatched, err := Plan(f.projects, f.home, map[string]string{gone: "old"}); err != nil || len(sources) != 2 || len(unmatched) != 0 {
+		t.Errorf("Plan() with the folder assigned = %+v, %v, %v", sources, unmatched, err)
 	}
 }
 
@@ -182,7 +187,7 @@ func TestPlanRejectsInvalidProjectID(t *testing.T) {
 	dir := filepath.Join(f.home, "side_project")
 	f.memory(t, dir, map[string]string{"a.md": noteText("a", "project")}, "")
 
-	if _, err := Plan(f.projects, f.home, map[string]string{dir: "Zona 14"}); err == nil {
+	if _, _, err := Plan(f.projects, f.home, map[string]string{dir: "Zona 14"}); err == nil {
 		t.Error("Plan() accepted an invalid project id")
 	}
 }

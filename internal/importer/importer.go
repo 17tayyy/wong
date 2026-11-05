@@ -60,17 +60,17 @@ type Result struct {
 	Warnings  []string
 }
 
-// Plan maps every memory folder under projectsDir to a brain target; overrides go by folder or path.
-func Plan(projectsDir, home string, overrides map[string]string) ([]Source, error) {
+// Plan maps every memory folder under projectsDir to a brain target; overrides go by folder or path. unmatched lists
+// the folders that match no directory on disk, such as a repo since deleted, which only an override can place.
+func Plan(projectsDir, home string, overrides map[string]string) (sources []Source, unmatched []string, err error) {
 	dirs, err := filepath.Glob(filepath.Join(projectsDir, "*", "memory"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var sources []Source
 	for _, dir := range dirs {
 		notes, err := notesIn(dir)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(notes) == 0 {
 			continue
@@ -87,17 +87,18 @@ func Plan(projectsDir, home string, overrides map[string]string) ([]Source, erro
 		}
 		if !ok {
 			if path == "" {
-				return nil, fmt.Errorf("%s: no directory on disk matches this memory folder; assign it with --map '%s=ID'", folder, folder)
+				unmatched = append(unmatched, folder)
+				continue
 			}
 			id = project(path, repo, home)
 		}
 		target, scope, err := place(id)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", folder, err)
+			return nil, nil, fmt.Errorf("%s: %w", folder, err)
 		}
 		sources = append(sources, Source{Folder: folder, Dir: dir, Path: path, Repo: repo, Target: target, Scope: scope, Notes: notes})
 	}
-	return sources, nil
+	return sources, unmatched, nil
 }
 
 // Apply writes notes and merged indexes into brain, updating only what the brain has not changed since the last import

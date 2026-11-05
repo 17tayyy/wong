@@ -43,9 +43,12 @@ func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryR
 	if err != nil {
 		return err
 	}
-	sources, err := importer.Plan(from, home, overrides)
+	sources, unmatched, err := importer.Plan(from, home, overrides)
 	if err != nil {
 		return err
+	}
+	for _, folder := range unmatched {
+		fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: no folder on this machine matches it any more; to bring its notes in, run wong import --map '%s=ID' with a project id, or me\n", folder, folder)
 	}
 	out := cmd.OutOrStdout()
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
