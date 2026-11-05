@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS cloud_ais (
 	wrapped    BLOB NOT NULL,
 	device     TEXT NOT NULL,
 	created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS checks (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	installation INTEGER NOT NULL,
+	repo         TEXT NOT NULL,
+	run          INTEGER NOT NULL,
+	created_at   TEXT NOT NULL,
+	answered_at  TEXT NOT NULL DEFAULT ''
 );`
 
 // Change is the current state of one file of the brain on the server, and the machine that wrote it.

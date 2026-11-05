@@ -30,6 +30,11 @@ type localTask struct {
 	Event json.RawMessage `json:"event"`
 }
 
+// AnswerCheck tells the server what comparing a pull request with this machine's copy of the notes found.
+func (c *Client) AnswerCheck(ctx context.Context, a CheckAnswer) error {
+	return c.do(ctx, http.MethodPost, "/api/checks", a, &struct{}{})
+}
+
 // Events returns the webhook events a sealed brain kept after since, and the cursor to ask from next time.
 func (c *Client) Events(ctx context.Context, since int64) ([]Event, int64, error) {
 	var out eventsResponse
@@ -40,6 +45,7 @@ func (c *Client) Events(ctx context.Context, since int64) ([]Event, int64, error
 // SyncTasks applies the webhook events a sealed brain kept since the last time to this machine's copy of its notes,
 // as the server does for a brain in the clear: a task opens on each note an event leaves something to fix in, and
 // closes once the note no longer does. GitHub events reach the project the brain's remotes.yaml maps their repo to.
+// A pull request waiting for wong's check is compared with the notes of that project, and the counts sent back.
 func SyncTasks(ctx context.Context, c *Client, brain string) error {
 	st, err := loadTasks(brain)
 	if err != nil {
@@ -59,9 +65,19 @@ func SyncTasks(ctx context.Context, c *Client, brain string) error {
 			return err
 		}
 	}
+	var answerErr error
 	for _, e := range events {
 		var ev event
 		if err := json.Unmarshal(e.Event, &ev); err != nil {
+			continue
+		}
+		if ev.PR != nil {
+			answer := CheckAnswer{}
+			if r, ok := remotes.Lookup(e.Remote); ok {
+				answer = prReport(projectNotes(notes, r.Project), r.Dir, ev.PR.Files)
+			}
+			answer.Check = ev.PR.Check
+			answerErr = errors.Join(answerErr, c.AnswerCheck(ctx, answer))
 			continue
 		}
 		project := ""
@@ -103,7 +119,17 @@ func SyncTasks(ctx context.Context, c *Client, brain string) error {
 		}
 	}
 	st.Tasks, st.Cursor = kept, cursor
-	return st.save(brain)
+	return errors.Join(st.save(brain), answerErr)
+}
+
+func projectNotes(notes []check.Note, project string) []check.Note {
+	var out []check.Note
+	for _, n := range notes {
+		if id, _ := NoteProject(n.Path); id == project {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // OpenTasks returns the open tasks of a project, "me" for the global notes: the server's, or for a sealed brain the

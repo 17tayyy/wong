@@ -243,6 +243,23 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 		}
 		writeJSON(w, eventsResponse{Cursor: cursor, Events: events})
 	}))
+	mux.HandleFunc("POST /api/checks", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
+		if hooks.App == nil {
+			http.Error(w, "this server has no GitHub App", http.StatusNotFound)
+			return
+		}
+		var answer CheckAnswer
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxHookBody)).Decode(&answer); err != nil {
+			http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := answerCheck(r.Context(), hooks.App, s.Store, answer); err != nil {
+			log.Error("checks", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, struct{}{})
+	}))
 	mux.HandleFunc("GET /api/keys", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
 		keys, err := s.Store.Keys(s.Machine)
 		if err != nil {

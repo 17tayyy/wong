@@ -1,7 +1,12 @@
 package dashboard
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -865,5 +870,90 @@ func TestWeeklyEmailOnTheAccountPage(t *testing.T) {
 	}
 	if code, body := b.post("/account/digest", url.Values{"stop": {"1"}}, srv.URL); code != http.StatusOK || email != "" || !strings.Contains(body, `name="email" type="email"`) {
 		t.Errorf("stopping the weekly email: %d, email %q", code, email)
+	}
+}
+
+func TestConnectGitHub(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reach := map[string]string{"ghu_mine": `[{"id": 7, "account": {"login": "acme", "type": "Organization"}}]`, "ghu_other": `[]`}
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login/oauth/access_token":
+			r.ParseForm()
+			fmt.Fprintf(w, `{"access_token": "ghu_%s"}`, r.Form.Get("code"))
+		case "/user/installations":
+			fmt.Fprintf(w, `{"installations": %s}`, reach[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")])
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(gh.Close)
+	data, _ := json.Marshal(map[string]any{"id": 42, "slug": "wong-test", "client_id": "Iv1.test", "client_secret": "s", "webhook_secret": "w",
+		"pem": string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))})
+	app, err := remote.SaveGitHubApp(filepath.Join(t.TempDir(), "app.json"), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.API, app.Web = gh.URL, gh.URL
+	links, err := remote.OpenLinks(filepath.Join(t.TempDir(), "links.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, _ := store.NewToken("browser")
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Webhooks: remote.Webhooks{App: app, Links: links}, Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusSeeOther {
+		t.Fatalf("sign in: %d", code)
+	}
+	if _, body := b.get("/webhooks"); !strings.Contains(body, gh.URL+"/apps/wong-test/installations/new") || !strings.Contains(body, "Connect GitHub") {
+		t.Fatalf("the page offers no app:\n%s", body)
+	}
+
+	state := func(installation string) string {
+		t.Helper()
+		resp, err := b.client.Get(srv.URL + "/webhooks/github/setup?installation_id=" + installation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		to := mustURL(t, resp.Header.Get("Location"))
+		if to.Path != "/login/oauth/authorize" || to.Query().Get("redirect_uri") != srv.URL+"/webhooks/github/callback" {
+			t.Fatalf("setup sent the browser to %s", to)
+		}
+		return to.Query().Get("state")
+	}
+	s := state("7")
+	if code, body := b.get("/webhooks/github/callback?code=other&state=" + s); code != http.StatusOK || !strings.Contains(body, "cannot reach that installation") {
+		t.Errorf("an installation the user cannot reach: %d\n%s", code, body)
+	}
+	if got := links.Of("github", ""); len(got) != 0 {
+		t.Fatalf("linked %+v", got)
+	}
+	s = state("7")
+	if code, _ := b.get("/webhooks/github/callback?code=mine&state=" + s); code != http.StatusSeeOther {
+		t.Fatalf("callback: %d", code)
+	}
+	if got := links.Of("github", ""); len(got) != 1 || got[0].ID != "7" || got[0].Name != "acme" || !strings.HasSuffix(got[0].URL, "/organizations/acme/settings/installations/7") {
+		t.Fatalf("links = %+v", got)
+	}
+	if _, body := b.get("/webhooks/github/callback?code=mine&state=" + s); !strings.Contains(body, "expired or was used") {
+		t.Errorf("a used state worked again:\n%s", body)
+	}
+	if code, _ := b.post("/webhooks/github/unlink", url.Values{"id": {"7"}}, srv.URL); code != http.StatusSeeOther || len(links.Of("github", "")) != 0 {
+		t.Errorf("unlink: %d, links %+v", code, links.Of("github", ""))
 	}
 }

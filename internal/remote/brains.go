@@ -64,6 +64,7 @@ type Folder struct {
 	open   map[string]*Store
 	limits Limits
 	cloud  *CloudAIs
+	links  *Links
 }
 
 func OpenFolder(dir string) (*Folder, error) {
@@ -161,6 +162,13 @@ func (f *Folder) SetCloudAIs(c *CloudAIs) {
 	}
 }
 
+// SetLinks gives the folder the server's links to integrations, to drop an account's when it deletes the account.
+func (f *Folder) SetLinks(l *Links) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.links = l
+}
+
 // AccountInfo is what a sign-up or monitoring service needs to know of an account.
 type AccountInfo struct {
 	Account    string   `json:"account"`
@@ -232,6 +240,9 @@ func (f *Folder) Delete(id string) error {
 		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}
+	}
+	if f.links != nil {
+		errs = append(errs, f.links.DropAccount(id))
 	}
 	return errors.Join(errs...)
 }

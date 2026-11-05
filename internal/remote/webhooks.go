@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,10 +27,13 @@ const (
 	maxHookBody     = 25 << 20
 )
 
-// Webhooks holds the secrets that sign GitHub's and Linear's webhooks for a single brain, before the ones it keeps itself.
+// Webhooks holds the secrets that sign GitHub's and Linear's webhooks for a single brain, before the ones it keeps
+// itself, and the GitHub App whose webhooks reach the brains linked to its installations.
 type Webhooks struct {
 	GitHubSecret string
 	LinearSecret string
+	App          *GitHubApp
+	Links        *Links
 }
 
 // Hooks names the webhooks a brain can take.
@@ -97,6 +101,9 @@ func hookBrains(mux *http.ServeMux, brains Brains, log *slog.Logger, env Webhook
 	}
 	mux.HandleFunc("POST "+prefix+"github", githubHook(find, log))
 	mux.HandleFunc("POST "+prefix+"linear", linearHook(find, log))
+	if env.App != nil && env.Links != nil {
+		mux.HandleFunc("POST /hooks/github-app", appHook(brains, env, log))
+	}
 }
 
 var versionTagRE = regexp.MustCompile(`^v\d`)
@@ -167,87 +174,191 @@ func githubHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		tag, isTag := strings.CutPrefix(push.Ref, "refs/tags/")
-		switch {
-		case isTag && (!versionTagRE.MatchString(tag) || !push.Created || push.Deleted):
-			ignore(w, log, "github", "tag "+tag+" of "+push.Repository.FullName+" is not a new v* tag")
-			return
-		case !isTag && push.Ref != "refs/heads/"+push.Repository.DefaultBranch:
-			ignore(w, log, "github", "not the default branch of "+push.Repository.FullName)
-			return
-		}
-		if sealed, err := store.Sealed(); err != nil || sealed {
-			if err == nil {
-				err = keepPush(store, push, tag, isTag)
-			}
-			if err != nil {
-				log.Error("github", "err", err)
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
-			}
-			log.Info("github kept for the machines", "repo", push.Repository.FullName)
-			writeJSON(w, hookResponse{})
-			return
-		}
-		remotes, err := store.remotes()
+		tasks, why, err := takePush(store, push, log)
 		if err != nil {
 			log.Error("github", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		remote, ok := remotes.Lookup(push.Repository.FullName)
+		if why != "" {
+			ignore(w, log, "github", why)
+			return
+		}
+		writeJSON(w, hookResponse{Tasks: tasks})
+	}
+}
+
+// takePush turns a push to a repo's default branch, or a new v* tag, into tasks for the notes of the repo's project
+// that it leaves something to fix in; a sealed brain keeps it for its machines instead. why says why a push is ignored.
+func takePush(store *Store, push githubPush, log *slog.Logger) (tasks int, why string, err error) {
+	tag, isTag := strings.CutPrefix(push.Ref, "refs/tags/")
+	switch {
+	case isTag && (!versionTagRE.MatchString(tag) || !push.Created || push.Deleted):
+		return 0, "tag " + tag + " of " + push.Repository.FullName + " is not a new v* tag", nil
+	case !isTag && push.Ref != "refs/heads/"+push.Repository.DefaultBranch:
+		return 0, "not the default branch of " + push.Repository.FullName, nil
+	}
+	sealed, err := store.Sealed()
+	if err != nil {
+		return 0, "", err
+	}
+	if sealed {
+		if err := keepPush(store, push, tag, isTag); err != nil {
+			return 0, "", err
+		}
+		log.Info("github kept for the machines", "repo", push.Repository.FullName)
+		return 0, "", nil
+	}
+	remotes, err := store.remotes()
+	if err != nil {
+		return 0, "", err
+	}
+	remote, ok := remotes.Lookup(push.Repository.FullName)
+	if !ok {
+		return 0, push.Repository.FullName + " is in no project", nil
+	}
+	notes, err := store.notes(remote.Project)
+	if err != nil {
+		return 0, "", err
+	}
+	deploy := event{Repo: remote.Dir, By: push.Pusher.Name, When: time.Now().UTC()}
+	source := "github " + push.Repository.FullName + "@"
+	if isTag {
+		deploy.Tag, source = tag, source+tag
+	} else {
+		deploy.Branch, deploy.Commit = push.Repository.DefaultBranch, push.After[:min(len(push.After), 7)]
+		source += deploy.Commit
+	}
+	pending, err := store.addTasks(deploy, source, notes)
+	if err != nil {
+		return 0, "", err
+	}
+	if isTag {
+		log.Info("github release", "repo", push.Repository.FullName, "tag", tag, "tasks", pending)
+		return pending, "", nil
+	}
+	removed := map[string]event{}
+	for _, c := range push.Commits {
+		for _, p := range c.Added {
+			delete(removed, p)
+		}
+		for _, p := range c.Removed {
+			removed[p] = event{Repo: remote.Dir, Path: p, Commit: c.ID[:min(len(c.ID), 7)], When: c.Timestamp}
+		}
+	}
+	total := pending
+	for _, p := range slices.Sorted(maps.Keys(removed)) {
+		ev := removed[p]
+		n, err := store.addTasks(ev, "github "+push.Repository.FullName+"@"+ev.Commit, notes)
+		if err != nil {
+			return 0, "", err
+		}
+		total += n
+	}
+	log.Info("github push", "repo", push.Repository.FullName, "removed", len(removed), "tasks", total)
+	return total, "", nil
+}
+
+type githubPull struct {
+	Action      string `json:"action"`
+	Number      int    `json:"number"`
+	PullRequest struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	} `json:"pull_request"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+}
+
+// appHook takes the GitHub App's webhooks, for every account linked to the installation they come from: pushes,
+// which leave tasks as a repo's own webhook does, and pull requests, which get wong's check.
+func appHook(brains Brains, hooks Webhooks, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, ok := signedBody(w, r, log, hooks.App.WebhookSecret, "X-Hub-Signature-256", "sha256=")
 		if !ok {
-			ignore(w, log, "github", push.Repository.FullName+" is in no project")
 			return
 		}
-		notes, err := store.notes(remote.Project)
-		if err != nil {
-			log.Error("github", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		var head struct {
+			Action       string `json:"action"`
+			Installation struct {
+				ID int64 `json:"id"`
+			} `json:"installation"`
+		}
+		if err := json.Unmarshal(body, &head); err != nil {
+			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		deploy := event{Repo: remote.Dir, By: push.Pusher.Name, When: time.Now().UTC()}
-		source := "github " + push.Repository.FullName + "@"
-		if isTag {
-			deploy.Tag, source = tag, source+tag
-		} else {
-			deploy.Branch, deploy.Commit = push.Repository.DefaultBranch, push.After[:min(len(push.After), 7)]
-			source += deploy.Commit
-		}
-		pending, err := store.addTasks(deploy, source, notes)
-		if err != nil {
-			log.Error("github", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if isTag {
-			log.Info("github release", "repo", push.Repository.FullName, "tag", tag, "tasks", pending)
-			writeJSON(w, hookResponse{Tasks: pending})
-			return
-		}
-		removed := map[string]event{}
-		for _, c := range push.Commits {
-			for _, p := range c.Added {
-				delete(removed, p)
-			}
-			for _, p := range c.Removed {
-				removed[p] = event{Repo: remote.Dir, Path: p, Commit: c.ID[:min(len(c.ID), 7)], When: c.Timestamp}
-			}
-		}
-		total := pending
-		for _, p := range slices.Sorted(maps.Keys(removed)) {
-			ev := removed[p]
-			n, err := store.addTasks(ev, "github "+push.Repository.FullName+"@"+ev.Commit, notes)
-			if err != nil {
-				log.Error("github", "err", err)
+		id := strconv.FormatInt(head.Installation.ID, 10)
+		kind := r.Header.Get("X-GitHub-Event")
+		switch {
+		case kind == "installation" && head.Action == "deleted":
+			if err := hooks.Links.Forget("github", id); err != nil {
+				log.Error("github app", "err", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
-			total += n
+			ignore(w, log, "github app", "installation "+id+" deleted")
+			return
+		case kind == "push":
+		case kind == "pull_request" && slices.Contains([]string{"opened", "reopened", "synchronize"}, head.Action):
+		default:
+			ignore(w, log, "github app", strings.TrimSpace("event "+kind+" "+head.Action))
+			return
 		}
-		log.Info("github push", "repo", push.Repository.FullName, "removed", len(removed), "tasks", total)
+		accounts := hooks.Links.Accounts("github", id)
+		if len(accounts) == 0 {
+			ignore(w, log, "github app", "installation "+id+" is linked to no brain")
+			return
+		}
+		var push githubPush
+		var pull githubPull
+		var err error
+		if kind == "push" {
+			err = json.Unmarshal(body, &push)
+		} else {
+			err = json.Unmarshal(body, &pull)
+		}
+		if err != nil {
+			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		total, failed := 0, false
+		for _, account := range accounts {
+			store, err := storeOf(brains, account)
+			if err == nil && kind == "push" {
+				var n int
+				n, _, err = takePush(store, push, log)
+				total += n
+			} else if err == nil {
+				err = takePR(r.Context(), hooks.App, store, head.Installation.ID, pull.Repository.FullName, pull.Number, pull.PullRequest.Head.SHA)
+				if err == nil {
+					log.Info("github pull request", "repo", pull.Repository.FullName, "number", pull.Number)
+				}
+			}
+			if err != nil {
+				log.Error("github app", "account", account, "err", err)
+				failed = true
+			}
+		}
+		if failed {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, hookResponse{Tasks: total})
 	}
+}
+
+// storeOf returns the brain of an account: the server's only one when it keeps a single brain.
+func storeOf(brains Brains, account string) (*Store, error) {
+	switch b := brains.(type) {
+	case *Store:
+		return b, nil
+	case *Folder:
+		return b.Store(account)
+	}
+	return nil, errors.New("this server keeps no brains")
 }
 
 // linearHook turns an issue that is now closed into tasks for the notes that cite it.

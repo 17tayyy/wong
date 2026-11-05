@@ -25,7 +25,7 @@ func newRootCmd() *cobra.Command {
 	brain := root.PersistentFlags().String("brain", filepath.Join(home, ".wong"), "brain directory")
 	root.AddCommand(newSetupCmd(home, brain), newImportCmd(home, brain), newCheckCmd(brain), newLinkCmd(home, brain), newNoteCmd(home, brain),
 		newTagsCmd(brain), newObsidianCmd(brain), newTidyCmd(brain), newSkillsCmd(home, brain), newServeCmd(), newRemoteCmd(), newOpenCmd(brain), newTasksCmd(brain), newMCPCmd(brain), newHookCmd(home, brain), newKeysCmd(brain), newMoveCmd(brain),
-		newPrecheckCmd(home, brain))
+		newPrecheckCmd(home, brain), newGitHubAppCmd())
 	root.AddCommand(newSyncCmds(brain)...)
 	return root
 }

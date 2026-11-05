@@ -44,19 +44,20 @@ type Options struct {
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.
 type Dashboard struct {
-	brains  remote.Brains
-	opts    Options
-	guesses *guesses
-	store   *remote.Store
-	account string
-	log     *slog.Logger
-	pages   map[string]*template.Template
+	brains   remote.Brains
+	opts     Options
+	guesses  *guesses
+	connects *connects
+	store    *remote.Store
+	account  string
+	log      *slog.Logger
+	pages    map[string]*template.Template
 }
 
 // Handler serves the dashboard; every page but the sign-in asks for a session, opened with a token or a sign-in link
 // and kept in a cookie.
 func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler, error) {
-	d := &Dashboard{brains: brains, opts: opts, guesses: &guesses{wrong: map[string][]time.Time{}}, log: log, pages: map[string]*template.Template{}}
+	d := &Dashboard{brains: brains, opts: opts, guesses: &guesses{wrong: map[string][]time.Time{}}, connects: &connects{m: map[string]connect{}}, log: log, pages: map[string]*template.Template{}}
 	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html")
 	if err != nil {
 		return nil, err
@@ -107,6 +108,10 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	d.browserRoutes(mux)
 	mux.HandleFunc("POST /encryption", d.session((*Dashboard).changeEncryption))
 	mux.HandleFunc("POST /webhooks/{hook}", d.session((*Dashboard).setWebhook))
+	mux.HandleFunc("GET /webhooks/github/setup", d.session((*Dashboard).githubSetup))
+	mux.HandleFunc("GET /webhooks/github/link", d.session((*Dashboard).githubLink))
+	mux.HandleFunc("GET /webhooks/github/callback", d.session((*Dashboard).githubCallback))
+	mux.HandleFunc("POST /webhooks/github/unlink", d.session((*Dashboard).githubUnlink))
 	if opts.OAuth != nil {
 		mux.HandleFunc("GET /oauth/authorize", d.session((*Dashboard).authorize))
 		mux.HandleFunc("POST /oauth/authorize", d.session((*Dashboard).authorize))
@@ -157,7 +162,7 @@ func (d *Dashboard) session(next handler) http.HandlerFunc {
 				d.suspendedPage(w, r, machine, err)
 			}
 		}
-		next(&Dashboard{brains: d.brains, opts: d.opts, guesses: d.guesses, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
+		next(&Dashboard{brains: d.brains, opts: d.opts, guesses: d.guesses, connects: d.connects, store: s.Store, account: s.Account, log: d.log, pages: d.pages}, w, r, s.Machine)
 	}
 }
 

@@ -36,10 +36,13 @@ type event struct {
 	Branch string        `json:"branch,omitempty"`
 	By     string        `json:"by,omitempty"`
 	When   time.Time     `json:"when,omitzero"`
+	PR     *pullRequest  `json:"pr,omitempty"`
 }
 
 func (e event) apply(n check.Note) (check.Finding, bool, error) {
 	switch {
+	case e.PR != nil:
+		return check.Finding{}, false, nil
 	case e.Issue != nil:
 		return check.IssueClosed(n, *e.Issue)
 	case e.Tag != "":

@@ -4,9 +4,38 @@
   <h1>Webhooks</h1>
   <p class="desc">GitHub and Linear tell wong when a file is removed, a version is tagged or an issue closes, and wong leaves a task on the notes that cite it before an agent reads them.</p>
   {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
+  {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
   {{range .Hooks}}
   <section class="part" id="{{.ID}}" aria-labelledby="{{.ID}}-h">
-    <h2 id="{{.ID}}-h">{{.Name}}{{if or .Secret .Env}}<span class="pill green">On</span>{{else}}<span class="pill gray">Off</span>{{end}}</h2>
+    <h2 id="{{.ID}}-h">{{.Name}}{{if or .Secret .Env .Linked}}<span class="pill green">On</span>{{else}}<span class="pill gray">Off</span>{{end}}</h2>
+    {{if .App}}
+    <p class="desc">Install wong's GitHub App on your account or organization and pick the repos. wong reads pushes to the default branch and new <code>v*</code> tags, and checks each pull request: it says how many notes cite files the pull request removes or moves, and how many pitfalls are noted on files it changes, never which notes.</p>
+    {{if .Linked}}
+    <div class="props">
+      {{range .Linked}}
+      <div class="prop"><span class="k">{{icon "link"}}{{.Name}}</span><span class="v">
+        <a href="{{.URL}}" rel="noopener">Repos and uninstall on GitHub{{icon "arrow-up-right"}}</a>
+        <form method="post" action="/webhooks/github/unlink" class="unlink"><input type="hidden" name="id" value="{{.ID}}"><button class="btn ghost">Unlink</button></form>
+      </span></div>
+      {{end}}
+    </div>
+    {{end}}
+    <div class="formbar">
+      <a class="btn{{if not .Linked}} primary{{end}}" href="{{.InstallURL}}">{{icon "plus"}}{{if .Linked}}Install on another account{{else}}Connect GitHub{{end}}</a>
+      <a class="btn ghost" href="/webhooks/github/link">Link an installation you already have</a>
+    </div>
+    <p class="part-note">GitHub sends pushes only to apps allowed to read a repo's code: wong reads the list of files of each push and pull request, never what they hold. On an end-to-end encrypted brain, a pull request's check waits until one of your machines syncs, since only they can read the notes.</p>
+    <details class="manual"><summary>{{icon "chevron-right"}}Or add a webhook to each repo by hand</summary>{{template "manual" .}}</details>
+    {{else}}
+    {{template "manual" .}}
+    {{end}}
+  </section>
+  {{end}}
+  <div class="callout gray">{{icon "info"}}<p>GitHub and Linear must reach this address from the internet. If they reach the server at another one, such as a tunnel's, use that one: only <code>/hooks/</code> needs to be public.</p></div>
+</div>
+{{end}}
+
+{{define "manual"}}
     {{if eq .ID "github"}}
     <p class="desc">In each repo, Settings → Webhooks → Add webhook, with these values. wong reads pushes to the default branch and new <code>v*</code> tags.</p>
     {{else}}
@@ -30,7 +59,7 @@
     {{if not .Env}}
     <form class="formbar" method="post" action="/webhooks/{{.ID}}">
       {{if eq .ID "github"}}
-      <button class="btn{{if not .Secret}} primary{{end}}" name="do" value="generate">{{icon "key-round"}}{{if .Secret}}Make a new secret{{else}}Make a secret{{end}}</button>
+      <button class="btn{{if not .Secret}}{{if not .App}} primary{{end}}{{end}}" name="do" value="generate">{{icon "key-round"}}{{if .Secret}}Make a new secret{{else}}Make a secret{{end}}</button>
       {{else}}
       <label class="sr" for="linear-secret">Signing secret</label>
       <input id="linear-secret" name="secret" type="password" autocomplete="off" required placeholder="{{if .Secret}}Paste a new signing secret{{else}}Paste the signing secret Linear shows{{end}}">
@@ -40,8 +69,4 @@
       {{if and .Secret (eq .ID "github")}}<span class="muted">A new secret replaces this one: paste it into every repo.</span>{{end}}
     </form>
     {{end}}
-  </section>
-  {{end}}
-  <div class="callout gray">{{icon "info"}}<p>GitHub and Linear must reach this address from the internet. If they reach the server at another one, such as a tunnel's, use that one: only <code>/hooks/</code> needs to be public.</p></div>
-</div>
 {{end}}

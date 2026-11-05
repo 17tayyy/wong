@@ -998,6 +998,10 @@ func notice(r *http.Request) string {
 		return "Saved. wong takes the webhook from now on."
 	case "hook-off":
 		return "Turned off. wong refuses the webhook until it has a secret again."
+	case "github-linked":
+		return "GitHub is connected. wong takes the pushes and pull requests of the repos you picked."
+	case "github-unlinked":
+		return "Unlinked. The app is still installed on GitHub: uninstall it there, or link it again here."
 	}
 	return ""
 }

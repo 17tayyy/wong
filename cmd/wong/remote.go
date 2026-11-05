@@ -25,7 +25,7 @@ import (
 )
 
 func newServeCmd() *cobra.Command {
-	var db, dir, account, addr, certFile, keyFile, signInURL, accountService, statusURL, maxSize, maxFile string
+	var db, dir, account, addr, certFile, keyFile, signInURL, accountService, statusURL, maxSize, maxFile, githubApp string
 	var sealedOnly bool
 	var maxRequests int
 	var admin adminFlags
@@ -46,7 +46,13 @@ func newServeCmd() *cobra.Command {
 			"dashboard's Webhooks page, or in WONG_GITHUB_SECRET and WONG_LINEAR_SECRET. With\n" +
 			"--accounts, each account sets its own, at /hooks/<account>/github and\n" +
 			"/hooks/<account>/linear. --hook-secret github|linear saves one read from stdin.\n" +
-			"Only /hooks/ needs to be reachable from the internet.\n" +
+			"Only /hooks/ needs to be reachable from the internet.\n\n" +
+			"With --github-app and the file wong github-app writes, people connect GitHub from the\n" +
+			"Webhooks page in one go: they install the app on their account or organization and pick\n" +
+			"the repos, and the app's webhooks, at POST /hooks/github-app, reach every brain linked to\n" +
+			"that installation. wong also checks each pull request: how many notes cite files it\n" +
+			"removes or moves, and how many pitfalls are noted on files it changes, never which. On a\n" +
+			"sealed brain the check waits for one of its machines, which can read the notes.\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
 			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
 			"The same address serves the dashboard. wong open, on a connected machine, opens it\n" +
@@ -128,6 +134,23 @@ func newServeCmd() *cobra.Command {
 			defer stop()
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			hooks := remote.Webhooks{GitHubSecret: os.Getenv("WONG_GITHUB_SECRET"), LinearSecret: os.Getenv("WONG_LINEAR_SECRET")}
+			linksFile := db + ".links.json"
+			if dir != "" {
+				linksFile = filepath.Join(dir, ".links.json")
+			}
+			links, err := remote.OpenLinks(linksFile)
+			if err != nil {
+				return err
+			}
+			hooks.Links = links
+			if folder, ok := brains.(*remote.Folder); ok {
+				folder.SetLinks(links)
+			}
+			if githubApp != "" {
+				if hooks.App, err = remote.LoadGitHubApp(githubApp); err != nil {
+					return err
+				}
+			}
 			api := remote.Handler(brains, log, hooks)
 			devices, signins := remote.NewDevices(), remote.NewSignIns()
 			keyFile := db + ".oauth-key"
@@ -189,8 +212,11 @@ func newServeCmd() *cobra.Command {
 			} else {
 				where = append(where, "admin", os.Getenv("WONG_ADMIN_TOKEN") != "")
 			}
-			if _, ok := brains.(*remote.Folder); ok && hooks != (remote.Webhooks{}) {
+			if _, ok := brains.(*remote.Folder); ok && (hooks.GitHubSecret != "" || hooks.LinearSecret != "") {
 				log.Warn("WONG_GITHUB_SECRET and WONG_LINEAR_SECRET are left unused: with --accounts, each account sets its own on the dashboard's Webhooks page")
+			}
+			if hooks.App != nil {
+				where = append(where, "github_app", hooks.App.Slug)
 			}
 			if limits != (remote.Limits{}) {
 				where = append(where, "max_size", limits.Size, "max_file", limits.File, "max_requests", limits.Requests)
@@ -216,6 +242,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
+	cmd.Flags().StringVar(&githubApp, "github-app", "", "take pushes and pull requests from the GitHub App whose keys wong github-app wrote to this file")
 	cmd.Flags().StringVar(&statusURL, "status-url", "", "link the dashboard to this page that says whether the service works")
 	cmd.Flags().StringVar(&accountService, "account-service", "", "with --accounts: ask this sign-up service's URL, with {account} in it, what each account's plan is, for the Account page")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")

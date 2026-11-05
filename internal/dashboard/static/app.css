@@ -455,6 +455,14 @@ canvas.graph.local { flex: none; height: 220px; margin-top: 4px; border: 1px sol
 .secret[open] summary { margin-bottom: 4px; }
 .part + .callout { margin-top: 36px; }
 .part-note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.manual { margin-top: 18px; }
+.manual summary { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 2px; border-radius: 4px; color: var(--muted); font-size: 13.5px; cursor: pointer; list-style: none; }
+.manual summary::-webkit-details-marker { display: none; }
+.manual summary:hover { background: var(--hover); color: var(--text); }
+.manual summary > .i:first-child { transition: transform 120ms ease-out; }
+.manual[open] summary > .i:first-child { transform: rotate(90deg); }
+.manual[open] summary { margin-bottom: 6px; }
+.unlink { margin-left: auto; }
 .offer .k { color: var(--text); font-weight: 500; }
 .offer .v { flex-wrap: nowrap; }
 .offer .v .muted { flex: 1 1 auto; min-width: 0; }
