@@ -59,6 +59,10 @@ func printTasks(out io.Writer, tasks []remote.Task) error {
 	if len(tasks) > 0 {
 		fmt.Fprintln(out)
 	}
-	fmt.Fprintf(out, "%d open tasks\n", len(tasks))
+	if len(tasks) == 1 {
+		fmt.Fprintln(out, "1 open task")
+	} else {
+		fmt.Fprintf(out, "%d open tasks\n", len(tasks))
+	}
 	return nil
 }

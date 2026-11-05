@@ -32,7 +32,7 @@ func TestCheck(t *testing.T) {
 		"projects/acme/a.md\n  stale  [[gone]]  links to a note that does not exist\n",
 		"checked 2 notes: 1 stale, 0 to review, 1 with no findings\n",
 		"skipped: projects/acme: no local repos registered",
-		"skipped: Linear issues: connect Linear",
+		"skipped: Linear issues: set LINEAR_API_KEY",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

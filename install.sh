@@ -35,7 +35,7 @@ if [ -z "$dir" ]; then
 	*) rc=$HOME/.profile ;;
 	esac
 	echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$rc"
-	echo "wong: added $dir to PATH in $rc; open a new terminal before starting Claude Code"
+	echo "wong: added $dir to PATH in $rc; open a new terminal before starting your agents"
 fi
 mkdir -p "$dir"
 
@@ -53,7 +53,8 @@ mv "$tmp" "$dir/wong"
 echo "wong: installed $("$dir/wong" --version) in $dir"
 
 if [ -n "${WONG_TOKEN:-}" ]; then
-	printf '%s\n' "$WONG_TOKEN" | "$dir/wong" setup $server
+	[ -n "$server" ] || fail "WONG_TOKEN is set but no server address was given: pass it after sh -s --"
+	printf '%s\n' "$WONG_TOKEN" | "$dir/wong" setup "$server"
 elif [ -n "$server" ]; then
 	"$dir/wong" setup "$server" </dev/tty
 else

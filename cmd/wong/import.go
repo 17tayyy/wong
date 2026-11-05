@@ -31,7 +31,7 @@ func newImportCmd(home string, brain *string) *cobra.Command {
 			return runImport(cmd, home, *brain, from, maps, dryRun)
 		},
 	}
-	cmd.Flags().StringVar(&from, "from", filepath.Join(home, ".claude", "projects"), "Claude Code projects directory")
+	cmd.Flags().StringVar(&from, "from", filepath.Join(claudeConfigDir(home), "projects"), "Claude Code projects directory")
 	cmd.Flags().StringArrayVar(&maps, "map", nil, "send a directory or memory folder to a project: PATH=ID (ID \"me\" for global notes)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the plan and check for conflicts without writing")
 	return cmd

@@ -288,7 +288,7 @@ func newNoteVerifyCmd(brainDir *string) *cobra.Command {
 				}
 			}
 			if slices.ContainsFunc(n.Sources, func(s string) bool { return strings.HasPrefix(s, "linear:") }) && linearClient(cmd.Context(), *brainDir, cmd.ErrOrStderr()) == nil {
-				return errors.New("the note cites Linear issues and this machine cannot read Linear: connect Linear from the dashboard's Webhooks page, or set LINEAR_API_KEY to a personal API key")
+				return errors.New("the note cites Linear issues and this machine cannot read Linear: connect Linear from the dashboard's Webhooks page, when the server has a Linear application, or set LINEAR_API_KEY to a personal API key")
 			}
 			n.Verified, _ = time.Parse(time.DateOnly, time.Now().Format(time.DateOnly))
 			data, err := n.Marshal()
@@ -344,7 +344,7 @@ func newNoteMoveCmd(brainDir *string) *cobra.Command {
 func newNoteRemoveCmd(brainDir *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <note>",
-		Short: "Delete a note and its line in MEMORY.md (the brain's git history keeps it)",
+		Short: "Delete a note and its line in MEMORY.md (the server's history keeps it, and the brain's git if it is a repo)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rel, err := brain.Resolve(*brainDir, args[0])

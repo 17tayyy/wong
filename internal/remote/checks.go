@@ -93,7 +93,8 @@ func waitingRun(sha string) checkRun {
 	return checkRun{Name: checkName, HeadSHA: sha, Status: "queued", Output: &checkOutput{
 		Title: "Waiting for one of your machines",
 		Summary: "The brain is end-to-end encrypted, so the wong server cannot compare this pull request with its notes. " +
-			"The next of your machines to sync with it does, and the result shows here.",
+			"One of your machines does when it next starts an agent session in this project, runs wong tasks, or has " +
+			"wong open running, and the result shows here.",
 	}}
 }
 
@@ -106,7 +107,8 @@ func checkResult(a CheckAnswer) checkRun {
 		run.Output = &checkOutput{
 			Title: "This repository is in no project of the brain",
 			Summary: "wong compares a pull request with the notes of the project its repository belongs to. Link the " +
-				"repository to a project with `wong link`, on a machine where it is cloned, and its next pull requests are checked.",
+				"repository to a project with `wong link` on a machine where it is cloned, then `wong push`, and its next pull " +
+				"requests are checked.",
 		}
 		return run
 	}

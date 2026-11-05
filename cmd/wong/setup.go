@@ -78,7 +78,7 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			installCodex(cmd, home, *brain)
 			installCursor(cmd, home)
 			installOpenCode(cmd, home)
-			if client == nil {
+			if client == nil && !hasServer() {
 				fmt.Fprintln(cmd.OutOrStdout(), "\nThe brain lives on this machine alone. To sync it with a wong server, yours or wong cloud\n"+
 					"(https://wong-app.bytay.dev), run wong setup with the server's address.")
 			}
@@ -337,4 +337,14 @@ func separator(data []byte) string {
 		return "\n\n"
 	}
 	return "\n"
+}
+
+// hasServer reports whether this machine is connected to a wong server already.
+func hasServer() bool {
+	path, err := remote.ConfigPath()
+	if err != nil {
+		return false
+	}
+	_, ok, _ := remote.LoadConfig(path)
+	return ok
 }

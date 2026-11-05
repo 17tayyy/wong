@@ -89,7 +89,7 @@ func installPrecheck(cmd *cobra.Command, top string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s already runs wong precheck\n", path)
 		return nil
 	case err == nil:
-		fmt.Fprintf(cmd.OutOrStdout(), "%s is already there; add this line to it, before any exit:\n  %s\n", path, precheckLine)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s is already there; add this line to it, before any exit:\n  %s || true\n", path, precheckLine)
 		return nil
 	case !errors.Is(err, fs.ErrNotExist):
 		return err
@@ -97,7 +97,7 @@ func installPrecheck(cmd *cobra.Command, top string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+precheckLine+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+precheckLine+" || true\n"), 0o755); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Added wong precheck to %s\n", path)

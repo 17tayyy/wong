@@ -57,7 +57,7 @@ func TestPrecheckWarnsOfPitfallsInTheCommit(t *testing.T) {
 	if out := mustRun(t, "precheck", "--install"); !strings.Contains(out, "Added wong precheck") {
 		t.Errorf("install: %s", out)
 	}
-	if data, _ := os.ReadFile(hook); string(data) != "#!/bin/sh\nwong precheck\n" {
+	if data, _ := os.ReadFile(hook); string(data) != "#!/bin/sh\nwong precheck || true\n" {
 		t.Errorf("pre-commit = %q", data)
 	}
 	if out := mustRun(t, "precheck", "--install"); !strings.Contains(out, "already runs wong precheck") {

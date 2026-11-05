@@ -124,7 +124,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	}
 
 	if opts.Tracker == nil {
-		rep.Skipped = append(rep.Skipped, "Linear issues: connect Linear from the dashboard's Webhooks page, or set LINEAR_API_KEY, to check them")
+		rep.Skipped = append(rep.Skipped, "Linear issues: set LINEAR_API_KEY, or connect Linear from the dashboard's Webhooks page when the server has a Linear application, to check them")
 	} else if err := c.fetchIssues(ctx, opts.Tracker, notes); err != nil {
 		c.teams = nil
 		rep.Skipped = append(rep.Skipped, "Linear issues: "+err.Error())

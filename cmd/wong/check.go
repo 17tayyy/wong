@@ -23,8 +23,9 @@ func newCheckCmd(brain *string) *cobra.Command {
 			"        no remote branch, an issue closed after the note was last updated, a tag is a\n" +
 			"        spelling of another, or its modified or verified date is later than the file.\n\n" +
 			"Files and commits are looked up in the repos that wong import registered for each\n" +
-			"project. Linear issues are checked with the token the brain keeps once Linear is\n" +
-			"connected from the dashboard's Webhooks page, or with a personal API key in LINEAR_API_KEY.",
+			"project. Linear issues are checked with a personal API key in LINEAR_API_KEY, or with the\n" +
+			"token the brain keeps once Linear is connected from the dashboard's Webhooks page, on a\n" +
+			"server with a Linear application.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			opts, err := checkOptions(cmd.Context(), *brain, cmd.ErrOrStderr())

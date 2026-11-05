@@ -21,8 +21,9 @@ func newMCPCmd(brain *string) *cobra.Command {
 		Use:   "mcp",
 		Short: "Serve the brain over MCP on stdin and stdout, through this machine's wong server",
 		Long: "Serve the brain over MCP on stdin and stdout, for agents that start their MCP servers as a\n" +
-			"command, such as Codex. It relays every message to the /mcp endpoint of the server set with\n" +
-			"wong remote, with this machine's token, so the agent's changes are signed by this machine.\n\n" +
+			"command, such as Codex. It relays every message to the /mcp endpoint of this machine's server,\n" +
+			"set with wong setup <server-url>, with this machine's token, so the agent's changes are signed\n" +
+			"by this machine.\n\n" +
 			"Clients that speak Streamable HTTP can use <server>/mcp directly, with a token of their own:\n" +
 			"wong serve --new-token <name> on the server.\n\n" +
 			"The server cannot read an end-to-end encrypted brain, so for one the messages go to the\n" +
@@ -39,7 +40,7 @@ func newMCPCmd(brain *string) *cobra.Command {
 				return err
 			}
 			if !ok {
-				return errors.New("no server set: run wong remote <url>")
+				return errors.New("no server set: run wong setup <server-url>")
 			}
 			client := &http.Client{Timeout: 2 * time.Minute}
 			cloud, err := remoteClient(30 * time.Second)
