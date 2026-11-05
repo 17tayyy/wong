@@ -89,11 +89,12 @@ dashboard's **Connect a machine** page, and the machine gets a token of its own.
 2. Imports this machine's Claude Code memory and pushes it.
 3. Points Claude Code at the brain: every repo to its project, every other folder to
    `me/`.
-4. Installs the wong plugin for Claude Code.
+4. Sets wong up for the [agents](#agents) on the machine: Claude Code, Codex, Cursor and
+   OpenCode.
 
 On the first machine your memory goes up to the empty server. On the others the brain
-comes down, and their own memory is added. From then on, the plugin pulls when a session
-starts and pushes when it ends.
+comes down, and their own memory is added. From then on, wong pulls when a session starts
+and pushes when it ends.
 
 <details>
 <summary>Windows, and how memory is grouped into projects</summary>
@@ -143,12 +144,12 @@ The name comes from Wong, the librarian of Kamar-Taj.
 ```mermaid
 flowchart LR
   subgraph machine ["Each machine"]
-    agent["Claude Code<br>+ wong plugin"] <--> brain[("~/.wong<br>markdown notes")]
+    agent["Claude Code · Codex<br>Cursor · OpenCode"] <--> brain[("~/.wong<br>markdown notes")]
   end
   brain <-->|"pull · push"| server["wong serve<br>SQLite · dashboard"]
-  server <-->|"MCP"| others["Codex · Cursor<br>other agents"]
-  github["GitHub"] -->|"webhooks"| server
-  linear["Linear"] -->|"webhooks"| server
+  server <-->|"MCP"| others["claude.ai · ChatGPT<br>other agents"]
+  github["GitHub"] -->|"webhooks · app"| server
+  linear["Linear"] -->|"webhooks · OAuth"| server
 ```
 
 - **One brain.** It is a folder of markdown notes. `me/` holds what applies everywhere,
@@ -160,15 +161,33 @@ flowchart LR
   - cite a commit that is on no remote branch;
   - link to a note that does not exist;
   - leave work for a deploy that has already happened.
-- **Kept by the agents.** wong never calls a model. The plugin brings the outdated notes
+- **Kept by the agents.** wong never calls a model. Its hooks bring the outdated notes
   into each session, and the agent fixes them with the `maintain-brain` skill.
 - **There when it matters.** When an agent opens a file, it sees the notes that cite that
-  file. When it saves a note, wong tells it what the note is missing.
+  file or apply to it: pitfalls first, and marked when they look outdated. When it saves a
+  note, wong tells it what the note is missing. Before a commit, `wong precheck` warns
+  about the pitfalls noted on the files it touches.
 - **Your server.** `wong serve` is a single binary with SQLite, or a Docker image. It
   syncs your machines and keeps every version of every note. It also turns GitHub and Linear
   events into tasks, serves a dashboard and speaks MCP.
 - **Sealed if you want.** With end-to-end encryption the server keeps only what it cannot
   read, and the key lives on your machines.
+
+## Agents
+
+wong works the same way in each of these agents. `wong setup` sets up the ones it finds on
+the machine:
+
+| Agent | What wong installs |
+| --- | --- |
+| Claude Code | The wong plugin: its hooks and the `maintain-brain` skill |
+| Codex | The wong plugin, and write access to the brain from Codex's sandbox |
+| Cursor | wong's hooks in `~/.cursor/hooks.json` and the skill in `~/.cursor/skills` |
+| OpenCode | A plugin in `~/.config/opencode/plugins`, for OpenCode 1 and 2, and the skill |
+
+Each one calls `wong hook` when a session starts, before it reads or edits a file, after
+it writes a note and when the session ends. Other agents reach the brain over
+[MCP](#mcp).
 
 ## What the agent sees
 
@@ -195,10 +214,16 @@ you have finished what the user asked, fix them with the wong:maintain-brain ski
 When it is about to edit `app/billing/webhooks.py`:
 
 ```text
-wong: notes of the brain's project "acme" cite app/billing/webhooks.py or its folder.
-Read the ones that bear on what you are about to do:
+wong: notes of the brain's project "acme" cite app/billing/webhooks.py or its folder, or
+apply to it. Read the ones that bear on what you are about to do:
+- stripe-retries (~/.wong/projects/acme/stripe-retries.md), a pitfall: Retrying a failed
+  charge without the idempotency key charges twice
 - billing-webhooks (~/.wong/projects/acme/billing-webhooks.md): Stripe webhooks are
   handled in app/billing/webhooks.py
+  - it contradicts its sources: acme-api/app/billing/events.py deleted or moved in
+    c5fadf0 on 2026-10-05, after the note was last updated on 2026-09-15
+- webhooks-on-sqs (~/.wong/projects/acme/webhooks-on-sqs.md), superseded by
+  billing-webhooks: Webhooks went through SQS
 ```
 
 When it saves a note the quick way, the way Claude Code writes memory:
@@ -206,7 +231,7 @@ When it saves a note the quick way, the way Claude Code writes memory:
 ```text
 wong: projects/acme/stripe-retries.md is saved, but needs this so wong can check it.
 Fix it now, in one edit:
-- add `kind`: preference, project, person, client, decision or reference
+- add `kind`: preference, project, person, client, decision, reference or pitfall
 - set `scope: project:acme`
 - add a few `tags` for what it is about, reusing those in use: deploy, oncall, billing, …
 - projects/acme/billing-webhooks.md (Stripe webhooks are handled in
@@ -238,20 +263,25 @@ Billing moves to Stripe. Webhooks first, see [[billing-webhooks]].
 
 | Field | Meaning |
 | --- | --- |
-| `kind` | One of `preference`, `project`, `person`, `client`, `decision` or `reference`. |
+| `kind` | One of `preference`, `project`, `person`, `client`, `decision`, `reference` or `pitfall`: what was tried and failed, or what is fragile, in the files it cites. |
 | `scope` | `global`, which lives in `me/`, or `project:<id>`. |
 | `tags` | A few tags. wong refuses a new spelling of a tag already in use. |
 | `sources` | What the claims rely on: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>` or a URL. |
 | `verified` | When the note was last checked against them, set by `wong note verify`. A source that changes after this date sends the note back to review. |
 | `pending` | `release` or `main` when the note leaves work for the next `v*` tag or push to the main branch. Whoever deploys, the user is reminded. |
 | `visibility` | `local` to keep the note on this machine. It never goes to the server. |
+| `applies_to` | Globs from a repo's root, such as `app/billing/**` or `*.sql`, for a note that holds for every file there. |
+| `supersedes` | The names of the notes a newer decision replaces. They stay for their history, come last when shown and say which note replaced them. |
 
 Notes point to their sources instead of copying their state. Write "tracked in ENG-15",
 not "ENG-15 is in progress".
 
 A note that is no longer needed goes to the archive with `wong note archive`: out of the
 index, the checks and search, until `wong note unarchive` brings it back. `wong tidy`
-proposes the notes to archive.
+proposes the notes to archive, the superseded ones among them.
+
+`wong precheck --install` adds wong to a repo's pre-commit hook: a commit that touches a
+file with a pitfall noted on it prints the pitfall, and goes through all the same.
 
 ## The server
 
@@ -310,7 +340,9 @@ connected machine to open it signed in. You can:
 - read and edit notes in place, then rename, move, archive or delete them;
 - undo any change, and see what every machine and agent changed;
 - browse the brain as a graph, coloured by project, kind or tag;
-- let machines in, and set up the webhooks;
+- see what is outdated, and on **This week** what changed, what was fixed and what is
+  left;
+- let machines in, and connect GitHub and Linear;
 - see which machines hold the brain's key, and approve the ones that wait for it.
 
 <picture>
@@ -332,10 +364,27 @@ itself once the fixed note reaches the server.
 The dashboard's **Webhooks** page shows each URL and the events to pick, makes a secret
 for GitHub and keeps the one Linear shows. `WONG_GITHUB_SECRET` and `WONG_LINEAR_SECRET`
 on the server set them too. With `--accounts`, each account has its own, at
-`/hooks/<account>/github` and `/hooks/<account>/linear`. The plugin records which GitHub
+`/hooks/<account>/github` and `/hooks/<account>/linear`. `wong link` records which GitHub
 repo belongs to which project. Only `/hooks/*` needs to be reachable from the internet.
-To check Linear issues locally with `wong check`, set `LINEAR_API_KEY` to a personal API
-key.
+
+**In one click.** Instead of a webhook in every repo, a server can connect GitHub and
+Linear from the same page:
+
+- **GitHub App.** `wong github-app --url <server>` makes one in your browser and saves
+  its keys to a file; `wong serve --github-app <file>` takes its webhooks. People install
+  it on their account or organization, pick the repos, and sign in with GitHub to show
+  the installation is theirs. Each pull request gets a check named wong: how many notes
+  cite files it removes or moves, and how many pitfalls are noted on files it changes,
+  never which notes. On a sealed brain the check waits until one of your machines syncs
+  and answers it. GitHub sends pushes only to apps that may read code; wong reads the
+  lists of files, never what they hold.
+- **Linear.** With `WONG_LINEAR_CLIENT_ID` and `WONG_LINEAR_WEBHOOK_SECRET` from a Linear
+  OAuth application, **Connect Linear** lets wong read a workspace. The issues that close
+  reach the brain, and the machines get a read-only token that renews itself each day,
+  kept in the brain's `linear.json`. The server keeps no copy: for a sealed brain it hands
+  the token to the machines sealed for their keys.
+
+`wong check` reads Linear with that token, or with a personal API key in `LINEAR_API_KEY`.
 
 ### MCP
 
@@ -376,16 +425,19 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 | `wong import` | Bring Claude Code's memory folders into the brain |
 | `wong link` | Make Claude Code keep its memory in the brain |
 | `wong check` | Check every note against what it cites |
+| `wong precheck` | Warn before a commit about the pitfalls noted on the files it touches |
 | `wong note show/search/write/verify/move/archive/remove` | Read and write notes the way agents should |
 | `wong tags` | List the tags in use |
 | `wong tidy` | List duplicate preferences, notes in the wrong folder, notes that grow by additions and notes to archive |
 | `wong skills save` | Record where your skills come from, and keep the ones that have no source |
 | `wong serve` | Run the server |
+| `wong github-app` | Make the GitHub App a server takes pushes and pull requests from |
 | `wong remote`, `pull`, `push`, `sync`, `resolve` | Sync with the server |
 | `wong keys` | Seal the brain, approve machines, recover the key, let cloud AIs in |
 | `wong move` | Take the brain, its history and its key to another server |
 | `wong open` | Open the dashboard in a browser, signed in |
 | `wong tasks` | List the tasks that webhooks left |
+| `wong hook` | What the agents call when a session starts, around a tool and when it ends |
 | `wong mcp` | Serve the brain over MCP on stdio |
 | `wong obsidian export/import` | Move notes between the brain and an Obsidian vault |
 
@@ -394,8 +446,9 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 ## Privacy
 
 Your brain stays on your machines and your server, and a sealed one is only readable on
-your machines. wong talks to your server and, when you give it a key, to Linear, and to
-nothing else. It never asks for your Claude credentials or stores them.
+your machines. wong talks to your server and, once you connect it or give it a key, to
+Linear; a server with a GitHub App talks to GitHub. Nothing else. It never asks for your
+Claude credentials or stores them.
 
 A note that looks like it holds a key or a token stays on the machine, and the push says
 where. So does a note marked `visibility: local`.
@@ -405,8 +458,9 @@ private, or behind HTTPS with tokens.
 
 ## Status
 
-Early. The author uses it every day on two machines. Next: a hosted version, end-to-end
-encrypted, for those who would rather not run a server; then more agents, and teams.
+1.0: the note format and the sync protocol stay as they are from here on. The author uses
+wong every day on two machines. wong cloud, a hosted version where every brain is
+end-to-end encrypted, is in beta. Next: teams.
 
 ## Contributing
 
