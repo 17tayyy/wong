@@ -58,7 +58,7 @@ user did not ask for:
 - **Turn progress into history.** "Pending: X" about finished work becomes what happened
   and where to read more, or disappears if the note keeps the lesson elsewhere.
 - **Ask before**: deleting a note, archiving one, merging notes from different projects,
-  moving a note to another project, and touching anything under `people/` or `clients/`.
+  moving a note to another project, and touching a note of kind `person` or `client`.
   Once the user agrees, `wong note move <note> --to <project|me>` moves it and updates
   both indexes.
 - **Keep the notes on the files you touch true.** Before you read or change a file, wong

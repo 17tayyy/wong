@@ -60,6 +60,7 @@ from there.
 services:
   wong:
     image: ghcr.io/17tayyy/wong:latest
+    container_name: wong
     restart: unless-stopped
     ports: ["8787:8787"]
     volumes: ["wong-data:/data"]
@@ -75,7 +76,8 @@ Without Docker, download the binary for your platform from the
 
 ### 2. Connect each machine
 
-On macOS or Linux, one line:
+On macOS or Linux, one line, with your server's address, or wong cloud's,
+`https://wong-app.bytay.dev`, if you were invited to it and run no server:
 
 ```sh
 curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787
@@ -106,7 +108,9 @@ on your PATH, and run `wong setup http://wong.lan:8787`.
 Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). A
 folder of unrelated repos such as `~/code` is the exception: each repo there is its own
 project. `wong import --dry-run` shows the grouping first, and `wong setup --map PATH=ID`
-changes it. Nothing in `~/.claude` is changed, and `wong link --remove` undoes the links.
+changes it. wong never changes your notes in `~/.claude`; setup only points Claude Code's
+settings at the brain, and `wong link --all --remove` and `wong link --global --remove` undo
+that.
 
 </details>
 
@@ -118,7 +122,9 @@ To try wong on a single machine, run the script without a url:
 curl -fsSL https://wong.bytay.dev/install.sh | sh
 ```
 
-`wong setup <url>` connects that machine to a server later.
+`wong setup <url>` connects that machine to a server later. Without one, the brain, the
+checks, the notes on each file and `wong precheck` all work; the dashboard (`wong open`),
+`wong tasks`, `wong keys` and `wong mcp` need a server.
 
 ## Why
 
@@ -186,8 +192,10 @@ the machine:
 | OpenCode | A plugin in `~/.config/opencode/plugins`, for OpenCode 1 and 2, and the skill |
 
 Each one calls `wong hook` when a session starts, before it reads or edits a file, after
-it writes a note and when the session ends. Other agents reach the brain over
-[MCP](#mcp).
+it writes a note and when the session ends. OpenCode can only add to a tool's result, so
+there the notes on a file come right after it reads it, and its session ends with each
+turn. Codex runs no hook until you trust wong's in Codex with `/hooks`. Other agents
+reach the brain over [MCP](#mcp).
 
 ## What the agent sees
 
@@ -267,7 +275,7 @@ Billing moves to Stripe. Webhooks first, see [[billing-webhooks]].
 | `scope` | `global`, which lives in `me/`, or `project:<id>`. |
 | `tags` | A few tags. wong refuses a new spelling of a tag already in use. |
 | `sources` | What the claims rely on: `linear:<ID>`, `file:<repo>/<path>`, `commit:<repo>@<sha>`, `note:<name>` or a URL. |
-| `verified` | When the note was last checked against them, set by `wong note verify`. A source that changes after this date sends the note back to review. |
+| `verified` | When the note was last checked against them, set by `wong note verify`. A cited issue that closes, or a cited file that is deleted, after this date sends the note back to review. |
 | `pending` | `release` or `main` when the note leaves work for the next `v*` tag or push to the main branch. Whoever deploys, the user is reminded. |
 | `visibility` | `local` to keep the note on this machine. It never goes to the server. |
 | `applies_to` | Globs from a repo's root, such as `app/billing/**` or `*.sql`, for a note that holds for every file there. |
@@ -287,8 +295,9 @@ file with a pitfall noted on it prints the pitfall, and goes through all the sam
 
 Each machine has its own token, which it gets when you let it in. `wong serve --tokens`
 lists them, and `--revoke-token <name>` revokes a lost machine's. With Docker, run them
-as `docker exec wong /wong serve --tokens`. A token piped to `wong setup <url>` or set in
-`WONG_TOKEN` connects a machine without the dashboard, for scripts.
+as `docker exec wong /wong serve --tokens`. A token piped to `wong setup <url>`, or set in
+`WONG_TOKEN` for the install script along with the address, connects a machine without
+the dashboard, for scripts. `--new-token` with a name in use replaces that token.
 
 One server can keep a brain for each person or team: `wong serve --accounts <dir>` keeps
 each account's brain in a SQLite file of its own, and `--account <id> --new-token browser`
@@ -371,18 +380,20 @@ repo belongs to which project. Only `/hooks/*` needs to be reachable from the in
 Linear from the same page:
 
 - **GitHub App.** `wong github-app --url <server>` makes one in your browser and saves
-  its keys to a file; `wong serve --github-app <file>` takes its webhooks. People install
-  it on their account or organization, pick the repos, and sign in with GitHub to show
-  the installation is theirs. Each pull request gets a check named wong: how many notes
+  its keys to a file; `wong serve --github-app <file>`, or `WONG_GITHUB_APP` set to it,
+  takes its webhooks. People install it on their account or organization, pick the
+  repos, and sign in with GitHub to show the installation is theirs. Each pull request gets a check named wong: how many notes
   cite files it removes or moves, and how many pitfalls are noted on files it changes,
-  never which notes. On a sealed brain the check waits until one of your machines syncs
-  and answers it. GitHub sends pushes only to apps that may read code; wong reads the
-  lists of files, never what they hold.
+  never which notes. On a sealed brain the check waits until one of your machines
+  answers it: when it next starts an agent session in that project, runs `wong tasks`, or
+  has `wong open` running. GitHub sends pushes only to apps that may read code; wong reads
+  the lists of files, never what they hold.
 - **Linear.** With `WONG_LINEAR_CLIENT_ID` and `WONG_LINEAR_WEBHOOK_SECRET` from a Linear
   OAuth application, **Connect Linear** lets wong read a workspace. The issues that close
   reach the brain, and the machines get a read-only token that renews itself each day,
-  kept in the brain's `linear.json`. The server keeps no copy: for a sealed brain it hands
-  the token to the machines sealed for their keys.
+  kept in the brain's `linear.json`. On a sealed brain the server hands the token to the
+  machines sealed for their keys and cannot read it; on a brain in the clear it syncs like
+  any other file.
 
 `wong check` reads Linear with that token, or with a personal API key in `LINEAR_API_KEY`.
 
@@ -426,7 +437,7 @@ wong obsidian import ~/vaults/notes --to acme --dry-run   # bring a vault's note
 | `wong link` | Make Claude Code keep its memory in the brain |
 | `wong check` | Check every note against what it cites |
 | `wong precheck` | Warn before a commit about the pitfalls noted on the files it touches |
-| `wong note show/search/write/verify/move/archive/remove` | Read and write notes the way agents should |
+| `wong note show/search/write/verify/move/archive/unarchive/remove` | Read and write notes the way agents should |
 | `wong tags` | List the tags in use |
 | `wong tidy` | List duplicate preferences, notes in the wrong folder, notes that grow by additions and notes to archive |
 | `wong skills save` | Record where your skills come from, and keep the ones that have no source |
