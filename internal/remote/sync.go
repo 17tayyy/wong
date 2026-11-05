@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/note"
 	"github.com/17tayyy/wong/internal/secrets"
 )
@@ -63,9 +64,10 @@ func Kept(path string, data []byte) (bool, error) {
 	return note.KeptLocal(data)
 }
 
-// Leaks says what looks like a secret in a file of the brain, by line and kind, or "" when it has none.
+// Leaks says what looks like a secret in a file of the brain, by line and kind, or "" when it has none. Linear's
+// token, which Connect Linear gave the machines to share, is the one secret the brain keeps on purpose.
 func Leaks(path string, data []byte) string {
-	if bytes.IndexByte(data, 0) >= 0 {
+	if bytes.IndexByte(data, 0) >= 0 || (path == linear.TokenFile && linear.IsToken(data)) {
 		return ""
 	}
 	found := secrets.Scan(data)

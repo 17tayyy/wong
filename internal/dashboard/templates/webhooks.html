@@ -8,7 +8,7 @@
   {{range .Hooks}}
   <section class="part" id="{{.ID}}" aria-labelledby="{{.ID}}-h">
     <h2 id="{{.ID}}-h">{{.Name}}{{if or .Secret .Env .Linked}}<span class="pill green">On</span>{{else}}<span class="pill gray">Off</span>{{end}}</h2>
-    {{if .App}}
+    {{if and .App (eq .ID "github")}}
     <p class="desc">Install wong's GitHub App on your account or organization and pick the repos. wong reads pushes to the default branch and new <code>v*</code> tags, and checks each pull request: it says how many notes cite files the pull request removes or moves, and how many pitfalls are noted on files it changes, never which notes.</p>
     {{if .Linked}}
     <div class="props">
@@ -26,6 +26,23 @@
     </div>
     <p class="part-note">GitHub sends pushes only to apps allowed to read a repo's code: wong reads the list of files of each push and pull request, never what they hold. On an end-to-end encrypted brain, a pull request's check waits until one of your machines syncs, since only they can read the notes.</p>
     <details class="manual"><summary>{{icon "chevron-right"}}Or add a webhook to each repo by hand</summary>{{template "manual" .}}</details>
+    {{else if .App}}
+    <p class="desc">Let wong read your Linear workspace. The issues that close reach wong with no webhook to set up, and your machines check the issues notes cite with Linear's own token, so they need no <code>LINEAR_API_KEY</code>.</p>
+    {{if .Linked}}
+    <div class="props">
+      {{range .Linked}}
+      <div class="prop"><span class="k">{{icon "link"}}{{.Name}}</span><span class="v">
+        <span class="muted">Connected</span>
+        <form method="post" action="/webhooks/linear/unlink" class="unlink"><input type="hidden" name="id" value="{{.ID}}"><button class="btn ghost">Disconnect</button></form>
+      </span></div>
+      {{end}}
+    </div>
+    {{end}}
+    <div class="formbar">
+      <a class="btn{{if not .Linked}} primary{{end}}" href="/webhooks/linear/connect">{{icon "plus"}}{{if .Linked}}Connect another workspace instead{{else}}Connect Linear{{end}}</a>
+    </div>
+    <p class="part-note">wong asks Linear to read, nothing more. Your machines keep its token in the brain's <code>linear.json</code> and renew it each day; on an end-to-end encrypted brain the server hands it to them sealed for their keys and cannot read it.</p>
+    <details class="manual"><summary>{{icon "chevron-right"}}Or add a webhook in Linear by hand</summary>{{template "manual" .}}</details>
     {{else}}
     {{template "manual" .}}
     {{end}}

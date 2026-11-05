@@ -112,6 +112,9 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("GET /webhooks/github/link", d.session((*Dashboard).githubLink))
 	mux.HandleFunc("GET /webhooks/github/callback", d.session((*Dashboard).githubCallback))
 	mux.HandleFunc("POST /webhooks/github/unlink", d.session((*Dashboard).githubUnlink))
+	mux.HandleFunc("GET /webhooks/linear/connect", d.session((*Dashboard).linearConnect))
+	mux.HandleFunc("GET /webhooks/linear/callback", d.session((*Dashboard).linearCallback))
+	mux.HandleFunc("POST /webhooks/linear/unlink", d.session((*Dashboard).linearUnlink))
 	if opts.OAuth != nil {
 		mux.HandleFunc("GET /oauth/authorize", d.session((*Dashboard).authorize))
 		mux.HandleFunc("POST /oauth/authorize", d.session((*Dashboard).authorize))

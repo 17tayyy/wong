@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/remote"
 )
 
@@ -955,5 +956,81 @@ func TestConnectGitHub(t *testing.T) {
 	}
 	if code, _ := b.post("/webhooks/github/unlink", url.Values{"id": {"7"}}, srv.URL); code != http.StatusSeeOther || len(links.Of("github", "")) != 0 {
 		t.Errorf("unlink: %d, links %+v", code, links.Of("github", ""))
+	}
+}
+
+func TestConnectLinear(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			r.ParseForm()
+			if r.Form.Get("code_verifier") == "" || r.Form.Get("code") != "good" {
+				http.Error(w, `{"error": "invalid_grant"}`, http.StatusBadRequest)
+				return
+			}
+			w.Write([]byte(`{"access_token": "lin_oauth_x", "refresh_token": "r", "expires_in": 86399}`))
+		case "/graphql":
+			w.Write([]byte(`{"data": {"organization": {"id": "org-acme", "name": "Acme"}}}`))
+		}
+	}))
+	t.Cleanup(api.Close)
+	links, err := remote.OpenLinks(filepath.Join(t.TempDir(), "links.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	token, _ := store.NewToken("browser")
+	app := &remote.LinearApp{OAuth: linear.OAuth{ClientID: "client", Web: "https://linear.test", API: api.URL}, WebhookSecret: "s"}
+	h, err := Handler(store, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Webhooks: remote.Webhooks{Linear: app, Links: links}, Devices: remote.NewDevices(), SignIns: remote.NewSignIns()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, srv, &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	if code, _ := b.post("/login", url.Values{"token": {token}}, srv.URL); code != http.StatusSeeOther {
+		t.Fatalf("sign in: %d", code)
+	}
+	if _, body := b.get("/webhooks"); !strings.Contains(body, `href="/webhooks/linear/connect"`) {
+		t.Fatalf("the page offers no Connect Linear:\n%s", body)
+	}
+	state := func() string {
+		t.Helper()
+		resp, err := b.client.Get(srv.URL + "/webhooks/linear/connect")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		to := mustURL(t, resp.Header.Get("Location"))
+		if to.Host != "linear.test" || to.Query().Get("code_challenge") == "" || to.Query().Get("redirect_uri") != srv.URL+"/webhooks/linear/callback" {
+			t.Fatalf("connect sent the browser to %s", to)
+		}
+		return to.Query().Get("state")
+	}
+	if _, body := b.get("/webhooks/linear/callback?error=access_denied&state=" + state()); !strings.Contains(body, "did not let wong in") {
+		t.Errorf("a refusal:\n%s", body)
+	}
+	if code, _ := b.get("/webhooks/linear/callback?code=good&state=" + state()); code != http.StatusSeeOther {
+		t.Fatalf("callback: %d", code)
+	}
+	if got := links.Of("linear", ""); len(got) != 1 || got[0].ID != "org-acme" {
+		t.Fatalf("links = %+v", got)
+	}
+	if h, err := store.Handoff("desktop"); err != nil || h.Kind != "token" || !strings.Contains(string(h.Blob), "lin_oauth_x") {
+		t.Fatalf("handoff = %+v %v", h, err)
+	}
+	if _, body := b.get("/webhooks"); !strings.Contains(body, "Acme") || !strings.Contains(body, "Disconnect") {
+		t.Errorf("the page does not show the workspace:\n%s", body)
+	}
+	if code, _ := b.post("/webhooks/linear/unlink", url.Values{"id": {"org-acme"}}, srv.URL); code != http.StatusSeeOther || len(links.Of("linear", "")) != 0 {
+		t.Fatalf("disconnect: %d %+v", code, links.Of("linear", ""))
+	}
+	if h, _ := store.Handoff("desktop"); h.Kind != "forget" {
+		t.Errorf("after disconnecting, the machines are told %+v", h)
 	}
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/17tayyy/wong/internal/hook"
-	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/repos"
 )
 
@@ -68,8 +67,8 @@ func newHookCmd(home string, brain *string) *cobra.Command {
 				fmt.Fprint(cmd.OutOrStdout(), hook.NoteWritten(in, env))
 				return nil
 			}
-			if key := os.Getenv("LINEAR_API_KEY"); key != "" {
-				env.Tracker = linear.New(key)
+			if c := linearClient(cmd.Context(), *brain, cmd.ErrOrStderr()); c != nil {
+				env.Tracker = c
 			}
 			if env.Remote, err = remoteClient(5 * time.Second); err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "wong hook:", err)

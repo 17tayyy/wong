@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -133,18 +134,25 @@ func projectNotes(notes []check.Note, project string) []check.Note {
 }
 
 // OpenTasks returns the open tasks of a project, "me" for the global notes: the server's, or for a sealed brain the
-// ones this machine keeps, after applying the events it had not fetched yet.
+// ones this machine keeps, after applying the events it had not fetched yet. On the way it takes into the brain what
+// the server holds for this machine, such as Linear's token.
 func OpenTasks(ctx context.Context, c *Client, brain, project string) ([]Task, error) {
 	if err := c.Unlock(ctx); err != nil {
 		return nil, err
 	}
+	var handoffErr error
+	if err := TakeHandoff(ctx, c, brain); err != nil {
+		handoffErr = fmt.Errorf("Linear's token: %w", err)
+	}
 	if c.Key == nil {
-		return c.Tasks(ctx, project)
+		tasks, err := c.Tasks(ctx, project)
+		return tasks, errors.Join(err, handoffErr)
 	}
 	if err := SyncTasks(ctx, c, brain); err != nil {
-		return nil, err
+		return nil, errors.Join(err, handoffErr)
 	}
-	return LocalTasks(brain, project)
+	tasks, err := LocalTasks(brain, project)
+	return tasks, errors.Join(err, handoffErr)
 }
 
 // LocalTasks returns the open tasks this machine keeps for a sealed brain, of a project ("me" for the global notes),

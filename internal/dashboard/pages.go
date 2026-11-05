@@ -1000,6 +1000,10 @@ func notice(r *http.Request) string {
 		return "Turned off. wong refuses the webhook until it has a secret again."
 	case "github-linked":
 		return "GitHub is connected. wong takes the pushes and pull requests of the repos you picked."
+	case "linear-linked":
+		return "Linear is connected. Your machines take its token on their next session, and its issues that close reach wong."
+	case "linear-unlinked":
+		return "Disconnected. Your machines revoke Linear's token and remove it on their next session."
 	case "github-unlinked":
 		return "Unlinked. The app is still installed on GitHub: uninstall it there, or link it again here."
 	}

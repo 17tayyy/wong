@@ -121,6 +121,12 @@ CREATE TABLE IF NOT EXISTS cloud_ais (
 	device     TEXT NOT NULL,
 	created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS handoffs (
+	device     TEXT PRIMARY KEY,
+	kind       TEXT NOT NULL,
+	blob       BLOB,
+	created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS checks (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
 	installation INTEGER NOT NULL,

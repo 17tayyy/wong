@@ -20,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/17tayyy/wong/internal/dashboard"
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/mcp"
 	"github.com/17tayyy/wong/internal/remote"
 )
@@ -52,7 +53,14 @@ func newServeCmd() *cobra.Command {
 			"the repos, and the app's webhooks, at POST /hooks/github-app, reach every brain linked to\n" +
 			"that installation. wong also checks each pull request: how many notes cite files it\n" +
 			"removes or moves, and how many pitfalls are noted on files it changes, never which. On a\n" +
-			"sealed brain the check waits for one of its machines, which can read the notes.\n" +
+			"sealed brain the check waits for one of its machines, which can read the notes.\n\n" +
+			"With WONG_LINEAR_CLIENT_ID and WONG_LINEAR_WEBHOOK_SECRET, from a Linear OAuth\n" +
+			"application whose callback URL is the server's /webhooks/linear/callback and whose\n" +
+			"webhook, on issues, is its /hooks/linear-app, people connect Linear from the Webhooks\n" +
+			"page: the issues that close in their workspace reach their brain, and their machines\n" +
+			"get Linear's token, sealed for them on an encrypted brain, to check the issues notes\n" +
+			"cite. The application is used without its secret: PKCE stands for it, so the\n" +
+			"machines renew the token themselves and the server keeps none.\n" +
 			"To use the API from outside your network, serve it over https: behind a tunnel or\n" +
 			"a proxy with a certificate, or with --tls-cert and --tls-key.\n\n" +
 			"The same address serves the dashboard. wong open, on a connected machine, opens it\n" +
@@ -151,6 +159,13 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 			}
+			if id := os.Getenv("WONG_LINEAR_CLIENT_ID"); id != "" {
+				secret := os.Getenv("WONG_LINEAR_WEBHOOK_SECRET")
+				if secret == "" {
+					return errors.New("WONG_LINEAR_CLIENT_ID goes with WONG_LINEAR_WEBHOOK_SECRET, the secret that signs the Linear application's webhooks")
+				}
+				hooks.Linear = &remote.LinearApp{OAuth: linear.OAuth{ClientID: id}, WebhookSecret: secret}
+			}
 			api := remote.Handler(brains, log, hooks)
 			devices, signins := remote.NewDevices(), remote.NewSignIns()
 			keyFile := db + ".oauth-key"
@@ -217,6 +232,9 @@ func newServeCmd() *cobra.Command {
 			}
 			if hooks.App != nil {
 				where = append(where, "github_app", hooks.App.Slug)
+			}
+			if hooks.Linear != nil {
+				where = append(where, "linear_app", true)
 			}
 			if limits != (remote.Limits{}) {
 				where = append(where, "max_size", limits.Size, "max_file", limits.File, "max_requests", limits.Requests)

@@ -28,11 +28,13 @@ const (
 )
 
 // Webhooks holds the secrets that sign GitHub's and Linear's webhooks for a single brain, before the ones it keeps
-// itself, and the GitHub App whose webhooks reach the brains linked to its installations.
+// itself, and the GitHub App and Linear application whose webhooks reach the brains linked to an installation or a
+// workspace.
 type Webhooks struct {
 	GitHubSecret string
 	LinearSecret string
 	App          *GitHubApp
+	Linear       *LinearApp
 	Links        *Links
 }
 
@@ -104,6 +106,9 @@ func hookBrains(mux *http.ServeMux, brains Brains, log *slog.Logger, env Webhook
 	if env.App != nil && env.Links != nil {
 		mux.HandleFunc("POST /hooks/github-app", appHook(brains, env, log))
 	}
+	if env.Linear != nil && env.Links != nil {
+		mux.HandleFunc("POST /hooks/linear-app", linearAppHook(brains, env, log))
+	}
 }
 
 var versionTagRE = regexp.MustCompile(`^v\d`)
@@ -131,6 +136,7 @@ type githubPush struct {
 type linearEvent struct {
 	Action           string    `json:"action"`
 	Type             string    `json:"type"`
+	OrganizationID   string    `json:"organizationId"`
 	CreatedAt        time.Time `json:"createdAt"`
 	WebhookTimestamp int64     `json:"webhookTimestamp"`
 	Data             struct {
@@ -377,44 +383,65 @@ func linearHook(find hookBrain, log *slog.Logger) http.HandlerFunc {
 			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if sent := time.UnixMilli(ev.WebhookTimestamp); time.Since(sent).Abs() > linearTolerance {
-			log.Warn("linear refused", "reason", "webhookTimestamp too far from now", "sent", sent)
-			http.Error(w, "webhookTimestamp too far from now", http.StatusUnauthorized)
+		if !freshLinear(w, log, ev) {
 			return
 		}
-		if ev.Type != "Issue" || ev.Action == "remove" || ev.Data.Identifier == "" {
-			ignore(w, log, "linear", strings.TrimSpace(ev.Type+" "+ev.Action))
-			return
-		}
-		issue := linear.Issue{Identifier: ev.Data.Identifier, State: ev.Data.State.Name, Type: ev.Data.State.Type, ClosedAt: ev.CreatedAt}
-		for _, at := range []*time.Time{ev.Data.CompletedAt, ev.Data.CanceledAt} {
-			if at != nil {
-				issue.ClosedAt = *at
-			}
-		}
-		if !issue.Closed() {
-			ignore(w, log, "linear", ev.Data.Identifier+" is not closed")
-			return
-		}
-		sealed, err := store.Sealed()
-		var n int
-		switch {
-		case err == nil && sealed:
-			err = store.keepEvent(event{Issue: &issue}, "linear "+issue.Identifier, "")
-		case err == nil:
-			var notes []check.Note
-			if notes, err = store.notes(""); err == nil {
-				n, err = store.addTasks(event{Issue: &issue}, "linear "+issue.Identifier, notes)
-			}
-		}
+		n, why, err := takeIssue(store, ev, log)
 		if err != nil {
 			log.Error("linear", "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		log.Info("linear issue", "issue", issue.Identifier, "state", issue.State, "tasks", n)
+		if why != "" {
+			ignore(w, log, "linear", why)
+			return
+		}
 		writeJSON(w, hookResponse{Tasks: n})
 	}
+}
+
+// freshLinear refuses a Linear webhook sent more than a minute ago, which may be one replayed.
+func freshLinear(w http.ResponseWriter, log *slog.Logger, ev linearEvent) bool {
+	if sent := time.UnixMilli(ev.WebhookTimestamp); time.Since(sent).Abs() > linearTolerance {
+		log.Warn("linear refused", "reason", "webhookTimestamp too far from now", "sent", sent)
+		http.Error(w, "webhookTimestamp too far from now", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+// takeIssue turns an issue that is now closed into tasks for the notes that cite it, or keeps it for the machines of
+// a sealed brain. why says why an event is ignored.
+func takeIssue(store *Store, ev linearEvent, log *slog.Logger) (tasks int, why string, err error) {
+	if ev.Type != "Issue" || ev.Action == "remove" || ev.Data.Identifier == "" {
+		return 0, strings.TrimSpace(ev.Type + " " + ev.Action), nil
+	}
+	issue := linear.Issue{Identifier: ev.Data.Identifier, State: ev.Data.State.Name, Type: ev.Data.State.Type, ClosedAt: ev.CreatedAt}
+	for _, at := range []*time.Time{ev.Data.CompletedAt, ev.Data.CanceledAt} {
+		if at != nil {
+			issue.ClosedAt = *at
+		}
+	}
+	if !issue.Closed() {
+		return 0, ev.Data.Identifier + " is not closed", nil
+	}
+	sealed, err := store.Sealed()
+	if err != nil {
+		return 0, "", err
+	}
+	if sealed {
+		err = store.keepEvent(event{Issue: &issue}, "linear "+issue.Identifier, "")
+	} else {
+		var notes []check.Note
+		if notes, err = store.notes(""); err == nil {
+			tasks, err = store.addTasks(event{Issue: &issue}, "linear "+issue.Identifier, notes)
+		}
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	log.Info("linear issue", "issue", issue.Identifier, "state", issue.State, "tasks", tasks)
+	return tasks, "", nil
 }
 
 // keepPush stores what a push to a sealed brain's repo reported, for its machines to apply: the tag or the commit on

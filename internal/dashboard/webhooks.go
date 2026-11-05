@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/remote"
 )
 
@@ -57,6 +58,9 @@ func (d *Dashboard) webhooksPage(w http.ResponseWriter, r *http.Request, machine
 		}
 		if app := d.opts.Webhooks.App; id == "github" && app != nil && d.opts.Webhooks.Links != nil {
 			h.App, h.InstallURL, h.Linked = true, app.InstallURL(), d.opts.Webhooks.Links.Of("github", d.account)
+		}
+		if id == "linear" && d.opts.Webhooks.Linear != nil && d.opts.Webhooks.Links != nil {
+			h.App, h.Linked = true, d.opts.Webhooks.Links.Of("linear", d.account)
 		}
 		p.Hooks = append(p.Hooks, h)
 	}
@@ -189,6 +193,61 @@ func (d *Dashboard) githubCallback(w http.ResponseWriter, r *http.Request, machi
 func (d *Dashboard) githubLink(w http.ResponseWriter, r *http.Request, machine string) {
 	r.URL.RawQuery = ""
 	d.githubSetup(w, r, machine)
+}
+
+// linearConnect sends a person to Linear to let wong read their workspace.
+func (d *Dashboard) linearConnect(w http.ResponseWriter, r *http.Request, _ string) {
+	app := d.opts.Webhooks.Linear
+	if app == nil || d.opts.Webhooks.Links == nil {
+		http.NotFound(w, r)
+		return
+	}
+	verifier := linear.NewVerifier()
+	state := d.connects.start(connect{account: d.account, verifier: verifier})
+	http.Redirect(w, r, app.OAuth.AuthorizeURL(origin(r)+"/webhooks/linear/callback", state, verifier), http.StatusSeeOther)
+}
+
+// linearCallback links the workspace a person let wong into, and hands its token to the brain's machines.
+func (d *Dashboard) linearCallback(w http.ResponseWriter, r *http.Request, machine string) {
+	app, links := d.opts.Webhooks.Linear, d.opts.Webhooks.Links
+	if app == nil || links == nil {
+		http.NotFound(w, r)
+		return
+	}
+	cn, ok := d.connects.take(r.URL.Query().Get("state"), d.account)
+	switch {
+	case !ok:
+		d.webhooksPage(w, r, machine, "That link to Linear expired or was used already. Connect Linear again.")
+		return
+	case r.URL.Query().Get("error") != "":
+		d.webhooksPage(w, r, machine, "Linear did not let wong in, so nothing changed.")
+		return
+	}
+	err := remote.ConnectLinear(r.Context(), app, links, d.store, d.account, r.URL.Query().Get("code"), origin(r)+"/webhooks/linear/callback", cn.verifier)
+	if err != nil {
+		d.log.Warn("linear connect", "err", err)
+		d.webhooksPage(w, r, machine, "Linear did not hand wong a token, so nothing changed. Connect Linear again.")
+		return
+	}
+	http.Redirect(w, r, "/webhooks?done=linear-linked", http.StatusSeeOther)
+}
+
+// linearUnlink disconnects the workspace: its webhooks stop reaching this brain, and the machines revoke the token.
+func (d *Dashboard) linearUnlink(w http.ResponseWriter, r *http.Request, _ string) {
+	links := d.opts.Webhooks.Links
+	if links == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := links.Remove("linear", r.FormValue("id"), d.account); err != nil {
+		d.fail(w, err)
+		return
+	}
+	if err := d.store.HandOffForget(); err != nil {
+		d.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/webhooks?done=linear-unlinked", http.StatusSeeOther)
 }
 
 // githubUnlink stops an installation's webhooks from reaching this brain; the app stays installed on GitHub.

@@ -29,6 +29,7 @@ const (
 	notesInfo = "wong notes v1"
 	idsInfo   = "wong ids v1"
 	sumsInfo  = "wong sums v1"
+	sealInfo  = "wong sealed for a device v1"
 )
 
 // ErrOpen is returned when a blob or a wrapped key does not open: a wrong key, a wrong id, or bytes changed on the way.
@@ -166,6 +167,24 @@ func (d *Device) Unwrap(wrapped []byte) (*Key, error) {
 		return nil, ErrOpen
 	}
 	return KeyFrom(raw)
+}
+
+// SealFor encrypts a message for one device alone, such as a token the server hands to a machine and must not read.
+func SealFor(public, message []byte) ([]byte, error) {
+	pk, err := kem.NewPublicKey(public)
+	if err != nil {
+		return nil, err
+	}
+	return hpke.Seal(pk, kdf, aead, []byte(sealInfo), message)
+}
+
+// OpenSealed opens a message sealed for this device.
+func (d *Device) OpenSealed(blob []byte) ([]byte, error) {
+	msg, err := hpke.Open(d.private, kdf, aead, []byte(sealInfo), blob)
+	if err != nil {
+		return nil, ErrOpen
+	}
+	return msg, nil
 }
 
 // Fingerprint is what both devices show while one links the other, for the person to compare: if the server swapped

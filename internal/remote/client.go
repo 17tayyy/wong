@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"github.com/17tayyy/wong/internal/check"
+	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/seal"
 )
 
 // Client talks to a wong server. With this machine's Device, it opens the key of a sealed brain the first time it
-// syncs, and from then on its Key encrypts what it pushes and decrypts what it pulls.
+// syncs, and from then on its Key encrypts what it pushes and decrypts what it pulls. Linear is where it revokes
+// Linear's token once the server says it was disconnected: Linear's own addresses unless a test sets others.
 type Client struct {
 	URL    string
 	Token  string
@@ -27,6 +29,7 @@ type Client struct {
 	Device *seal.Device
 	Key    *seal.Key
 	State  string
+	Linear linear.OAuth
 	clear  bool
 }
 

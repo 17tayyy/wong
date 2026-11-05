@@ -189,3 +189,24 @@ func TestTheFormatDoesNotChange(t *testing.T) {
 		t.Error("a key of 31 bytes was taken")
 	}
 }
+
+func TestSealForOpensOnlyOnItsDevice(t *testing.T) {
+	mine, _ := NewDevice()
+	other, _ := NewDevice()
+	blob, err := SealFor(mine.Public(), []byte("a token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := mine.OpenSealed(blob); err != nil || string(got) != "a token" {
+		t.Fatalf("OpenSealed = %q, %v", got, err)
+	}
+	if _, err := other.OpenSealed(blob); err != ErrOpen {
+		t.Errorf("another device opened it: %v", err)
+	}
+	if key, _ := NewKey(); key != nil {
+		wrapped, _ := Wrap(key, mine.Public())
+		if _, err := mine.OpenSealed(wrapped); err != ErrOpen {
+			t.Errorf("a wrapped brain key opened as a sealed message: %v", err)
+		}
+	}
+}

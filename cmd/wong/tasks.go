@@ -32,10 +32,10 @@ func newTasksCmd(brain *string) *cobra.Command {
 				return err
 			}
 			tasks, err := remote.OpenTasks(cmd.Context(), client, *brain, project)
-			if err != nil {
-				return err
+			if perr := printTasks(cmd.OutOrStdout(), tasks); perr != nil {
+				return perr
 			}
-			return printTasks(cmd.OutOrStdout(), tasks)
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "list only this project's tasks (me for the global notes)")

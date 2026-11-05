@@ -32,10 +32,12 @@ func (i Issue) Closed() bool {
 	return i.Type == "completed" || i.Type == "canceled"
 }
 
+// Client reads Linear's API with a personal API key, or with an OAuth token when Bearer is set.
 type Client struct {
-	Key  string
-	URL  string
-	HTTP *http.Client
+	Key    string
+	Bearer bool
+	URL    string
+	HTTP   *http.Client
 }
 
 func New(key string) *Client {
@@ -108,7 +110,11 @@ func (c *Client) query(ctx context.Context, query string, vars map[string]any, o
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", c.Key)
+	if c.Bearer {
+		req.Header.Set("Authorization", "Bearer "+c.Key)
+	} else {
+		req.Header.Set("Authorization", c.Key)
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("linear: %w", err)

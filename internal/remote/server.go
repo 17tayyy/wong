@@ -243,6 +243,23 @@ func Handler(brains Brains, log *slog.Logger, hooks Webhooks) http.Handler {
 		}
 		writeJSON(w, eventsResponse{Cursor: cursor, Events: events})
 	}))
+	mux.HandleFunc("GET /api/handoff", metered(func(w http.ResponseWriter, _ *http.Request, s Session) {
+		h, err := s.Store.Handoff(s.Machine)
+		if err != nil {
+			log.Error("handoff", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, h)
+	}))
+	mux.HandleFunc("DELETE /api/handoff", metered(func(w http.ResponseWriter, _ *http.Request, s Session) {
+		if err := s.Store.DropHandoffs(); err != nil {
+			log.Error("handoff", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, struct{}{})
+	}))
 	mux.HandleFunc("POST /api/checks", metered(func(w http.ResponseWriter, r *http.Request, s Session) {
 		if hooks.App == nil {
 			http.Error(w, "this server has no GitHub App", http.StatusNotFound)

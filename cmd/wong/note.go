@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -286,8 +287,8 @@ func newNoteVerifyCmd(brainDir *string) *cobra.Command {
 					n.Sources = append(n.Sources, s)
 				}
 			}
-			if os.Getenv("LINEAR_API_KEY") == "" && slices.ContainsFunc(n.Sources, func(s string) bool { return strings.HasPrefix(s, "linear:") }) {
-				return errors.New("the note cites Linear issues and LINEAR_API_KEY is not set, so they cannot be checked")
+			if slices.ContainsFunc(n.Sources, func(s string) bool { return strings.HasPrefix(s, "linear:") }) && linearClient(cmd.Context(), *brainDir, cmd.ErrOrStderr()) == nil {
+				return errors.New("the note cites Linear issues and this machine cannot read Linear: connect Linear from the dashboard's Webhooks page, or set LINEAR_API_KEY to a personal API key")
 			}
 			n.Verified, _ = time.Parse(time.DateOnly, time.Now().Format(time.DateOnly))
 			data, err := n.Marshal()
@@ -364,7 +365,7 @@ func newNoteRemoveCmd(brainDir *string) *cobra.Command {
 }
 
 func checkNote(cmd *cobra.Command, brainDir, rel string) (check.Report, error) {
-	opts, err := checkOptions(brainDir)
+	opts, err := checkOptions(cmd.Context(), brainDir, cmd.ErrOrStderr())
 	if err != nil {
 		return check.Report{}, err
 	}
@@ -372,7 +373,7 @@ func checkNote(cmd *cobra.Command, brainDir, rel string) (check.Report, error) {
 	return check.Run(cmd.Context(), opts)
 }
 
-func checkOptions(brainDir string) (check.Options, error) {
+func checkOptions(ctx context.Context, brainDir string, warn io.Writer) (check.Options, error) {
 	path, err := repos.DefaultPath()
 	if err != nil {
 		return check.Options{}, err
@@ -382,10 +383,23 @@ func checkOptions(brainDir string) (check.Options, error) {
 		return check.Options{}, err
 	}
 	opts := check.Options{Brain: brainDir, Repos: reg}
-	if key := os.Getenv("LINEAR_API_KEY"); key != "" {
-		opts.Tracker = linear.New(key)
+	if c := linearClient(ctx, brainDir, warn); c != nil {
+		opts.Tracker = c
 	}
 	return opts, nil
+}
+
+// linearClient is how this machine reads Linear: with the personal key in LINEAR_API_KEY, or with the token the brain
+// keeps once Linear was connected from the dashboard, renewed when it is about to expire; nil with neither.
+func linearClient(ctx context.Context, brainDir string, warn io.Writer) *linear.Client {
+	if key := os.Getenv("LINEAR_API_KEY"); key != "" {
+		return linear.New(key)
+	}
+	c, _, err := linear.OAuth{}.FromBrain(ctx, brainDir)
+	if err != nil {
+		fmt.Fprintln(warn, "wong:", err)
+	}
+	return c
 }
 
 func validSources(sources []string) error {
