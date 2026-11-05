@@ -21,7 +21,12 @@
     </div>
   </form>
   {{else}}
-  <p class="desc">Enter the code <code>wong setup</code> shows on the machine. Only enter a code a machine of yours shows right now: the machine that asked gets this brain.</p>
+  <p class="desc">On the machine to connect, run one of these. It shows a code to enter below.</p>
+  <div class="props">
+    <div class="prop"><span class="k">{{icon "laptop"}}New machine</span><span class="v"><code class="chip">curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- {{.Origin}}</code></span></div>
+    <div class="prop"><span class="k">{{icon "code"}}wong installed</span><span class="v"><code class="chip">wong setup {{.Origin}}</code></span></div>
+  </div>
+  <p class="desc">Only enter a code a machine of yours shows right now: the machine that asked gets this brain.</p>
   {{with .Notice}}<p class="toast" role="status">{{icon "circle-check"}}{{.}}</p>{{end}}
   {{with .Error}}<div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
   <form class="formbar device" method="post" action="/device">

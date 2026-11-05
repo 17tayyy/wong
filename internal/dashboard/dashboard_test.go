@@ -477,6 +477,12 @@ func TestConnectAMachine(t *testing.T) {
 		t.Fatalf("sign in: %d", code)
 	}
 
+	if _, body := b.get("/device"); !strings.Contains(body, "wong setup "+srv.URL+"</code>") || !strings.Contains(body, "install.sh | sh -s -- "+srv.URL) {
+		t.Errorf("the page does not say what to run on the machine:\n%s", body)
+	}
+	if _, body := b.get("/"); !strings.Contains(body, "Connect a machine with <code>wong setup "+srv.URL+"</code>") {
+		t.Errorf("an empty brain's library does not say how to fill it:\n%s", body)
+	}
 	if code, body := b.post("/device", url.Values{"code": {"BCDF-GHJK"}, "do": {"find"}}, srv.URL); code != http.StatusNotFound || !strings.Contains(body, "No machine is waiting") {
 		t.Errorf("an unknown code: %d", code)
 	}

@@ -26,6 +26,7 @@ type page struct {
 	Nav         string
 	Machine     string
 	Server      string
+	Origin      string
 	Edition     *change
 	Next        string
 	Error       string
@@ -165,7 +166,7 @@ var snacks = map[string]string{
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
-	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, AccountNav: d.opts.Account != nil && d.account != "", StatusURL: d.opts.StatusURL}
+	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, Origin: origin(r), AccountNav: d.opts.Account != nil && d.account != "", StatusURL: d.opts.StatusURL}
 	if d.account != "" {
 		p.Server = d.account
 	}
