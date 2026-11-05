@@ -19,6 +19,8 @@
     </tbody>
   </table>
   </div>
+  {{else if .NoChecks}}
+  <div class="callout gray">{{icon "info"}}<p>This browser does not run wong check, and the webhooks' tasks of an end-to-end encrypted brain stay on your machines. Run wong open on one of them to see what is outdated.</p></div>
   {{else}}
   <div class="callout green">{{icon "circle-check"}}<p>No open corrections: every note agrees with its sources as far as the last checks and webhooks could tell.</p></div>
   {{end}}

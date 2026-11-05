@@ -12,7 +12,7 @@
   {{with .Warning}}<div class="callout yellow" role="alert">{{icon "triangle-alert"}}<p>{{.}}</p></div>{{end}}
 
   {{if not .Sealed}}
-  <div class="callout gray">{{icon "info"}}<p>Seal them from a machine that has the brain with <code>wong keys seal</code>. It makes the key and a recovery code, then replaces what this server keeps with copies it cannot read.{{if .Required}} This server takes no notes until you do.{{end}}</p></div>
+  <div class="callout gray">{{icon "info"}}<p>Seal them from a machine that has the brain with <code>wong keys seal</code>. It makes the key and a recovery code, then replaces what this server keeps with copies it cannot read.{{if .Required}} This server takes no notes until you do, and the first machine that runs <code>wong setup</code> with its address does it for you.{{end}}</p></div>
   {{else}}
   <section class="part" aria-labelledby="machines-h">
     <h2 id="machines-h">Machines with the key</h2>

@@ -33,6 +33,9 @@ type page struct {
 	Notice      string
 	SignInURL   string
 	AccountURL  string
+	DeviceURL   string
+	WebhooksURL string
+	NoChecks    bool
 	AccountPage *accountInfo
 	Encryption  *encryptionInfo
 	Standing    remote.Standing
@@ -166,7 +169,8 @@ var snacks = map[string]string{
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
-	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, Origin: origin(r), StatusURL: d.opts.StatusURL}
+	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, Origin: origin(r), StatusURL: d.opts.StatusURL,
+		DeviceURL: "/device", WebhooksURL: "/webhooks", NoChecks: d.opts.NoChecks}
 	if d.opts.Account != nil && d.account != "" {
 		p.AccountURL = "/account"
 	}
@@ -209,9 +213,10 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 		p.Snack.Close = (&url.URL{Path: r.URL.Path, RawQuery: q.Encode()}).String()
 	}
 	if up := d.opts.Upstream; up != nil {
-		rail := up.get(r.Context())
+		rail, server := up.get(r.Context()), strings.TrimSuffix(up.URL, "/")
+		p.Origin, p.DeviceURL, p.WebhooksURL = server, server+"/device", server+"/webhooks"
 		if rail.Account {
-			p.AccountURL = strings.TrimSuffix(up.URL, "/") + "/account"
+			p.AccountURL = server + "/account"
 		}
 		p.StatusURL = rail.StatusURL
 		for _, m := range rail.Machines {

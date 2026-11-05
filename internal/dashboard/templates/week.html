@@ -55,6 +55,8 @@
     <h2 id="w-open">{{icon "triangle-alert"}}Still open <span class="count">{{.Open}}</span></h2>
     {{if .Open}}
     <a class="callout {{if .Stale}}red{{else}}yellow{{end}}" href="/corrections">{{icon "triangle-alert"}}<span><b>{{.Open}} {{if eq .Open 1}}correction is{{else}}corrections are{{end}} open.</b>{{if .Stale}} {{.Stale}} {{if eq .Stale 1}}note contradicts its sources{{else}}notes contradict their sources{{end}}.{{end}} Agents fix them with the maintain-brain skill.</span><span class="go">Review {{icon "arrow-up-right"}}</span></a>
+    {{else if $.NoChecks}}
+    <div class="callout gray">{{icon "info"}}<p>This browser does not run wong check, and the webhooks' tasks of an end-to-end encrypted brain stay on your machines. Run wong open on one of them to see what is outdated.</p></div>
     {{else}}
     <div class="callout green">{{icon "circle-check"}}<p>Nothing is open: every note agrees with its sources as far as the last checks and webhooks could tell.</p></div>
     {{end}}

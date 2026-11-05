@@ -1091,4 +1091,7 @@ func TestADashboardElsewhereShowsTheServersRail(t *testing.T) {
 	if !strings.Contains(body, `href="https://status.example.com/"`) {
 		t.Errorf("the copy's rail lacks the server's status page:\n%s", body)
 	}
+	if !strings.Contains(body, `href="`+srv.URL+`/device"`) || !strings.Contains(body, `href="`+srv.URL+`/webhooks"`) {
+		t.Errorf("the copy sends Connect a machine or Webhooks to its own pages, not the server's:\n%s", body)
+	}
 }

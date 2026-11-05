@@ -31,7 +31,8 @@ var staticFS embed.FS
 // OAuth server that MCP clients ask to be approved, where people without a token sign in, such as wong cloud's
 // sign-in with GitHub, the sign-up service that describes each account's plan on the Account page, the page that
 // says whether the service works, and, for a dashboard that runs from a sealed brain's copy elsewhere, the server
-// whose account, status page and machines its rail shows.
+// whose account, status page and machines its rail shows, and whether that dashboard runs where wong check and the
+// webhooks' tasks do not reach, as in a browser, so its pages say so instead of that nothing is outdated.
 type Options struct {
 	Webhooks  remote.Webhooks
 	Devices   *remote.Devices
@@ -42,6 +43,7 @@ type Options struct {
 	Keyring   Keyring
 	StatusURL string
 	Upstream  *Upstream
+	NoChecks  bool
 }
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.

@@ -73,7 +73,11 @@ func (d *Dashboard) approveDevice(w http.ResponseWriter, r *http.Request, machin
 			return
 		}
 		d.log.Info("device approved", "name", dev.Name, "from", dev.From, "by", machine)
-		d.devicePage(w, r, machine, nil, "Connected. "+dev.Name+" carries on by itself in its terminal; you can close this tab.", "")
+		done := "Connected. " + dev.Name + " carries on by itself in its terminal; you can close this tab."
+		if sealed, err := d.store.Sealed(); err == nil && sealed {
+			done = "Connected. The brain is end-to-end encrypted, so " + dev.Name + " still needs its key: approve it from a machine that has it, with wong keys approve."
+		}
+		d.devicePage(w, r, machine, nil, done, "")
 		return
 	}
 	d.devicePage(w, r, machine, &dev, "", "")

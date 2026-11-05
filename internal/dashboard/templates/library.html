@@ -42,7 +42,7 @@
     {{end}}
   </details>
   {{else}}
-  <p class="empty">{{if .Query}}No note mentions “{{.Query}}”.{{else if eq .Filter "pending"}}No note needs a correction.{{else if .Filter}}No note fits this view.{{else}}The brain is empty. Connect a machine with <code>wong setup {{.Origin}}</code>, or from <a href="/device">Connect a machine</a>, and its memory comes here.{{end}}</p>
+  <p class="empty">{{if .Query}}No note mentions “{{.Query}}”.{{else if eq .Filter "pending"}}No note needs a correction.{{else if .Filter}}No note fits this view.{{else}}The brain is empty. Connect a machine with <code>wong setup {{.Origin}}</code>, or from <a href="{{.DeviceURL}}">Connect a machine</a>, and its memory comes here.{{end}}</p>
   {{end}}
 </div>
 {{end}}

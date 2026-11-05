@@ -21,7 +21,7 @@
     <div class="formbar">
       <button class="btn primary" name="do" value="approve">Connect</button>
       <button class="btn ghost" name="do" value="deny">Cancel</button>
-      <span class="muted">Every change it makes is signed and can be undone. Revoke it any time with wong serve --revoke-token {{.Name}}.</span>
+      <span class="muted">Every change it makes is signed and can be undone. Its token is named {{.Name}}; whoever runs the server can revoke it, on their own server with wong serve --revoke-token {{.Name}}.</span>
     </div>
   </form>
   {{else}}

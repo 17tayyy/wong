@@ -110,7 +110,7 @@ func (rt *runtime) start(_ js.Value, args []js.Value) any {
 			return
 		}
 		web, err := dashboard.Handler(opened.Plain, rt.log, dashboard.Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), Keyring: remote.Holder{C: client},
-			Upstream: &dashboard.Upstream{URL: client.URL, Token: client.Token}})
+			Upstream: &dashboard.Upstream{URL: client.URL, Token: client.Token}, NoChecks: true})
 		if err != nil {
 			rt.fail(err)
 			return
