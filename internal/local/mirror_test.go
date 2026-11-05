@@ -2,6 +2,9 @@ package local
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -173,4 +176,67 @@ func callTool(t *testing.T, m *Mirror, name, args string) string {
 		t.Fatalf("%s: %v", name, err)
 	}
 	return out.Result.Content[0].Text
+}
+
+func TestTheCopyShowsWhatTheMachineFindsOutdated(t *testing.T) {
+	ctx := context.Background()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	srv := httptest.NewServer(remote.Handler(store, log, remote.Webhooks{GitHubSecret: "s"}))
+	t.Cleanup(srv.Close)
+	token, _ := store.NewToken("desktop")
+	cloud := remote.NewClient(srv.URL, token, 5*time.Second)
+	cloud.Device, _ = seal.NewDevice()
+	key, _ := seal.NewKey()
+	recovery, _ := seal.RecoveryDevice(seal.NewRecovery())
+	if err := cloud.StartSeal(ctx, cloud.Device, recovery, key, 0); err != nil {
+		t.Fatal(err)
+	}
+	brain := t.TempDir()
+	write(t, filepath.Join(brain, "remotes.yaml"), "acme/acme-api:\n  project: acme\n  dir: acme-api\n")
+	note := filepath.Join(brain, "projects/acme/billing.md")
+	write(t, note, "---\nname: billing\ndescription: Where billing lives\nkind: reference\nscope: project:acme\n---\nIn `acme-api/src/billing.go`.\n")
+	old := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(note, old, old)
+	if _, err := remote.Push(ctx, cloud, brain); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"ref": "refs/heads/main", "after": "abc1234", "repository": {"full_name": "acme/acme-api", "default_branch": "main"},
+  "commits": [{"id": "abc1234", "timestamp": "` + time.Now().UTC().Format(time.RFC3339) + `", "added": [], "removed": ["src/billing.go"]}]}`
+	mac := hmac.New(sha256.New, []byte("s"))
+	mac.Write([]byte(body))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/github", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("webhook: %v %v", resp, err)
+	}
+
+	m, err := Start(brain, cloud, "test", log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Close() })
+	if err := m.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.store.Tasks("acme"); err != nil || len(got) != 1 || got[0].Ref != "acme-api/src/billing.go" {
+		t.Fatalf("the copy's tasks = %+v %v", got, err)
+	}
+
+	write(t, note, "---\nname: billing\ndescription: Where billing lives\nkind: reference\nscope: project:acme\n---\nIn `acme-api/src/invoices.go`.\n")
+	m.last = time.Time{}
+	if err := m.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.store.Tasks("acme"); len(got) != 0 {
+		t.Errorf("the fixed note's task is still open in the copy: %+v", got)
+	}
+	if fixed, _ := m.store.ClosedTasks(time.Now().Add(-time.Hour)); len(fixed) != 1 {
+		t.Errorf("the copy does not count the fix: %+v", fixed)
+	}
 }

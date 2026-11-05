@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -58,6 +59,7 @@ func newMCPCmd(brain *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			m.Checks, _ = checkOptions(cmd.Context(), *brain, io.Discard)
 			ctx, stop := context.WithCancel(cmd.Context())
 			done := make(chan error, 1)
 			go func() { done <- m.Run(ctx, 5*time.Second) }()

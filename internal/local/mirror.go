@@ -16,6 +16,7 @@ import (
 	"time"
 
 	brainfs "github.com/17tayyy/wong/internal/brain"
+	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/dashboard"
 	"github.com/17tayyy/wong/internal/mcp"
 	"github.com/17tayyy/wong/internal/remote"
@@ -26,19 +27,25 @@ const (
 	statePath  = ".wong/local-sync.json"
 	lockPath   = ".wong/local.json"
 	cloudEvery = 30 * time.Second
+	checkEvery = 5 * time.Minute
 )
 
-// Mirror is the server of a sealed brain's decrypted copy on this machine.
+// Mirror is the server of a sealed brain's decrypted copy on this machine. A sealed brain's server cannot tell which
+// notes are outdated, so the mirror shows what this machine finds: the tasks it keeps from the webhooks' events, and,
+// when Checks names the brain, what wong check finds every few minutes.
 type Mirror struct {
-	URL   string
-	Token string
-	brain string
-	cloud *remote.Client
-	local *remote.Client
-	store *remote.Store
-	srv   *http.Server
-	last  time.Time
-	log   *slog.Logger
+	URL     string
+	Token   string
+	Checks  check.Options
+	brain   string
+	machine string
+	cloud   *remote.Client
+	local   *remote.Client
+	store   *remote.Store
+	srv     *http.Server
+	last    time.Time
+	checked time.Time
+	log     *slog.Logger
 }
 
 type lock struct {
@@ -104,7 +111,7 @@ func Start(brain string, cloud *remote.Client, version string, log *slog.Logger)
 		store.Close()
 		return nil, err
 	}
-	m := &Mirror{URL: "http://" + ln.Addr().String(), Token: token, brain: brain, cloud: cloud, store: store, log: log,
+	m := &Mirror{URL: "http://" + ln.Addr().String(), Token: token, brain: brain, machine: name, cloud: cloud, store: store, log: log,
 		srv: &http.Server{Handler: root, ReadHeaderTimeout: 10 * time.Second}}
 	m.local = remote.NewClient(m.URL, token, 30*time.Second)
 	m.local.State = statePath
@@ -124,8 +131,8 @@ func Start(brain string, cloud *remote.Client, version string, log *slog.Logger)
 	return m, nil
 }
 
-// Sync brings the server's changes into the folder now and then, the folder's into the copy and the copy's edits into
-// the folder, and sends the folder's changes to the server, encrypted.
+// Sync brings the server's changes into the folder now and then, with the webhooks' events, which it applies, the
+// folder's into the copy and the copy's edits into the folder, and sends the folder's changes to the server, encrypted.
 func (m *Mirror) Sync(ctx context.Context) error {
 	toCloud := false
 	if time.Since(m.last) >= cloudEvery {
@@ -133,6 +140,18 @@ func (m *Mirror) Sync(ctx context.Context) error {
 			return err
 		}
 		m.last, toCloud = time.Now(), true
+		if _, err := remote.OpenTasks(ctx, m.cloud, m.brain, ""); err != nil {
+			m.log.Warn("local tasks", "err", err)
+		}
+		if err := remote.MirrorTasks(m.store, m.brain); err != nil {
+			return err
+		}
+		if m.Checks.Brain != "" && time.Since(m.checked) >= checkEvery {
+			m.checked = time.Now()
+			if err := m.check(ctx); err != nil {
+				m.log.Warn("local check", "err", err)
+			}
+		}
 	}
 	if _, err := remote.Push(ctx, m.local, m.brain); err != nil {
 		return err
@@ -145,6 +164,34 @@ func (m *Mirror) Sync(ctx context.Context) error {
 		_, err = remote.Push(ctx, m.cloud, m.brain)
 	}
 	return err
+}
+
+// check runs wong check on the brain and keeps what it finds, for each shelf, as this machine's findings.
+func (m *Mirror) check(ctx context.Context) error {
+	rep, err := check.Run(ctx, m.Checks)
+	if err != nil {
+		return err
+	}
+	byShelf := map[string][]check.Finding{"me": nil}
+	dirs, err := os.ReadDir(filepath.Join(m.brain, "projects"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, d := range dirs {
+		if d.IsDir() {
+			byShelf[d.Name()] = nil
+		}
+	}
+	for _, f := range rep.Findings {
+		if shelf, ok := remote.NoteProject(f.Note); ok {
+			byShelf[shelf] = append(byShelf[shelf], f)
+		}
+	}
+	var errs []error
+	for shelf, findings := range byShelf {
+		errs = append(errs, m.store.ReportFindings(m.machine, shelf, findings))
+	}
+	return errors.Join(errs...)
 }
 
 // Run syncs every interval until ctx ends, then syncs once more and stops serving.

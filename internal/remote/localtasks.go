@@ -155,6 +155,57 @@ func OpenTasks(ctx context.Context, c *Client, brain, project string) ([]Task, e
 	return tasks, errors.Join(err, handoffErr)
 }
 
+// MirrorTasks copies the open tasks this machine keeps for a sealed brain into store, the server of its decrypted copy
+// on this machine, and closes there the ones it no longer keeps, so that the copy's dashboard shows what is open and
+// what was fixed.
+func MirrorTasks(store *Store, brain string) error {
+	st, err := loadTasks(brain)
+	if err != nil {
+		return err
+	}
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	keep := map[[2]string]bool{}
+	for _, t := range st.Tasks {
+		keep[[2]string{t.Note, t.Ref}] = true
+		if _, err := tx.Exec(`INSERT INTO tasks (note, project, severity, ref, message, source, event, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(note, ref) WHERE closed_at IS NULL DO UPDATE SET severity = excluded.severity, message = excluded.message,
+				source = excluded.source, event = excluded.event`,
+			t.Note, t.Project, t.Severity, t.Ref, t.Message, t.Source, string(t.Event), t.Created); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.Query(`SELECT id, note, ref FROM tasks WHERE closed_at IS NULL`)
+	if err != nil {
+		return err
+	}
+	var gone []int64
+	for rows.Next() {
+		var id int64
+		var n, ref string
+		if err := rows.Scan(&id, &n, &ref); err != nil {
+			rows.Close()
+			return err
+		}
+		if !keep[[2]string{n, ref}] {
+			gone = append(gone, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range gone {
+		if _, err := tx.Exec(`UPDATE tasks SET closed_at = ? WHERE id = ?`, utcNow(), id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // LocalTasks returns the open tasks this machine keeps for a sealed brain, of a project ("me" for the global notes),
 // or of every project when project is "".
 func LocalTasks(brain, project string) ([]Task, error) {

@@ -56,6 +56,9 @@ func openLocal(cmd *cobra.Command, cloud *remote.Client, brain string) error {
 	if err != nil {
 		return err
 	}
+	if m.Checks, err = checkOptions(ctx, brain, cmd.ErrOrStderr()); err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "wong: the dashboard will not show what wong check finds:", err)
+	}
 	if err := m.Sync(ctx); err != nil {
 		m.Close()
 		return err
