@@ -59,6 +59,20 @@ func TestSimilarAndRelated(t *testing.T) {
 	if fresh := g.Similar(mk("projects/acme/oncall.md", "oncall", "Who answers the pager at night", "Rotation weekly.\n")); len(fresh) != 0 {
 		t.Errorf("a new subject looked like %v", fresh)
 	}
+	dup.Supersedes = []string{"Deploy-Runbook"}
+	if replaced := g.Similar(dup); len(replaced) != 0 {
+		t.Errorf("a note looked like the one it supersedes: %v", replaced)
+	}
+	tagged := mk("projects/acme/release-flow.md", "release-flow", "How a release goes out", "Merge, then promote.\n", "deploy")
+	if r := g.Related(tagged, 5); len(r) == 0 || !strings.HasPrefix(r[0], "[[deploy-runbook]]") {
+		t.Fatalf("Related = %q", r)
+	}
+	tagged.Supersedes = []string{"deploy-runbook"}
+	for _, r := range g.Related(tagged, 5) {
+		if strings.HasPrefix(r, "[[deploy-runbook]]") {
+			t.Errorf("a note was told to link the one it supersedes: %q", r)
+		}
+	}
 	related := g.Related(mk("projects/acme/search.md", "search", "Search rewrite", "Tracked in ENG-15. Links [[staging]].\n", "deploy"), 5)
 	if len(related) != 2 || !strings.HasPrefix(related[0], "[[deploy-runbook]]") || !strings.Contains(related[0], "ENG-15, #deploy") || !strings.HasPrefix(related[1], "[[Rate limits]]") {
 		t.Errorf("Related = %q", related)

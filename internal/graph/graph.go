@@ -272,12 +272,16 @@ func text(n Note) map[string]bool {
 	return Words(n.Name + " " + n.Description + " " + body)
 }
 
-// Similar returns the notes on the same shelf, or in me, that look like the same subject as n.
+// Similar returns the notes on the same shelf, or in me, that look like the same subject as n, but the ones n
+// supersedes, which are on its subject on purpose.
 func (g *Graph) Similar(n Note) []Note {
 	h, t := head(n), text(n)
 	var out []Note
 	for _, o := range g.Notes {
 		if o.Path == n.Path || (o.Shelf() != n.Shelf() && o.Shelf() != "me") {
+			continue
+		}
+		if slices.ContainsFunc(n.Supersedes, func(s string) bool { return strings.EqualFold(s, o.Name) || strings.EqualFold(s, o.stem()) }) {
 			continue
 		}
 		if strings.EqualFold(o.Name, n.Name) || o.stem() == n.stem() || Jaccard(h, head(o)) >= headThreshold || Jaccard(t, text(o)) >= textThreshold {
@@ -287,11 +291,17 @@ func (g *Graph) Similar(n Note) []Note {
 	return out
 }
 
-// Related returns notes that share sources, issues, files or tags with n and that it does not link to yet, best first.
+// Related returns notes that share sources, issues, files or tags with n and that it does not link to or supersede yet,
+// best first.
 func (g *Graph) Related(n Note, limit int) []string {
 	linked := map[string]bool{n.Path: true}
 	for _, m := range note.WikiLinkRE.FindAllStringSubmatch(note.WithoutCode(n.Body+"\n"+n.Description), -1) {
 		if p, ok := g.Resolve(m[1]); ok {
+			linked[p] = true
+		}
+	}
+	for _, old := range n.Supersedes {
+		if p, ok := g.Resolve(old); ok {
 			linked[p] = true
 		}
 	}
