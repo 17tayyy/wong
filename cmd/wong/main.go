@@ -17,8 +17,11 @@ func main() {
 func newRootCmd() *cobra.Command {
 	home, _ := os.UserHomeDir()
 	root := &cobra.Command{
-		Use:          "wong",
-		Short:        "An external brain for coding agents.",
+		Use:   "wong",
+		Short: "An external brain for coding agents.",
+		Long: "An external brain for coding agents.\n\n" +
+			"Start on each machine with wong setup <server-url>, your wong server's address or wong\n" +
+			"cloud's, https://wong-app.bytay.dev; wong setup alone keeps the brain on this machine.",
 		Version:      version(),
 		SilenceUsage: true,
 	}

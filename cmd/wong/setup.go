@@ -78,6 +78,10 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			installCodex(cmd, home, *brain)
 			installCursor(cmd, home)
 			installOpenCode(cmd, home)
+			if client == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "\nThe brain lives on this machine alone. To sync it with a wong server, yours or wong cloud\n"+
+					"(https://wong-app.bytay.dev), run wong setup with the server's address.")
+			}
 			return nil
 		},
 	}
@@ -93,7 +97,12 @@ func prepareKeys(cmd *cobra.Command, client *remote.Client, brain string) error 
 	}
 	switch {
 	case keys.Sealed && keys.Wrapped == nil:
-		return waitForKey(cmd, client)
+		if err := waitForKey(cmd, client); errors.Is(err, remote.ErrLocked) {
+			return fmt.Errorf("%w; once it is approved, run wong setup %s again to finish setting this machine up", err, client.URL)
+		} else if err != nil {
+			return err
+		}
+		return nil
 	case !keys.Sealed && keys.Required:
 		return sealBrain(cmd, client, brain, false)
 	}
@@ -115,6 +124,7 @@ func linkEverything(cmd *cobra.Command, brain, home string) error {
 		return err
 	}
 	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "Claude Code keeps its memory in the brain now:")
 	for _, t := range targets {
 		if err := linkOne(t, reg, brain, home, false); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", t.dir, err)

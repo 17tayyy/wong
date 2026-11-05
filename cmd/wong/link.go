@@ -111,7 +111,7 @@ func linkGlobal(out io.Writer, brain, home string, remove bool) error {
 	if err := link.Set(settings, dir); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(out, "%s  -> %s\n", settings, dir)
+	_, err := fmt.Fprintf(out, "every other folder  -> %s  (in %s)\n", dir, settings)
 	return err
 }
 
