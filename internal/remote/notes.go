@@ -139,7 +139,7 @@ func (b *Brain) guard(checks Checks, n *note.Note, target string, before *note.N
 			same = append(same, fmt.Sprintf("%s (%q: %s)", o.Path, o.Name, o.Description))
 		}
 		if len(same) > 0 {
-			return refuse(ErrSimilar, "This looks like the same subject as %s. Update that note instead, or mark this one as a different subject.", strings.Join(same, "; "))
+			return refuse(ErrSimilar, "This looks like the same subject as %s. Update that note instead, or set distinct if this one is a different subject.", strings.Join(same, "; "))
 		}
 	}
 	return nil

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -25,7 +26,7 @@ func newRootCmd() *cobra.Command {
 		Version:      version(),
 		SilenceUsage: true,
 	}
-	brain := root.PersistentFlags().String("brain", filepath.Join(home, ".wong"), "brain directory")
+	brain := root.PersistentFlags().String("brain", cmp.Or(os.Getenv("WONG_BRAIN"), filepath.Join(home, ".wong")), "brain directory (or WONG_BRAIN)")
 	root.AddCommand(newSetupCmd(home, brain), newImportCmd(home, brain), newCheckCmd(brain), newLinkCmd(home, brain), newNoteCmd(home, brain),
 		newTagsCmd(brain), newObsidianCmd(brain), newTidyCmd(brain), newSkillsCmd(home, brain), newServeCmd(), newRemoteCmd(), newOpenCmd(brain), newTasksCmd(brain), newMCPCmd(brain), newHookCmd(home, brain), newKeysCmd(brain), newMoveCmd(brain),
 		newPrecheckCmd(home, brain), newGitHubAppCmd())

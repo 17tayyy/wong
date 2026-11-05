@@ -116,24 +116,29 @@ for a move or a finished plan; leave scratch files and mark the note verified.
 
 The note declares `pending: release` or `pending: main`, and a `v*` tag or a push to the
 main branch came after it was written. Tell the user what the note leaves for that
-deploy, quoting the finding (it says who pushed it), and do only the part they agree to.
-Then rewrite what was done as history with its tag or commit and date ("ran the migration
-after v1.5.4, on 2026-10-28") and drop `pending` once nothing is left; if something is
-still waiting for a later deploy, keep `pending` and say what.
+deploy, quoting the finding (a task from a webhook says who pushed it), and do only the
+part they agree to. Then rewrite what was done as history with its tag or commit and
+date ("ran the migration after v1.5.4, on 2026-10-28") and drop `pending` once nothing is
+left; if something is still waiting for a later deploy, keep `pending` and say what.
 
 ## Tidying the brain
 
 `wong tidy` lists preferences that repeat each other (often the same rule saved once per
-project), notes that seem to live in the wrong folder, and notes that grow by dated
+project), notes that seem to live in the wrong folder, notes that grow by dated
 additions ("**Measured 2026-10-10:** …", "Status 2026-10-14: …") instead of being
-rewritten with what holds now. It is a list of candidates, not a verdict: lexical matching misses duplicates written in another language and flags
+rewritten with what holds now, and notes the archive could take: the ones another note
+supersedes, and the ones nobody wrote or verified in 120 days. It is a list of candidates,
+not a verdict: lexical matching misses duplicates written in another language and flags
 notes that merely mention another project. Show the user what you would do with each and
 act only on what they approve:
 
 - **Duplicates:** write one note with everything still true from the group, usually in
-  `me/` (`wong note write --to me ...`), then `wong note remove` each of the others. Fix
+  `me/` (`wong note write --to me ... --distinct`: without `--distinct` it is refused for
+  looking like the notes it replaces), then `wong note remove` each of the others. Fix
   the links that `remove` reports.
 - **Wrong folder:** `wong note move <note> --to <project|me>`.
+- **For the archive:** offer them to the user as the archive section below says, several
+  at once if you can.
 - **Grows by additions:** rewrite the note with the current state first, then a short
   dated history of how it got there. Where two additions disagree, settle it against the
   sources (the issue, the commit, the deploy), not by keeping the newest line; drop the

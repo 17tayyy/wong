@@ -78,6 +78,10 @@ func newSetupCmd(home string, brain *string) *cobra.Command {
 			installCodex(cmd, home, *brain)
 			installCursor(cmd, home)
 			installOpenCode(cmd, home)
+			if filepath.Clean(*brain) != filepath.Join(home, ".wong") && os.Getenv("WONG_BRAIN") != *brain {
+				fmt.Fprintf(cmd.OutOrStdout(), "\nThis brain is not in ~/.wong: set WONG_BRAIN=%s in your shell's profile, so your agents'\n"+
+					"hooks and every wong command find it.\n", *brain)
+			}
 			if client == nil && !hasServer() {
 				fmt.Fprintln(cmd.OutOrStdout(), "\nThe brain lives on this machine alone. To sync it with a wong server, yours or wong cloud\n"+
 					"(https://wong-app.bytay.dev), run wong setup with the server's address.")

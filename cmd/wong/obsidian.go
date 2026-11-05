@@ -83,7 +83,7 @@ func newObsidianCmd(brainDir *string) *cobra.Command {
 			if rep.IndexLines > claudeIndexLines {
 				fmt.Fprintf(out, "the shelf's MEMORY.md will have %d lines, and Claude Code loads only the first %d: consider importing onto a project of its own\n", rep.IndexLines, claudeIndexLines)
 			}
-			if !dryRun && written > 0 {
+			if !dryRun && written > 0 && hasServer() {
 				fmt.Fprintln(out, "run wong push to send them to the server, or let the session-end hook do it")
 			}
 			return nil

@@ -351,7 +351,8 @@ connected machine to open it signed in. You can:
 - browse the brain as a graph, coloured by project, kind or tag;
 - see what is outdated, and on **This week** what changed, what was fixed and what is
   left;
-- let machines in, and connect GitHub and Linear;
+- let machines in, revoke the ones you lost or apps such as claude.ai, and connect
+  GitHub and Linear;
 - see which machines hold the brain's key, and approve the ones that wait for it.
 
 <picture>
