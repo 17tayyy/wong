@@ -29,8 +29,9 @@ var staticFS embed.FS
 // Options are what the dashboard shares with the rest of the server: the webhook secrets it sets for a single brain,
 // which the dashboard shows but cannot change, the machines waiting to be let in, the one-time sign-in links, the
 // OAuth server that MCP clients ask to be approved, where people without a token sign in, such as wong cloud's
-// sign-in with GitHub, the sign-up service that describes each account's plan on the Account page, and the page
-// that says whether the service works.
+// sign-in with GitHub, the sign-up service that describes each account's plan on the Account page, the page that
+// says whether the service works, and, for a dashboard that runs from a sealed brain's copy elsewhere, the server
+// whose account, status page and machines its rail shows.
 type Options struct {
 	Webhooks  remote.Webhooks
 	Devices   *remote.Devices
@@ -40,6 +41,7 @@ type Options struct {
 	Account   *AccountService
 	Keyring   Keyring
 	StatusURL string
+	Upstream  *Upstream
 }
 
 // Dashboard serves the brains a server keeps; each request sees the one its session opens, as store.
@@ -104,6 +106,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("POST /changes/{seq}/restore", d.session((*Dashboard).restore))
 	mux.HandleFunc("GET /skills", d.session((*Dashboard).skills))
 	mux.HandleFunc("GET /webhooks", d.session((*Dashboard).webhooks))
+	mux.HandleFunc("GET /browser/rail", d.railJSON)
 	mux.HandleFunc("GET /encryption", d.session((*Dashboard).encryption))
 	d.browserRoutes(mux)
 	mux.HandleFunc("POST /encryption", d.session((*Dashboard).changeEncryption))

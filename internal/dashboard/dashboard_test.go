@@ -1043,3 +1043,52 @@ func TestConnectLinear(t *testing.T) {
 		t.Errorf("after disconnecting, the machines are told %+v", h)
 	}
 }
+
+func TestADashboardElsewhereShowsTheServersRail(t *testing.T) {
+	server, err := remote.Open(filepath.Join(t.TempDir(), "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.Close() })
+	token, _ := server.NewToken("desktop")
+	h, err := Handler(server, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), StatusURL: "https://status.example.com/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL + "/browser/rail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("an anonymous rail: %d", resp.StatusCode)
+	}
+
+	copyStore, err := remote.Open(filepath.Join(t.TempDir(), "copy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { copyStore.Close() })
+	local, _ := copyStore.NewToken("you")
+	ch, err := Handler(copyStore, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{Devices: remote.NewDevices(), SignIns: remote.NewSignIns(), Upstream: &Upstream{URL: srv.URL, Token: token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copySrv := httptest.NewServer(ch)
+	t.Cleanup(copySrv.Close)
+	jar, _ := cookiejar.New(nil)
+	b := browser{t, copySrv, &http.Client{Jar: jar}}
+	if code, _ := b.post("/login", url.Values{"token": {local}}, copySrv.URL); code != http.StatusOK {
+		t.Fatalf("sign in: %d", code)
+	}
+	_, body := b.get("/")
+	if !strings.Contains(body, "<span>desktop</span>") || strings.Contains(body, "<span>you</span>") {
+		t.Errorf("the copy's rail lists its own machines, not the server's:\n%s", body)
+	}
+	if !strings.Contains(body, `href="https://status.example.com/"`) {
+		t.Errorf("the copy's rail lacks the server's status page:\n%s", body)
+	}
+}

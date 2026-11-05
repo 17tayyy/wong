@@ -50,6 +50,6 @@
   {{else}}
   <div class="callout gray">{{icon "info"}}<p>Your agents read and write the notes on your machines as always. On a machine that has the key, <code>wong open</code> shows them in its own dashboard.</p></div>
   {{end}}
-  <div class="formbar"><a class="btn{{if .Browser}} ghost{{end}}" href="/encryption">{{icon "key-round"}}Encryption</a><a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{if .AccountNav}}<a class="btn ghost" href="/account">{{icon "circle-user"}}Account</a>{{end}}</div>
+  <div class="formbar"><a class="btn{{if .Browser}} ghost{{end}}" href="/encryption">{{icon "key-round"}}Encryption</a><a class="btn ghost" href="/device">{{icon "plus"}}Connect a machine</a>{{with .AccountURL}}<a class="btn ghost" href="{{.}}">{{icon "circle-user"}}Account</a>{{end}}</div>
 </div>
 {{end}}

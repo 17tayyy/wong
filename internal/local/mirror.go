@@ -95,7 +95,8 @@ func Start(brain string, cloud *remote.Client, version string, log *slog.Logger)
 		return nil, err
 	}
 	signins := remote.NewSignIns()
-	web, err := dashboard.Handler(store, log, dashboard.Options{Devices: remote.NewDevices(), SignIns: signins, Keyring: remote.Holder{C: cloud}})
+	web, err := dashboard.Handler(store, log, dashboard.Options{Devices: remote.NewDevices(), SignIns: signins, Keyring: remote.Holder{C: cloud},
+		Upstream: &dashboard.Upstream{URL: cloud.URL, Token: cloud.Token}})
 	if err != nil {
 		store.Close()
 		return nil, err

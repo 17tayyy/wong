@@ -32,7 +32,7 @@ type page struct {
 	Error       string
 	Notice      string
 	SignInURL   string
-	AccountNav  bool
+	AccountURL  string
 	AccountPage *accountInfo
 	Encryption  *encryptionInfo
 	Standing    remote.Standing
@@ -166,7 +166,10 @@ var snacks = map[string]string{
 }
 
 func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, error) {
-	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, Origin: origin(r), AccountNav: d.opts.Account != nil && d.account != "", StatusURL: d.opts.StatusURL}
+	p := page{Nav: nav, Machine: machine, Shelves: b.Shelves, Server: r.Host, Origin: origin(r), StatusURL: d.opts.StatusURL}
+	if d.opts.Account != nil && d.account != "" {
+		p.AccountURL = "/account"
+	}
 	if d.account != "" {
 		p.Server = d.account
 	}
@@ -205,13 +208,24 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 		q.Del("op")
 		p.Snack.Close = (&url.URL{Path: r.URL.Path, RawQuery: q.Encode()}).String()
 	}
-	tokens, err := d.store.Tokens()
-	if err != nil {
-		return p, err
-	}
-	for _, t := range tokens {
-		seen, _ := time.Parse(time.RFC3339, t.LastUsed)
-		p.Masthead.Machines = append(p.Masthead.Machines, machineSeen{t.Name, seen})
+	if up := d.opts.Upstream; up != nil {
+		rail := up.get(r.Context())
+		if rail.Account {
+			p.AccountURL = strings.TrimSuffix(up.URL, "/") + "/account"
+		}
+		p.StatusURL = rail.StatusURL
+		for _, m := range rail.Machines {
+			p.Masthead.Machines = append(p.Masthead.Machines, machineSeen{m.Name, m.Seen})
+		}
+	} else {
+		tokens, err := d.store.Tokens()
+		if err != nil {
+			return p, err
+		}
+		for _, t := range tokens {
+			seen, _ := time.Parse(time.RFC3339, t.LastUsed)
+			p.Masthead.Machines = append(p.Masthead.Machines, machineSeen{t.Name, seen})
+		}
 	}
 	for _, s := range b.Shelves {
 		p.Masthead.Notes += len(s.Entries)
