@@ -466,7 +466,7 @@ func TestSessionStartOnASealedBrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	env.Remote = desktop
-	if got := SessionStart(context.Background(), Input{Cwd: repo}, env); !strings.Contains(got, "laptop wait for the key") {
+	if got := SessionStart(context.Background(), Input{Cwd: repo}, env); !strings.Contains(got, "laptop waits for the key") {
 		t.Errorf("the desktop's session does not say the laptop waits: %q", got)
 	}
 }

@@ -108,9 +108,13 @@ func newMoveCmd(brain *string) *cobra.Command {
 			if err := syncBrain(cmd, next, *brain, true, true); err != nil {
 				return err
 			}
+			approve := ".\n"
+			if next.Key != nil {
+				approve = ", then approve it from here with wong keys approve.\n"
+			}
 			fmt.Fprintf(out, "\nMoved %d versions of the brain to %s, and this machine with it.\n"+
 				"The old server keeps its copy until you delete it there; it tells your other machines where the brain went.\n"+
-				"On each of them, run wong setup %s, then approve it from here with wong keys approve.\n", moved, to, to)
+				"On each of them, run wong setup %s%s", moved, to, to, approve)
 			return nil
 		},
 	}

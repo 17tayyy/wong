@@ -83,8 +83,12 @@ func sessionStart(ctx context.Context, in Input, env Env) string {
 		}
 		if st, err := env.Remote.Standing(ctx); err == nil {
 			if st.Moved != "" {
+				approve := ""
+				if env.Remote.Key != nil {
+					approve = ", and to approve this machine from one that has the key"
+				}
 				fmt.Fprintf(&b, "wong: the user moved their brain to %s, but this machine still syncs with the old server. Tell the user to run "+
-					"`wong setup %s` here, and to approve this machine from one that has the key.\n\n", st.Moved, st.Moved)
+					"`wong setup %s` here%s.\n\n", st.Moved, st.Moved, approve)
 			}
 			if st.Notice != "" {
 				fmt.Fprintf(&b, "wong: about the user's wong account: %s Tell the user at the start of your answer.\n\n", strings.TrimSpace(st.Notice+" "+st.Link))
@@ -95,8 +99,12 @@ func sessionStart(ctx context.Context, in Input, env Env) string {
 			for i, p := range keys.Pending {
 				names[i] = p.Device
 			}
-			fmt.Fprintf(&b, "wong: %s wait for the key of the end-to-end encrypted brain. Tell the user to run `wong keys approve` "+
-				"in a terminal here and to approve each one only if it shows the same code.\n\n", strings.Join(names, ", "))
+			verb := "wait"
+			if len(names) == 1 {
+				verb = "waits"
+			}
+			fmt.Fprintf(&b, "wong: %s %s for the key of the end-to-end encrypted brain. Tell the user to run `wong keys approve` "+
+				"in a terminal here and to approve each one only if it shows the same code.\n\n", strings.Join(names, ", "), verb)
 		}
 	}
 	dir, isRepo := toplevel(in.Cwd)
@@ -107,9 +115,13 @@ func sessionStart(ctx context.Context, in Input, env Env) string {
 			if !env.Agent.hasMemory() {
 				outside = "none of the user's project notes apply here yet"
 			}
+			known := ""
+			if p := projects(env.Brain); len(p) > 0 {
+				known = " (in the brain: " + strings.Join(p, ", ") + ")"
+			}
 			fmt.Fprintf(&b, "wong: this repo is not linked to the brain, so %s. "+
-				"If it belongs to a project (in the brain: %s), link it with `wong link --project <id>` and restart the session.\n",
-				outside, strings.Join(projects(env.Brain), ", "))
+				"If it belongs to a project%s, link it with `wong link --project <id>` and restart the session.\n",
+				outside, known)
 		}
 		if !env.Agent.hasMemory() {
 			globalIndex(&b, env)

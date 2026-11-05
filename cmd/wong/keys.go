@@ -320,18 +320,17 @@ func sealBrain(cmd *cobra.Command, client *remote.Client, brain string, agreed b
 // waitForKey asks for the brain's key for this machine and waits until another approves it or the recovery code is
 // typed instead.
 func waitForKey(cmd *cobra.Command, client *remote.Client) error {
-	in, ok := cmd.InOrStdin().(*os.File)
-	if !ok || !isTerminal(in) {
-		return remote.ErrLocked
-	}
 	ctx := cmd.Context()
 	if err := client.RequestKey(ctx, client.Device); err != nil {
 		return err
 	}
-	name, _ := os.Hostname()
+	in, ok := cmd.InOrStdin().(*os.File)
+	if !ok || !isTerminal(in) {
+		return remote.ErrLocked
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nThe brain is end-to-end encrypted. To give this machine its key, run on a machine that has it\n\n"+
-		"    wong keys approve %s\n\nand check it shows this code:\n\n    %s\n\nOr type the recovery code here.\n",
-		name, seal.Fingerprint(client.Device.Public()))
+		"    wong keys approve\n\nand approve the machine that shows this code:\n\n    %s\n\nOr type the recovery code here.\n",
+		seal.Fingerprint(client.Device.Public()))
 	typed := typedLine(in)
 	poll := time.NewTicker(3 * time.Second)
 	defer poll.Stop()
