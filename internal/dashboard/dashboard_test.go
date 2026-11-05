@@ -937,6 +937,9 @@ func TestConnectGitHub(t *testing.T) {
 		}
 		return to.Query().Get("state")
 	}
+	if _, body := b.get("/webhooks/github/callback?error=access_denied&error_description=The+user+has+denied+your+application+access.&state=" + state("7")); !strings.Contains(body, "did not let wong in, so nothing changed: The user has denied your application access.") {
+		t.Errorf("a refusal on GitHub:\n%s", body)
+	}
 	s := state("7")
 	if code, body := b.get("/webhooks/github/callback?code=other&state=" + s); code != http.StatusOK || !strings.Contains(body, "cannot reach that installation") {
 		t.Errorf("an installation the user cannot reach: %d\n%s", code, body)

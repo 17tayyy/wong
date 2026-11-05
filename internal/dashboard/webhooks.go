@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -147,6 +148,7 @@ func (d *Dashboard) githubSetup(w http.ResponseWriter, r *http.Request, _ string
 		return
 	}
 	installation, _ := strconv.ParseInt(r.URL.Query().Get("installation_id"), 10, 64)
+	d.log.Info("github connect", "account", d.account, "installation", installation, "action", r.URL.Query().Get("setup_action"))
 	state := d.connects.start(connect{account: d.account, installation: installation})
 	http.Redirect(w, r, app.AuthorizeURL(origin(r)+"/webhooks/github/callback", state), http.StatusSeeOther)
 }
@@ -161,7 +163,13 @@ func (d *Dashboard) githubCallback(w http.ResponseWriter, r *http.Request, machi
 	}
 	cn, ok := d.connects.take(r.URL.Query().Get("state"), d.account)
 	if !ok {
+		d.log.Warn("github connect", "account", d.account, "problem", "a state this server did not give, or gave over 15 minutes ago")
 		d.webhooksPage(w, r, machine, "That link to GitHub expired or was used already. Connect GitHub again.")
+		return
+	}
+	if problem := r.URL.Query().Get("error"); problem != "" {
+		d.log.Warn("github connect", "account", d.account, "error", problem, "description", r.URL.Query().Get("error_description"))
+		d.webhooksPage(w, r, machine, "GitHub did not let wong in, so nothing changed: "+cmp.Or(r.URL.Query().Get("error_description"), problem)+".")
 		return
 	}
 	installs, err := app.UserInstallations(r.Context(), r.URL.Query().Get("code"), origin(r)+"/webhooks/github/callback")
@@ -182,6 +190,7 @@ func (d *Dashboard) githubCallback(w http.ResponseWriter, r *http.Request, machi
 		}
 		linked++
 	}
+	d.log.Info("github connect", "account", d.account, "installation", cn.installation, "reachable", len(installs), "linked", linked)
 	if linked == 0 {
 		d.webhooksPage(w, r, machine, "Your GitHub user cannot reach that installation of the app, so wong linked nothing. Install the app on an account or organization you manage.")
 		return
@@ -220,6 +229,7 @@ func (d *Dashboard) linearCallback(w http.ResponseWriter, r *http.Request, machi
 		d.webhooksPage(w, r, machine, "That link to Linear expired or was used already. Connect Linear again.")
 		return
 	case r.URL.Query().Get("error") != "":
+		d.log.Warn("linear connect", "account", d.account, "error", r.URL.Query().Get("error"), "description", r.URL.Query().Get("error_description"))
 		d.webhooksPage(w, r, machine, "Linear did not let wong in, so nothing changed.")
 		return
 	}
