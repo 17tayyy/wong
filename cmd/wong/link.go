@@ -34,7 +34,9 @@ func newLinkCmd(home string, brain *string) *cobra.Command {
 			"folder, with --project) to the project's folder in the brain, so sessions there\n" +
 			"read and write the brain instead of ~/.claude/projects. The project comes from\n" +
 			"--project or from the repos that wong import registered. --global sets me/ as the\n" +
-			"memory of every folder that is not linked. Restart open sessions to pick it up.",
+			"memory of every folder that is not linked. Restart open sessions to pick it up.\n\n" +
+			"It also adds each linked repo's GitHub origin to the brain's remotes.yaml, so that\n" +
+			"webhooks from GitHub reach the right project.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -74,6 +76,9 @@ func newLinkCmd(home string, brain *string) *cobra.Command {
 			}
 			if !remove {
 				if err := reg.Save(path); err != nil {
+					return err
+				}
+				if err := repos.WriteRemotes(*brain, reg); err != nil {
 					return err
 				}
 			}

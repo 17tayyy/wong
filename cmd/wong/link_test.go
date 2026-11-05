@@ -40,6 +40,18 @@ func TestLink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brain, "projects", "acme")); err != nil {
 		t.Errorf("project folder: %v", err)
 	}
+	if data, _ := os.ReadFile(filepath.Join(brain, "remotes.yaml")); len(data) != 0 {
+		t.Errorf("a repo with no GitHub origin reached remotes.yaml: %s", data)
+	}
+	if out, err := exec.Command("git", "-C", repo, "remote", "add", "origin", "git@github.com:acme/acme-api.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote: %v\n%s", err, out)
+	}
+	if out, err := run(t, "--brain", brain, "link", "--project", "acme"); err != nil {
+		t.Fatalf("link: %v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(filepath.Join(brain, "remotes.yaml")); !strings.Contains(string(data), "acme/acme-api:") || !strings.Contains(string(data), "project: acme") {
+		t.Errorf("remotes.yaml = %s", data)
+	}
 
 	if out, err := run(t, "--brain", brain, "link", "--all", "--remove"); err != nil || !strings.Contains(out, repo+"  unlinked") {
 		t.Fatalf("unlink all: %v\n%s", err, out)
