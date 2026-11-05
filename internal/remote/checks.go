@@ -97,11 +97,12 @@ func waitingRun(sha string) checkRun {
 	}}
 }
 
-// checkResult is the check that says what comparing a pull request with the notes found.
+// checkResult is the check that says what comparing a pull request with the notes found, skipped for a repository
+// that is in no project, which an app installed on every repository of an account reaches too.
 func checkResult(a CheckAnswer) checkRun {
 	run := checkRun{Status: "completed", Conclusion: "success"}
 	if !a.Linked {
-		run.Conclusion = "neutral"
+		run.Conclusion = "skipped"
 		run.Output = &checkOutput{
 			Title: "This repository is in no project of the brain",
 			Summary: "wong compares a pull request with the notes of the project its repository belongs to. Link the " +

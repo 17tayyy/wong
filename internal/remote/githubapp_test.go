@@ -337,3 +337,9 @@ func TestReportCountsEachNoteOnce(t *testing.T) {
 		t.Errorf("report = %+v", got)
 	}
 }
+
+func TestARepositoryInNoProjectHasItsCheckSkipped(t *testing.T) {
+	if run := checkResult(CheckAnswer{}); run.Status != "completed" || run.Conclusion != "skipped" || !strings.Contains(run.Output.Title, "no project") {
+		t.Errorf("check = %+v", run)
+	}
+}
