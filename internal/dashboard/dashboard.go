@@ -56,6 +56,7 @@ type Dashboard struct {
 	account  string
 	log      *slog.Logger
 	pages    map[string]*template.Template
+	revoking string
 }
 
 // Handler serves the dashboard; every page but the sign-in asks for a session, opened with a token or a sign-in link
@@ -132,6 +133,7 @@ func Handler(brains remote.Brains, log *slog.Logger, opts Options) (http.Handler
 	mux.HandleFunc("GET /export", d.session((*Dashboard).export))
 	mux.HandleFunc("GET /device", d.session((*Dashboard).device))
 	mux.HandleFunc("POST /device", d.session((*Dashboard).approveDevice))
+	mux.HandleFunc("POST /device/revoke", d.session((*Dashboard).revokeMachine))
 	return securityHeaders(mux), nil
 }
 
@@ -217,7 +219,7 @@ func (d *Dashboard) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	if token == "" || s.Store == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.signInURL(next), Error: "That token is not one this server knows. Create one with wong serve --new-token <name>."})
+		d.render(w, "login", page{Title: "Sign in", Next: next, SignInURL: d.signInURL(next), Error: d.unknownToken()})
 		return
 	}
 	d.openSession(w, r, s.Store, s.Machine, next)
@@ -413,3 +415,12 @@ func who(machine string) string {
 }
 
 const dashboardPrefix = "dashboard:"
+
+// unknownToken is what the sign-in page says of a token the server does not know, with how to make one only on a
+// server whose people sign in with tokens.
+func (d *Dashboard) unknownToken() string {
+	if d.opts.SignInURL != "" {
+		return "That token is not one this server knows."
+	}
+	return "That token is not one this server knows. Create one with wong serve --new-token <name>."
+}

@@ -34,6 +34,9 @@ func (d *Dashboard) suspendedPage(w http.ResponseWriter, r *http.Request, machin
 		return
 	}
 	p.Title, p.Error = "Suspended", why.Error()
+	if link := p.Standing.Link; link != "" {
+		p.Error = strings.TrimSpace(strings.TrimSuffix(p.Error, link))
+	}
 	w.WriteHeader(http.StatusForbidden)
 	d.render(w, "suspended", p)
 }

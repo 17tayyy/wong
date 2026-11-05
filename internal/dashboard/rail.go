@@ -15,11 +15,14 @@ const railEvery = time.Minute
 
 // Rail is what a server says of itself to a dashboard that runs elsewhere, in a browser or on a machine, from a sealed
 // brain's decrypted copy, which holds the notes but not the server's accounts and tokens: whether it has an Account
-// page, the page that says whether it works, and the machines with a token.
+// page, the page that says whether it works, the machines with a token, the account's standing and how much room
+// the brain takes.
 type Rail struct {
-	Account   bool          `json:"account"`
-	StatusURL string        `json:"status_url,omitempty"`
-	Machines  []RailMachine `json:"machines"`
+	Account   bool            `json:"account"`
+	StatusURL string          `json:"status_url,omitempty"`
+	Machines  []RailMachine   `json:"machines"`
+	Standing  remote.Standing `json:"standing"`
+	Storage   string          `json:"storage,omitempty"`
 }
 
 // RailMachine is a machine with a token of the brain, and when it last used it.
@@ -94,6 +97,18 @@ func (d *Dashboard) railJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rail := Rail{Account: d.opts.Account != nil && s.Account != "", StatusURL: d.opts.StatusURL, Machines: []RailMachine{}}
+	if rail.Standing, err = s.Store.Standing(); err != nil {
+		d.fail(w, err)
+		return
+	}
+	if rail.Standing.Moved, err = s.Store.MovedTo(); err != nil {
+		d.fail(w, err)
+		return
+	}
+	if rail.Storage, err = storage(s.Store); err != nil {
+		d.fail(w, err)
+		return
+	}
 	for _, t := range tokens {
 		seen, _ := time.Parse(time.RFC3339, t.LastUsed)
 		rail.Machines = append(rail.Machines, RailMachine{t.Name, seen})

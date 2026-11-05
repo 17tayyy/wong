@@ -35,6 +35,32 @@ func (d *Dashboard) device(w http.ResponseWriter, r *http.Request, machine strin
 	d.devicePage(w, r, machine, nil, "", "")
 }
 
+// revokeMachine cuts a machine, a browser or an app such as claude.ai off the brain, once asked to confirm.
+func (d *Dashboard) revokeMachine(w http.ResponseWriter, r *http.Request, machine string) {
+	name := r.FormValue("name")
+	if r.FormValue("confirm") != "1" {
+		d.revoking = name
+		d.devicePage(w, r, machine, nil, "", "")
+		return
+	}
+	ok, err := d.store.RevokeToken(name)
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		d.devicePage(w, r, machine, nil, "", name+" has no token of this brain any more.")
+		return
+	}
+	d.log.Info("token revoked", "name", name, "by", machine)
+	if name == machine {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	d.devicePage(w, r, machine, nil, "Revoked. "+name+" no longer syncs with this brain or opens it.", "")
+}
+
 // approveDevice finds the machine waiting with a code, then lets it into this brain or turns it away.
 func (d *Dashboard) approveDevice(w http.ResponseWriter, r *http.Request, machine string) {
 	code := r.FormValue("code")
@@ -94,7 +120,16 @@ func (d *Dashboard) devicePage(w http.ResponseWriter, r *http.Request, machine s
 		d.fail(w, err)
 		return
 	}
-	p.Title, p.Device, p.Notice, p.Error = "Connect a machine", dev, notice, problem
+	p.Title, p.Device, p.Notice, p.Error, p.Revoking = "Connect a machine", dev, notice, problem, d.revoking
+	tokens, err := d.store.Tokens()
+	if err != nil {
+		d.fail(w, err)
+		return
+	}
+	for _, t := range tokens {
+		seen, _ := time.Parse(time.RFC3339, t.LastUsed)
+		p.Tokens = append(p.Tokens, machineSeen{t.Name, seen})
+	}
 	if dev != nil {
 		if p.Taken, err = d.tokenNamed(dev.Name); err != nil {
 			d.fail(w, err)

@@ -486,6 +486,24 @@ func TestConnectAMachine(t *testing.T) {
 	if code, body := b.post("/device", url.Values{"code": {"BCDF-GHJK"}, "do": {"find"}}, srv.URL); code != http.StatusNotFound || !strings.Contains(body, "No machine is waiting") {
 		t.Errorf("an unknown code: %d", code)
 	}
+	if _, err := store.NewToken("old-laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := b.get("/device"); !strings.Contains(body, "old-laptop") || !strings.Contains(body, "this session") {
+		t.Errorf("the page does not list who has access:\n%s", body)
+	}
+	if _, body := b.post("/device/revoke", url.Values{"name": {"old-laptop"}}, srv.URL); !strings.Contains(body, "Revoke <b>old-laptop</b>?") {
+		t.Errorf("revoking asks nothing first:\n%s", body)
+	}
+	if tokens, _ := store.Tokens(); len(tokens) != 2 {
+		t.Fatalf("a token went before it was confirmed: %+v", tokens)
+	}
+	if _, body := b.post("/device/revoke", url.Values{"name": {"old-laptop"}, "confirm": {"1"}}, srv.URL); !strings.Contains(body, "Revoked. old-laptop") {
+		t.Errorf("revoke:\n%s", body)
+	}
+	if tokens, _ := store.Tokens(); len(tokens) != 1 || tokens[0].Name != "browser" {
+		t.Errorf("tokens after revoking = %+v", tokens)
+	}
 	secret, code, err := devices.Ask("browser", "192.0.2.7")
 	if err != nil {
 		t.Fatal(err)

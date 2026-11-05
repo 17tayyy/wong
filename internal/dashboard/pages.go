@@ -36,6 +36,9 @@ type page struct {
 	DeviceURL   string
 	WebhooksURL string
 	NoChecks    bool
+	Tokens      []machineSeen
+	Revoking    string
+	Sealed      bool
 	AccountPage *accountInfo
 	Encryption  *encryptionInfo
 	Standing    remote.Standing
@@ -185,12 +188,11 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 		return p, err
 	}
 	p.Standing = st
-	if limit := d.store.SizeLimit(); limit > 0 {
-		size, err := d.store.Size()
-		if err != nil {
-			return p, err
-		}
-		p.Storage = "Using " + remote.Bytes(size) + " of " + remote.Bytes(limit)
+	if p.Storage, err = storage(d.store); err != nil {
+		return p, err
+	}
+	if p.Sealed, err = d.store.Sealed(); err != nil {
+		return p, err
 	}
 	q := r.URL.Query()
 	if format, ok := snacks[q.Get("done")]; ok {
@@ -215,6 +217,7 @@ func (d *Dashboard) base(r *http.Request, nav, machine string, b *brain) (page, 
 	if up := d.opts.Upstream; up != nil {
 		rail, server := up.get(r.Context()), strings.TrimSuffix(up.URL, "/")
 		p.Origin, p.DeviceURL, p.WebhooksURL = server, server+"/device", server+"/webhooks"
+		p.Standing, p.Storage = rail.Standing, rail.Storage
 		if rail.Account {
 			p.AccountURL = server + "/account"
 		}
@@ -1113,4 +1116,17 @@ func (d *Dashboard) create(w http.ResponseWriter, r *http.Request, machine strin
 func brainFolder(target string) (string, string, error) {
 	folder, scope, err := brainfs.Folder(target)
 	return strings.ReplaceAll(folder, "\\", "/"), scope, err
+}
+
+// storage says how much room a brain takes of what it may, when the server bounds it.
+func storage(store *remote.Store) (string, error) {
+	limit := store.SizeLimit()
+	if limit <= 0 {
+		return "", nil
+	}
+	size, err := store.Size()
+	if err != nil {
+		return "", err
+	}
+	return "Using " + remote.Bytes(size) + " of " + remote.Bytes(limit), nil
 }

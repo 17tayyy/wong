@@ -2,7 +2,7 @@
 {{define "main"}}
 <div class="page">
   <h1>This account is suspended</h1>
-  <div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.Error}}</p></div>
+  <div class="callout red" role="alert">{{icon "triangle-alert"}}<p>{{.Error}}{{with .Standing.Link}} <a href="{{.}}">{{.}}</a>{{end}}</p></div>
   <p class="part-note">Your machines keep their copy of the brain in <code>~/.wong</code>, as Markdown files.</p>
 </div>
 {{end}}

@@ -397,13 +397,17 @@ func (s *Store) Tokens() ([]TokenInfo, error) {
 	return tokens, rows.Err()
 }
 
-// RevokeToken deletes a token, and reports whether there was one with that name.
+// RevokeToken deletes a token, the brain's key wrapped for it and the dashboard sessions it opened, and reports
+// whether there was one with that name.
 func (s *Store) RevokeToken(name string) (bool, error) {
 	res, err := s.db.Exec(`DELETE FROM tokens WHERE name = ?`, name)
 	if err != nil {
 		return false, err
 	}
 	if err := s.ForgetKey(name); err != nil {
+		return false, err
+	}
+	if _, err := s.db.Exec(`DELETE FROM sessions WHERE via = ?`, name); err != nil {
 		return false, err
 	}
 	n, err := res.RowsAffected()

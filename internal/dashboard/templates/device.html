@@ -34,6 +34,27 @@
     <input id="code" name="code" required autofocus autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="BCDF-GHJK">
     <button class="btn primary" name="do" value="find">Continue</button>
   </form>
+  {{if .Tokens}}
+  <section class="part" id="machines" aria-labelledby="machines-h">
+    <h2 id="machines-h">With access to this brain</h2>
+    <p class="desc">Every machine, browser and app, such as claude.ai, that holds a token of this brain. Revoke the ones you lost or no longer use: they stop syncing at once{{if .Sealed}} and get no more of the brain's key{{end}}, though they keep the notes they already have.</p>
+    {{with .Revoking}}
+    <form class="callout red" method="post" action="/device/revoke" role="alert">{{icon "triangle-alert"}}<div>
+      <p>Revoke <b>{{.}}</b>?{{if eq . $.Machine}} You are signed in with it, so this signs you out.{{end}} A machine you revoke needs <code>wong setup</code> and a new approval to come back.</p>
+      <input type="hidden" name="name" value="{{.}}"><input type="hidden" name="confirm" value="1">
+      <div class="formbar"><button class="btn primary">Revoke</button><a class="btn ghost" href="/device#machines">Keep it</a></div>
+    </div></form>
+    {{end}}
+    <div class="props">
+      {{range .Tokens}}
+      <div class="prop"><span class="k">{{icon "laptop"}}{{.Name}}</span><span class="v">
+        <span class="muted">{{if .Seen.IsZero}}never used{{else}}last used {{ago .Seen}}{{end}}{{if eq .Name $.Machine}} · this session{{end}}</span>
+        <form method="post" action="/device/revoke" class="unlink"><input type="hidden" name="name" value="{{.Name}}"><button class="btn ghost">Revoke</button></form>
+      </span></div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
   {{end}}
 </div>
 {{end}}
