@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -48,12 +49,13 @@ func newServeCmd() *cobra.Command {
 			"--accounts, each account sets its own, at /hooks/<account>/github and\n" +
 			"/hooks/<account>/linear. --hook-secret github|linear saves one read from stdin.\n" +
 			"Only /hooks/ needs to be reachable from the internet.\n\n" +
-			"With --github-app and the file wong github-app writes, people connect GitHub from the\n" +
-			"Webhooks page in one go: they install the app on their account or organization and pick\n" +
-			"the repos, and the app's webhooks, at POST /hooks/github-app, reach every brain linked to\n" +
-			"that installation. wong also checks each pull request: how many notes cite files it\n" +
-			"removes or moves, and how many pitfalls are noted on files it changes, never which. On a\n" +
-			"sealed brain the check waits for one of its machines, which can read the notes.\n\n" +
+			"With --github-app or WONG_GITHUB_APP set to the file wong github-app writes, people\n" +
+			"connect GitHub from the Webhooks page in one go: they install the app on their account\n" +
+			"or organization and pick the repos, and the app's webhooks, at POST /hooks/github-app,\n" +
+			"reach every brain linked to that installation. wong also checks each pull request: how\n" +
+			"many notes cite files it removes or moves, and how many pitfalls are noted on files it\n" +
+			"changes, never which. On a sealed brain the check waits for one of its machines, which\n" +
+			"can read the notes.\n\n" +
 			"With WONG_LINEAR_CLIENT_ID and WONG_LINEAR_WEBHOOK_SECRET, from a Linear OAuth\n" +
 			"application whose callback URL is the server's /webhooks/linear/callback and whose\n" +
 			"webhook, on issues, is its /hooks/linear-app, people connect Linear from the Webhooks\n" +
@@ -154,7 +156,7 @@ func newServeCmd() *cobra.Command {
 			if folder, ok := brains.(*remote.Folder); ok {
 				folder.SetLinks(links)
 			}
-			if githubApp != "" {
+			if githubApp = cmp.Or(githubApp, os.Getenv("WONG_GITHUB_APP")); githubApp != "" {
 				if hooks.App, err = remote.LoadGitHubApp(githubApp); err != nil {
 					return err
 				}
@@ -260,7 +262,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&maxFile, "max-file", "", "the largest file a brain may hold, such as 2M")
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, "API requests a minute each brain may make, in bursts of as many")
 	cmd.Flags().StringVar(&signInURL, "sign-in-url", "", "send people without a token to this sign-in page, such as a sign-up service's")
-	cmd.Flags().StringVar(&githubApp, "github-app", "", "take pushes and pull requests from the GitHub App whose keys wong github-app wrote to this file")
+	cmd.Flags().StringVar(&githubApp, "github-app", "", "take pushes and pull requests from the GitHub App whose keys wong github-app wrote to this file (or WONG_GITHUB_APP)")
 	cmd.Flags().StringVar(&statusURL, "status-url", "", "link the dashboard to this page that says whether the service works")
 	cmd.Flags().StringVar(&accountService, "account-service", "", "with --accounts: ask this sign-up service's URL, with {account} in it, what each account's plan is, for the Account page")
 	cmd.Flags().StringVar(&admin.newToken, "new-token", "", "create a token for this machine name, print it and exit")
