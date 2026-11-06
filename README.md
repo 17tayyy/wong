@@ -102,6 +102,12 @@ and pushes when it ends.
 `wong setup <url>` skips the question. So does the script, given the address after
 `sh -s --`, as in `curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787`.
 
+Your coding agent can do all of this: ask it to set wong up following
+[wong.bytay.dev/llms.txt](https://wong.bytay.dev/llms.txt). Without a terminal, `wong setup`
+prints the page and the code for you to approve the machine and waits, and keeps the
+recovery code in `~/wong-recovery-code.txt`, which only you can read, instead of printing
+it, so the agent never sees it.
+
 <details>
 <summary>Windows, and how memory is grouped into projects</summary>
 
