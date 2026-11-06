@@ -24,6 +24,7 @@ import (
 	"github.com/17tayyy/wong/internal/linear"
 	"github.com/17tayyy/wong/internal/mcp"
 	"github.com/17tayyy/wong/internal/remote"
+	"github.com/17tayyy/wong/internal/ui"
 )
 
 func newServeCmd() *cobra.Command {
@@ -397,25 +398,35 @@ func newRemoteCmd() *cobra.Command {
 		Short: "Connect this machine to a wong server, approved in a browser or with a token on stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := setRemote(cmd, args[0])
+			u := ui.New(cmd.OutOrStdout(), cmd.InOrStdin())
+			defer u.Close()
+			_, err := setRemote(cmd, u, args[0])
 			return err
 		},
 	}
 }
 
 // setRemote saves the server at url with this machine's token: read from stdin, or on a terminal, pasted or got by approving the machine in a browser.
-func setRemote(cmd *cobra.Command, url string) (*remote.Client, error) {
+func setRemote(cmd *cobra.Command, u *ui.UI, url string) (*remote.Client, error) {
 	if err := remote.CheckURL(url); err != nil {
 		return nil, err
 	}
 	var token string
-	if f, ok := cmd.InOrStdin().(*os.File); ok && isTerminal(f) {
-		name, _ := os.Hostname()
+	name, _ := os.Hostname()
+	probe := remote.NewClient(url, "", 30*time.Second)
+	f, ok := cmd.InOrStdin().(*os.File)
+	switch {
+	case u.CanAsk():
 		var err error
-		if token, err = approvedToken(cmd.Context(), remote.NewClient(url, "", 30*time.Second), name, cmd.ErrOrStderr(), typedLine(f)); err != nil {
+		if token, err = approveInFrame(cmd.Context(), u, probe, name); err != nil {
 			return nil, err
 		}
-	} else {
+	case ok && isTerminal(f):
+		var err error
+		if token, err = approvedToken(cmd.Context(), probe, name, cmd.ErrOrStderr(), typedLine(f)); err != nil {
+			return nil, err
+		}
+	default:
 		line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, err
@@ -431,8 +442,86 @@ func setRemote(cmd *cobra.Command, url string) (*remote.Client, error) {
 	if err := remote.SaveConfig(path, remote.Config{URL: url, Token: token}); err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "server set in %s\n", path)
+	if !u.Fancy() {
+		fmt.Fprintf(cmd.OutOrStdout(), "server set in %s\n", path)
+	}
 	return remote.NewClient(url, token, 30*time.Second), nil
+}
+
+// approveInFrame shows the code to enter in the dashboard and waits for the approval, opening the page on Enter
+// and taking a pasted token on t; with a server that cannot do that, it asks for the token alone.
+func approveInFrame(ctx context.Context, u *ui.UI, client *remote.Client, name string) (string, error) {
+	tokenPrompt := ui.Text{Question: "Token for this machine", Hint: "Made on the server with wong serve --new-token <name>", Secret: true, Check: filled}
+	sp := u.Spin("Asking "+client.URL+" to let this machine in", "")
+	start, err := client.AskDevice(ctx, name)
+	sp.Stop("")
+	if errors.Is(err, remote.ErrNoDevices) {
+		return u.Ask(tokenPrompt)
+	}
+	if err != nil {
+		return "", err
+	}
+	u.Note("Connect this machine",
+		"Open "+u.Accent(start.URL)+" in a browser signed in to wong, and enter this code:", "", "    "+u.Bold(u.Accent(start.Code)))
+	const hint = "enter: open it in your browser · t: paste a token instead"
+	sp = u.Spin("Waiting for the approval", hint)
+	poll := time.NewTicker(time.Duration(start.Interval) * time.Second)
+	defer poll.Stop()
+	expired := time.After(time.Duration(start.ExpiresIn) * time.Second)
+	for {
+		select {
+		case k, ok := <-u.Keys():
+			switch {
+			case !ok:
+				sp.Stop("")
+				return "", ui.ErrCancelled
+			case k.Name == "enter":
+				if openBrowser(start.URL) == nil {
+					sp.Hint("opened in your browser · t: paste a token instead")
+				}
+			case k.Rune == 't':
+				sp.Stop("")
+				tokenPrompt.Hint = "Made on the server with wong serve --new-token <name> · Esc: back to waiting"
+				token, err := u.Ask(tokenPrompt)
+				if !errors.Is(err, ui.ErrCancelled) {
+					return token, err
+				}
+				sp = u.Spin("Waiting for the approval", hint)
+			}
+		case <-poll.C:
+			status, got, err := client.PollDevice(ctx, start.Secret)
+			switch {
+			case err != nil:
+				sp.Stop("")
+				return "", err
+			case status == remote.DeviceApproved && got.Account != "":
+				sp.Stop("Approved: this machine is " + u.Bold(got.Name) + " in the account " + u.Bold(got.Account))
+				return got.Token, nil
+			case status == remote.DeviceApproved:
+				sp.Stop("Approved: this machine is " + u.Bold(got.Name))
+				return got.Token, nil
+			case status == remote.DeviceDenied:
+				sp.Stop("")
+				return "", errors.New("the machine was turned away in the dashboard")
+			case status == remote.DeviceGone:
+				sp.Stop("")
+				return "", errors.New("the code expired: run the command again for a new one")
+			}
+		case <-expired:
+			sp.Stop("")
+			return "", errors.New("the code expired: run the command again for a new one")
+		case <-ctx.Done():
+			sp.Stop("")
+			return "", ctx.Err()
+		}
+	}
+}
+
+func filled(s string) error {
+	if s == "" {
+		return errors.New("type or paste it, or press Esc")
+	}
+	return nil
 }
 
 // approvedToken asks the server to let this machine in once someone signed in to the dashboard enters the code it shows,

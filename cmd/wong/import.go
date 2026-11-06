@@ -39,14 +39,7 @@ func newImportCmd(home string, brain *string) *cobra.Command {
 
 // runImport imports the memory folders under from into brain, printing the plan and what happened.
 func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryRun bool) error {
-	overrides, err := parseMaps(maps)
-	if err != nil {
-		return err
-	}
-	sources, unmatched, err := importer.Plan(from, home, overrides)
-	if err != nil {
-		return err
-	}
+	sources, unmatched, res, err := importMemory(home, brain, from, maps, dryRun)
 	for _, folder := range unmatched {
 		fmt.Fprintf(cmd.ErrOrStderr(), "skipped %s: no folder on this machine matches it any more; to bring its notes in, run wong import --map '%s=ID' with a project id, or me\n", folder, folder)
 	}
@@ -62,7 +55,6 @@ func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryR
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	res, err := importer.Apply(brain, sources, dryRun)
 	for _, warning := range res.Warnings {
 		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
 	}
@@ -72,9 +64,6 @@ func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryR
 	verb := "dry run: would import"
 	if !dryRun {
 		verb = "imported"
-		if err := recordRepos(sources); err != nil {
-			return err
-		}
 	}
 	fmt.Fprintf(out, "%s %s into %s: %d updated, %d unchanged, %d changed in the brain and kept\n",
 		verb, notes(res.Written), brain, res.Updated, res.Unchanged, res.Kept)
@@ -82,6 +71,23 @@ func runImport(cmd *cobra.Command, home, brain, from string, maps []string, dryR
 		fmt.Fprintf(cmd.ErrOrStderr(), "conflict: %s changed both in the brain and in Claude Code; left as it is\n", rel)
 	}
 	return nil
+}
+
+// importMemory plans where each memory folder goes and brings its notes into the brain, unless dryRun.
+func importMemory(home, brain, from string, maps []string, dryRun bool) ([]importer.Source, []string, importer.Result, error) {
+	overrides, err := parseMaps(maps)
+	if err != nil {
+		return nil, nil, importer.Result{}, err
+	}
+	sources, unmatched, err := importer.Plan(from, home, overrides)
+	if err != nil {
+		return nil, nil, importer.Result{}, err
+	}
+	res, err := importer.Apply(brain, sources, dryRun)
+	if err == nil && !dryRun {
+		err = recordRepos(sources)
+	}
+	return sources, unmatched, res, err
 }
 
 func recordRepos(sources []importer.Source) error {
