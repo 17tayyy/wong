@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -89,7 +90,9 @@ func setup(cmd *cobra.Command, u *ui.UI, home, brain string, maps, args []string
 	var client *remote.Client
 	if url != "" {
 		var err error
-		if client, err = setRemote(cmd, u, url); err != nil {
+		if client = connectedTo(cmd, url); client != nil {
+			u.Step("This machine is connected to " + url + " already")
+		} else if client, err = setRemote(cmd, u, url); err != nil {
 			return err
 		}
 		if client.Device, err = remote.LoadDevice(); err != nil {
@@ -132,6 +135,24 @@ func setup(cmd *cobra.Command, u *ui.UI, home, brain string, maps, args []string
 			"(" + cloudURL + "), run wong setup with the server's address.")
 	}
 	return nil
+}
+
+// connectedTo gives the client of the server at url when this machine has a token for it that still works, so that
+// running setup again, as after another machine gives this one the brain's key, needs no second approval.
+func connectedTo(cmd *cobra.Command, url string) *remote.Client {
+	path, err := remote.ConfigPath()
+	if err != nil {
+		return nil
+	}
+	cfg, ok, err := remote.LoadConfig(path)
+	if err != nil || !ok || cfg.Token == "" || strings.TrimRight(cfg.URL, "/") != strings.TrimRight(url, "/") {
+		return nil
+	}
+	client := remote.NewClient(cfg.URL, cfg.Token, 30*time.Second)
+	if _, err := client.Keys(cmd.Context()); err != nil {
+		return nil
+	}
+	return client
 }
 
 // askServer asks whether to sync the brain with wong cloud, with a server whose address it asks next, or with none.

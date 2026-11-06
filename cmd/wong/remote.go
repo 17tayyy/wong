@@ -421,18 +421,26 @@ func setRemote(cmd *cobra.Command, u *ui.UI, url string) (*remote.Client, error)
 		if token, err = approveInFrame(cmd.Context(), u, probe, name); err != nil {
 			return nil, err
 		}
-	case ok && isTerminal(f):
+	case ok && isTerminal(f) && !ui.UnderAgent():
 		var err error
 		if token, err = approvedToken(cmd.Context(), probe, name, cmd.ErrOrStderr(), typedLine(f)); err != nil {
 			return nil, err
 		}
 	default:
-		line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
+		typed := typedLine(cmd.InOrStdin())
+		select {
+		case line, ok := <-typed:
+			token = line
+			if !ok {
+				typed = nil
+			}
+		case <-time.After(2 * time.Second):
 		}
-		if token = strings.TrimSpace(line); token == "" {
-			return nil, errors.New("pass the token on stdin, e.g. wong remote <url> < token.txt")
+		if token == "" {
+			var err error
+			if token, err = approvedToken(cmd.Context(), probe, name, cmd.OutOrStdout(), typed); err != nil {
+				return nil, err
+			}
 		}
 	}
 	path, err := remote.ConfigPath()
@@ -526,8 +534,12 @@ func filled(s string) error {
 
 // approvedToken asks the server to let this machine in once someone signed in to the dashboard enters the code it shows,
 // and waits for that or for a token typed instead; with a server that cannot do that, it waits for the token alone.
+// With no input to type into, typed is nil and it only waits, as when an agent runs it.
 func approvedToken(ctx context.Context, client *remote.Client, name string, out io.Writer, typed <-chan string) (string, error) {
 	start, err := client.AskDevice(ctx, name)
+	if errors.Is(err, remote.ErrNoDevices) && typed == nil {
+		return "", errors.New("this server lets machines in with a token only: pass one on stdin, e.g. wong setup <url> < token.txt")
+	}
 	if errors.Is(err, remote.ErrNoDevices) {
 		fmt.Fprint(out, "Token for this machine (on the server: wong serve --new-token <name>): ")
 		select {
@@ -543,8 +555,13 @@ func approvedToken(ctx context.Context, client *remote.Client, name string, out 
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintf(out, "To connect this machine, open %s in a browser signed in to wong and enter\n\n    %s\n\n"+
-		"or paste a token made on the server with wong serve --new-token <name>.\n", start.URL, start.Code)
+	if typed == nil {
+		fmt.Fprintf(out, "To connect this machine, open %s in a browser signed in to wong and enter\n\n    %s\n\n"+
+			"wong waits here until the machine is approved, for up to %d minutes.\n", start.URL, start.Code, max(start.ExpiresIn/60, 1))
+	} else {
+		fmt.Fprintf(out, "To connect this machine, open %s in a browser signed in to wong and enter\n\n    %s\n\n"+
+			"or paste a token made on the server with wong serve --new-token <name>.\n", start.URL, start.Code)
+	}
 	poll := time.NewTicker(time.Duration(start.Interval) * time.Second)
 	defer poll.Stop()
 	expired := time.After(time.Duration(start.ExpiresIn) * time.Second)

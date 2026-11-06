@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -163,14 +164,25 @@ func TestSetupSealsABrainAndOtherMachinesGetItsKey(t *testing.T) {
 		return token
 	}
 
-	machine(t, root, "desktop", "deploy.md")
+	desktop, _ := machine(t, root, "desktop", "deploy.md")
 	out, err := runWithInput(t, token("desktop")+"\n", "setup", srv.URL)
 	if err != nil {
 		t.Fatalf("desktop setup: %v\n%s", err, out)
 	}
-	code := regexp.MustCompile(`([A-Z2-7]{4}-){7}[A-Z2-7]{4}`).FindString(out)
-	if code == "" || !strings.Contains(out, "end-to-end encrypted") || !strings.Contains(out, "pushed: 2") {
-		t.Fatalf("the desktop's setup should seal the brain, show the recovery code and push:\n%s", out)
+	file := filepath.Join(desktop, "wong-recovery-code.txt")
+	kept, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("the recovery code is not in %s: %v\n%s", file, err, out)
+	}
+	code := regexp.MustCompile(`([A-Z2-7]{4}-){7}[A-Z2-7]{4}`).FindString(string(kept))
+	if code == "" || !strings.Contains(out, "end-to-end encrypted") || !strings.Contains(out, file) || !strings.Contains(out, "pushed: 2") {
+		t.Fatalf("the desktop's setup should seal the brain, say where the recovery code is and push:\n%s", out)
+	}
+	if strings.Contains(out, code) {
+		t.Errorf("the recovery code shows in output an agent or a log keeps:\n%s", out)
+	}
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("the recovery code's file can be read by others: %v", info.Mode())
 	}
 	if sealed, err := store.Sealed(); err != nil || !sealed {
 		t.Fatalf("the brain is not sealed: %v", err)
@@ -380,5 +392,77 @@ func TestSetupAddsWongToOpenCode(t *testing.T) {
 		if data, _ := os.ReadFile(filepath.Join(dir, path)); len(data) == 0 || !bytes.Equal(data, want) {
 			t.Errorf("%s = %q", path, data)
 		}
+	}
+}
+
+func TestSetupWithoutATerminalWaitsForTheApproval(t *testing.T) {
+	fakeClaude(t)
+	root := t.TempDir()
+	store, err := remote.Open(filepath.Join(root, "wong.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	store.SetLimits(remote.Limits{Sealed: true})
+	devices := remote.NewDevices()
+	devices.PollEvery = time.Second
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mux := http.NewServeMux()
+	mux.Handle("/api/", remote.Handler(store, log, remote.Webhooks{}))
+	mux.Handle("/api/device", remote.DeviceHandler(devices, log))
+	mux.Handle("/api/device/", remote.DeviceHandler(devices, log))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	home, _ := machine(t, root, "desktop", "deploy.md")
+
+	cmd := newRootCmd()
+	var out lockedBuffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"setup", srv.URL})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	var code string
+	for range 300 {
+		if _, after, ok := strings.Cut(out.String(), "enter\n\n    "); ok {
+			code, _, _ = strings.Cut(after, "\n")
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if code == "" || !strings.Contains(out.String(), "wong waits here until the machine is approved") || strings.Contains(out.String(), "paste a token") {
+		t.Fatalf("setup without a terminal should show the code and wait:\n%s", out.String())
+	}
+	if !devices.Approve(code, store, "desktop") {
+		t.Fatalf("no machine waits with %q", code)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("setup: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{"approved: this machine is desktop", "pushed: 2", "wong-recovery-code.txt"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("setup lacks %q:\n%s", want, out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "wong-recovery-code.txt")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestRecoveryCodesDoNotOverwriteEachOther(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	first, err := keepRecoveryCode("AAAA-BBBB", "https://one.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := keepRecoveryCode("CCCC-DDDD", "https://two.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := os.ReadFile(first)
+	b, _ := os.ReadFile(second)
+	if first == second || !strings.Contains(string(a), "AAAA-BBBB") || !strings.Contains(string(b), "CCCC-DDDD") || !strings.Contains(string(b), "two.example.com") {
+		t.Errorf("%s and %s:\n%s\n%s", first, second, a, b)
 	}
 }

@@ -47,7 +47,7 @@ type UI struct {
 func New(out io.Writer, in io.Reader) *UI {
 	u := &UI{out: out}
 	f, ok := out.(*os.File)
-	if !ok || !term.IsTerminal(int(f.Fd())) || os.Getenv("TERM") == "dumb" || !colorOn(f) {
+	if !ok || !term.IsTerminal(int(f.Fd())) || os.Getenv("TERM") == "dumb" || UnderAgent() || !colorOn(f) {
 		return u
 	}
 	u.tty = f
@@ -66,6 +66,12 @@ func New(out io.Writer, in io.Reader) *UI {
 	}(u.sigs)
 	fmt.Fprint(f, "\033[?25l")
 	return u
+}
+
+// UnderAgent reports whether a coding agent runs this command, as the variables Claude Code and others set say: then
+// nothing is asked and nothing is drawn, even in a terminal the agent opened.
+func UnderAgent() bool {
+	return os.Getenv("AI_AGENT") != "" || os.Getenv("CLAUDECODE") != ""
 }
 
 // Fancy reports whether the frame is drawn.

@@ -97,5 +97,5 @@ if [ -n "${WONG_TOKEN:-}" ]; then
 elif (: </dev/tty) 2>/dev/null; then
 	"$dir/wong" setup ${server:+"$server"} </dev/tty
 else
-	"$dir/wong" setup ${server:+"$server"}
+	"$dir/wong" setup ${server:+"$server"} </dev/null
 fi

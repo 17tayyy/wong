@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,6 +351,16 @@ func sealBrain(cmd *cobra.Command, u *ui.UI, client *remote.Client, brain string
 		}})
 		return err
 	}
+	if f, ok := out.(*os.File); !ok || !isTerminal(f) || ui.UnderAgent() {
+		path, err := keepRecoveryCode(code, client.URL)
+		if err != nil {
+			return fmt.Errorf("the brain is sealed, but its recovery code could not be kept in a file (%w); make a new one from a machine that holds the key", err)
+		}
+		fmt.Fprintf(out, "\nThe brain is now end-to-end encrypted: the server cannot read it. Its recovery code is in\n%s, which only you can read. Write it down, keep it away from this machine and\n"+
+			"delete the file: without the code and without your machines, nobody can open the brain.\n"+
+			"An agent that runs this must not read that file: the person whose brain it is opens it.\n", path)
+		return nil
+	}
 	fmt.Fprintf(out, "\nThe brain is now end-to-end encrypted: the server cannot read it. Its recovery code:\n\n    %s\n\n"+
 		"Write it down and keep it away from this machine. It opens the brain on a new machine if you lose\n"+
 		"every one you have; without it and without them, nobody can open the brain, not even the server.\n", code)
@@ -369,6 +380,35 @@ func sealBrain(cmd *cobra.Command, u *ui.UI, client *remote.Client, brain string
 	}
 }
 
+// keepRecoveryCode writes the recovery code to a file in the home folder that only its owner reads, so that it never
+// shows in output an agent or a log keeps.
+func keepRecoveryCode(code, server string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	text := fmt.Sprintf("The recovery code of your wong brain on %s:\n\n    %s\n\n"+
+		"Write it down, keep it away from this machine, and delete this file. It opens the brain on a new\n"+
+		"machine if you lose every one you have; without it and without them, nobody can open the brain,\n"+
+		"not even the server.\n", server, code)
+	for i := 1; ; i++ {
+		name := "wong-recovery-code.txt"
+		if i > 1 {
+			name = fmt.Sprintf("wong-recovery-code-%d.txt", i)
+		}
+		path := filepath.Join(home, name)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) && i < 100 {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.WriteString(text)
+		return path, errors.Join(err, f.Close())
+	}
+}
+
 // waitForKey asks for the brain's key for this machine and waits until another approves it or the recovery code is
 // typed instead.
 func waitForKey(cmd *cobra.Command, u *ui.UI, client *remote.Client) error {
@@ -380,7 +420,7 @@ func waitForKey(cmd *cobra.Command, u *ui.UI, client *remote.Client) error {
 		return waitForKeyInFrame(ctx, u, client)
 	}
 	in, ok := cmd.InOrStdin().(*os.File)
-	if !ok || !isTerminal(in) {
+	if !ok || !isTerminal(in) || ui.UnderAgent() {
 		return remote.ErrLocked
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nThe brain is end-to-end encrypted. To give this machine its key, run on a machine that has it\n\n"+
