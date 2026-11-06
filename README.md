@@ -76,14 +76,15 @@ Without Docker, download the binary for your platform from the
 
 ### 2. Connect each machine
 
-On macOS or Linux, one line, with your server's address, or wong cloud's,
-`https://wong-app.bytay.dev`, if you were invited to it and run no server:
+On macOS or Linux, one line:
 
 ```sh
-curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787
+curl -fsSL https://wong.bytay.dev/install.sh | sh
 ```
 
-The script installs wong and runs `wong setup`, which shows a code. Enter it on the
+The script installs wong and runs `wong setup`, which asks where to sync the brain: with
+wong cloud, `https://wong-app.bytay.dev`, if you were invited to it, with your own server,
+whose address it asks next, or nowhere. With a server, it shows a code. Enter it on the
 dashboard's **Connect a machine** page, and the machine gets a token of its own. Then
 `wong setup`:
 
@@ -98,12 +99,15 @@ On the first machine your memory goes up to the empty server. On the others the 
 comes down, and their own memory is added. From then on, wong pulls when a session starts
 and pushes when it ends.
 
+`wong setup <url>` skips the question. So does the script, given the address after
+`sh -s --`, as in `curl -fsSL https://wong.bytay.dev/install.sh | sh -s -- http://wong.lan:8787`.
+
 <details>
 <summary>Windows, and how memory is grouped into projects</summary>
 
 On Windows, download `wong-windows-amd64.exe` from the
 [releases](https://github.com/17tayyy/wong/releases), save it as `wong.exe` in a folder
-on your PATH, and run `wong setup http://wong.lan:8787`.
+on your PATH, and run `wong setup`.
 
 Repos that share a parent folder become one project (`~/acme/*` becomes `acme`). A
 folder of unrelated repos such as `~/code` is the exception: each repo there is its own
@@ -116,15 +120,10 @@ that.
 
 ### Without a server
 
-To try wong on a single machine, run the script without a url:
-
-```sh
-curl -fsSL https://wong.bytay.dev/install.sh | sh
-```
-
-`wong setup <url>` connects that machine to a server later. Without one, the brain, the
-checks, the notes on each file and `wong precheck` all work; the dashboard (`wong open`),
-`wong tasks`, `wong keys` and `wong mcp` need a server.
+To try wong on a single machine, answer that the brain stays on it when `wong setup` asks.
+Running `wong setup` again connects that machine to a server later. Without one, the
+brain, the checks, the notes on each file and `wong precheck` all work; the dashboard
+(`wong open`), `wong tasks`, `wong keys` and `wong mcp` need a server.
 
 ## Why
 
