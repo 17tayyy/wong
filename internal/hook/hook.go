@@ -108,7 +108,7 @@ func sessionStart(ctx context.Context, in Input, env Env) string {
 		}
 	}
 	dir, isRepo := toplevel(in.Cwd)
-	project := env.Repos.ProjectOf(dir)
+	project := env.Repos.ProjectOf(repos.InMain(dir))
 	if project == "" {
 		if isRepo {
 			outside := "Claude Code keeps its memory outside it"
@@ -330,7 +330,7 @@ func commit(in Input, env Env) error {
 		return err
 	}
 	dir, _ := toplevel(in.Cwd)
-	label := env.Repos.ProjectOf(dir)
+	label := env.Repos.ProjectOf(repos.InMain(dir))
 	if label == "" {
 		label = filepath.Base(dir)
 	}

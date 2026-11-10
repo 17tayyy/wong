@@ -16,6 +16,7 @@ import (
 	"github.com/17tayyy/wong/internal/check"
 	"github.com/17tayyy/wong/internal/link"
 	"github.com/17tayyy/wong/internal/note"
+	"github.com/17tayyy/wong/internal/repos"
 )
 
 const (
@@ -53,6 +54,7 @@ func Citing(file string, env Env) (project, rel string, hits []Hit) {
 	if !filepath.IsAbs(file) || strings.HasPrefix(file, filepath.Clean(env.Brain)+string(filepath.Separator)) {
 		return "", "", nil
 	}
+	file = repos.InMain(file)
 	project, dir := env.Repos.Containing(file)
 	if project == "" {
 		return "", "", nil

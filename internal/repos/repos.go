@@ -56,6 +56,53 @@ func (r Registry) ProjectOf(dir string) string {
 	return ""
 }
 
+// InMain returns path as it lies in the main checkout when it is inside a linked git worktree, and path itself otherwise.
+func InMain(path string) string {
+	path = filepath.Clean(path)
+	for dir := path; ; {
+		if info, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			main := ""
+			if !info.IsDir() {
+				main = mainCheckout(filepath.Join(dir, ".git"))
+			}
+			if main == "" {
+				return path
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return path
+			}
+			return filepath.Join(main, rel)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+		dir = parent
+	}
+}
+
+// mainCheckout reads the .git file of a linked worktree and returns the folder of its main checkout, or "" for anything else.
+func mainCheckout(gitFile string) string {
+	data, err := os.ReadFile(gitFile)
+	if err != nil {
+		return ""
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return ""
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(filepath.Dir(gitFile), gitdir)
+	}
+	main, _, ok := strings.Cut(filepath.ToSlash(filepath.Clean(gitdir)), "/.git/worktrees/")
+	if !ok {
+		return ""
+	}
+	return filepath.FromSlash(main)
+}
+
 // Containing returns the project and folder of the registered folder that holds path, the deepest when several do.
 func (r Registry) Containing(path string) (project, dir string) {
 	for id, dirs := range r {
