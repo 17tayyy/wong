@@ -103,3 +103,35 @@ func TestLinkGlobal(t *testing.T) {
 		t.Error("--global --all was accepted")
 	}
 }
+
+func TestLinkInAWorktreeLinksItsMainCheckout(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+		t.Setenv(k, v)
+	}
+	repo := filepath.Join(home, "acme", "acme-api")
+	worktree := filepath.Join(repo, ".claude", "worktrees", "feature")
+	for _, args := range [][]string{{"init", "-q", repo}, {"-C", repo, "commit", "-q", "--allow-empty", "-m", "init"}, {"-C", repo, "worktree", "add", "-q", worktree}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	repo, _ = filepath.EvalSymlinks(repo)
+	brain := filepath.Join(home, ".wong")
+	t.Chdir(repo)
+	if out, err := run(t, "--brain", brain, "link", "--project", "acme"); err != nil {
+		t.Fatalf("link: %v\n%s", err, out)
+	}
+
+	t.Chdir(worktree)
+	out, err := run(t, "--brain", brain, "link")
+	if err != nil || !strings.Contains(out, repo+"  -> ~/.wong/projects/acme") {
+		t.Errorf("link in a worktree of a linked repo: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, ".claude", "settings.local.json")); !os.IsNotExist(err) {
+		t.Errorf("the worktree got settings of its own: %v", err)
+	}
+}

@@ -140,7 +140,7 @@ func linkTargets(reg repos.Registry, project string, all bool) ([]linkTarget, er
 		return nil, err
 	}
 	if out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output(); err == nil {
-		dir = strings.TrimSpace(string(out))
+		dir = repos.InMain(strings.TrimSpace(string(out)))
 	}
 	if project == "" {
 		project = reg.ProjectOf(dir)
